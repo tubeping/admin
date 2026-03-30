@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(find C:tubeping-sourcingtubeping_builder -type f -name *.md)",
+      "Bash(find /c/tubeping-sourcing -maxdepth 3 -type f -name *.config.* -o -name next.config.*)",
+      "Bash(find C:tubeping-sourcingtubeping_builder -name docs -o -name SPEC* -o -name PRD* -o -name *layer* -o -name *sprint* -o -name *onboard*)",
+      "Bash(grep -ri \"layer\\\\|s-0\\\\|s0\\\\|onboard\\\\|sprint\\\\|prd\\\\|spec\\\\|requirement\" /c/tubeping-sourcing --include=*.md --include=*.txt --include=*.py --include=*.tsx --include=*.ts --include=*.yaml --include=*.yml --include=*.json)",
+      "Bash(npx next:*)",
+      "Bash(npm run:*)"
+    ]
+  }
+}
