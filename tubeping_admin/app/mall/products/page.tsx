@@ -125,6 +125,9 @@ export default function ProductsPage() {
   const [importing, setImporting] = useState(false);
   const [importResult, setImportResult] = useState("");
 
+  // 대량 동기화
+  const [bulkSyncing, setBulkSyncing] = useState(false);
+
   const assignDropdownRef = useRef<HTMLDivElement>(null);
 
   /* ── 카페24 가져오기 ── */
@@ -319,6 +322,28 @@ export default function ProductsPage() {
   };
 
   /* ── 상품 삭제 ── */
+  /* ── 대량 동기화 ── */
+  const bulkSync = async () => {
+    if (!confirm(`${selectedProducts.size}개 상품을 매핑된 카페24 스토어에 동기화합니다.\n계속할까요?`)) return;
+    setBulkSyncing(true);
+    try {
+      const res = await fetch("/admin/api/products/sync-bulk", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ product_ids: [...selectedProducts] }),
+      });
+      if (!res.ok) throw new Error("동기화 실패");
+      const data = await res.json();
+      alert(data.message);
+      setSelectedProducts(new Set());
+      fetchProducts(true);
+    } catch (e) {
+      alert(e instanceof Error ? e.message : "동기화 실패");
+    } finally {
+      setBulkSyncing(false);
+    }
+  };
+
   const deleteProduct = async (id: string) => {
     if (!confirm("이 상품을 삭제하시겠습니까?")) return;
     try {
@@ -480,6 +505,14 @@ export default function ProductsPage() {
                 <span className="text-xs text-gray-500 font-medium">{selectedProducts.size}개 선택</span>
                 <button onClick={() => bulkUpdateSelling("T")} className="px-3 py-2 text-xs font-medium text-green-700 bg-green-50 border border-green-200 rounded-lg hover:bg-green-100 cursor-pointer">판매 전환</button>
                 <button onClick={() => bulkUpdateSelling("F")} className="px-3 py-2 text-xs font-medium text-gray-600 bg-gray-50 border border-gray-200 rounded-lg hover:bg-gray-100 cursor-pointer">미판매 전환</button>
+                <button onClick={bulkSync} disabled={bulkSyncing} className="px-3 py-2 text-xs font-medium text-blue-700 bg-blue-50 border border-blue-200 rounded-lg hover:bg-blue-100 disabled:opacity-50 cursor-pointer flex items-center gap-1">
+                  {bulkSyncing ? (
+                    <svg className="w-3 h-3 animate-spin" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>
+                  ) : (
+                    <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
+                  )}
+                  {bulkSyncing ? "동기화 중..." : "카페24 동기화"}
+                </button>
                 <div className="relative" ref={assignDropdownRef}>
                   <button onClick={() => setShowAssignDropdown(!showAssignDropdown)} className="px-4 py-2 bg-[#111111] text-white text-xs font-medium rounded-lg hover:bg-gray-800 cursor-pointer">스토어 매핑</button>
                   {showAssignDropdown && (
@@ -892,6 +925,7 @@ function EditProductModal({
     memo: product.memo || "",
   });
   const [saving, setSaving] = useState(false);
+  const [syncing, setSyncing] = useState(false);
   const [error, setError] = useState("");
   const [saveMsg, setSaveMsg] = useState("");
 
@@ -923,6 +957,40 @@ function EditProductModal({
     }
   };
 
+  const handleSync = async () => {
+    setSyncing(true);
+    setError("");
+    setSaveMsg("");
+    try {
+      // 먼저 저장
+      const saveRes = await fetch(`/admin/api/products/${product.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ...form,
+          price: Number(form.price) || 0,
+          supply_price: Number(form.supply_price) || 0,
+          retail_price: Number(form.retail_price) || 0,
+        }),
+      });
+      if (!saveRes.ok) throw new Error("저장 실패");
+
+      // 동기화
+      const syncRes = await fetch(`/admin/api/products/${product.id}/sync`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+      });
+      if (!syncRes.ok) throw new Error("동기화 실패");
+      const data = await syncRes.json();
+      setSaveMsg(data.message);
+      setTimeout(() => onSaved(), 1500);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "동기화 실패");
+    } finally {
+      setSyncing(false);
+    }
+  };
+
   const margin = Number(form.price) > 0
     ? (((Number(form.price) - Number(form.supply_price)) / Number(form.price)) * 100).toFixed(1)
     : "0";
@@ -946,9 +1014,19 @@ function EditProductModal({
           <div className="flex items-center gap-2">
             {saveMsg && <span className="text-xs text-green-600 font-medium">{saveMsg}</span>}
             {error && <span className="text-xs text-red-500 max-w-[200px] truncate">{error}</span>}
-            <button onClick={handleSave} disabled={saving} className="px-5 py-2 bg-[#C41E1E] text-white text-sm font-medium rounded-lg hover:bg-[#A01818] disabled:opacity-50 cursor-pointer">
+            <button onClick={handleSave} disabled={saving || syncing} className="px-5 py-2 bg-[#C41E1E] text-white text-sm font-medium rounded-lg hover:bg-[#A01818] disabled:opacity-50 cursor-pointer">
               {saving ? "저장 중..." : "저장"}
             </button>
+            {mappings.length > 0 && (
+              <button onClick={handleSync} disabled={saving || syncing} className="px-5 py-2 bg-[#111111] text-white text-sm font-medium rounded-lg hover:bg-gray-800 disabled:opacity-50 cursor-pointer flex items-center gap-1.5">
+                {syncing ? (
+                  <svg className="w-3.5 h-3.5 animate-spin" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>
+                ) : (
+                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
+                )}
+                {syncing ? "동기화 중..." : "저장 + 동기화"}
+              </button>
+            )}
           </div>
         </div>
 
