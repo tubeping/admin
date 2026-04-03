@@ -89,7 +89,8 @@ export async function POST(request: NextRequest) {
     if (!data || !data.products || data.products.length === 0) break;
 
     for (const p of data.products) {
-      const customCode = p.custom_product_code;
+      // 자체코드 우선, 없으면 카페24 상품코드 사용
+      const customCode = p.custom_product_code || p.product_code;
       if (!customCode) {
         skipped++;
         continue;
