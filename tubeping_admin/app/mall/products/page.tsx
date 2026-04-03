@@ -121,7 +121,33 @@ export default function ProductsPage() {
   // 뷰 모드
   const [viewMode, setViewMode] = useState<ViewMode>("table");
 
+  // 카페24 가져오기
+  const [importing, setImporting] = useState(false);
+  const [importResult, setImportResult] = useState("");
+
   const assignDropdownRef = useRef<HTMLDivElement>(null);
+
+  /* ── 카페24 가져오기 ── */
+  const importFromCafe24 = async () => {
+    if (!confirm("카페24 마스터몰(shinsana)에서 자체상품코드가 있는 상품을 모두 가져옵니다.\n계속할까요?")) return;
+    setImporting(true);
+    setImportResult("");
+    try {
+      const res = await fetch("/admin/api/products/import-cafe24", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+      });
+      if (!res.ok) throw new Error("가져오기 실패");
+      const data = await res.json();
+      setImportResult(data.message);
+      fetchProducts(true);
+    } catch (e) {
+      setImportResult(e instanceof Error ? e.message : "가져오기 실패");
+    } finally {
+      setImporting(false);
+    }
+  };
 
   /* ── 데이터 로드 ── */
   const fetchProducts = useCallback(async (reset = false) => {
@@ -326,6 +352,18 @@ export default function ProductsPage() {
         </div>
         <div className="flex items-center gap-3">
           <button
+            onClick={importFromCafe24}
+            disabled={importing}
+            className="px-4 py-2.5 bg-white text-gray-700 text-sm font-medium rounded-lg border border-gray-200 hover:bg-gray-50 disabled:opacity-50 cursor-pointer flex items-center gap-1.5"
+          >
+            {importing ? (
+              <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>
+            ) : (
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
+            )}
+            {importing ? "가져오는 중..." : "카페24 가져오기"}
+          </button>
+          <button
             onClick={() => setShowAddModal(true)}
             className="px-4 py-2.5 bg-[#C41E1E] text-white text-sm font-medium rounded-lg hover:bg-[#A01818] cursor-pointer flex items-center gap-1.5"
           >
@@ -339,6 +377,14 @@ export default function ProductsPage() {
           </span>
         </div>
       </div>
+
+      {/* 카페24 가져오기 결과 */}
+      {importResult && (
+        <div className="mb-4 p-4 bg-blue-50 text-blue-700 text-sm rounded-lg border border-blue-200 flex items-center justify-between">
+          <span>{importResult}</span>
+          <button onClick={() => setImportResult("")} className="text-xs text-blue-400 hover:text-blue-600 cursor-pointer">닫기</button>
+        </div>
+      )}
 
       {/* Stats */}
       <div className="grid grid-cols-5 gap-4 mb-6">
