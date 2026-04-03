@@ -1307,8 +1307,68 @@ function MappingsTab({
 
   return (
     <div className="space-y-4">
+      {/* 연동 현황 요약 표 */}
+      <div className="bg-white rounded-xl border border-gray-200 overflow-hidden mb-4">
+        <table className="w-full">
+          <thead>
+            <tr className="text-xs text-gray-500 border-b border-gray-100 bg-gray-50">
+              <th className="text-left px-5 py-3 font-medium">스토어</th>
+              <th className="text-left px-3 py-3 font-medium">카페24 ID</th>
+              <th className="text-center px-3 py-3 font-medium">상태</th>
+              <th className="text-right px-3 py-3 font-medium">매핑</th>
+              <th className="text-right px-3 py-3 font-medium">미매핑</th>
+              <th className="text-right px-3 py-3 font-medium">매핑률</th>
+              <th className="text-center px-5 py-3 font-medium">토큰</th>
+            </tr>
+          </thead>
+          <tbody>
+            {[...storeMap.entries()].map(([id, { store, mappings, unmapped }]) => {
+              const total = mappings.length + unmapped.length;
+              const rate = total > 0 ? Math.round((mappings.length / total) * 100) : 0;
+              return (
+                <tr key={id} className="border-b border-gray-50 last:border-0 hover:bg-gray-50/30 cursor-pointer" onClick={() => { setExpandedStoreId(id); setFilterStoreId(""); }}>
+                  <td className="px-5 py-3">
+                    <div className="flex items-center gap-2.5">
+                      <div className="w-8 h-8 rounded-lg bg-[#C41E1E] flex items-center justify-center">
+                        <span className="text-white font-bold text-[10px]">{store.name.slice(0, 2)}</span>
+                      </div>
+                      <span className="text-sm font-medium text-gray-900">{store.name}</span>
+                    </div>
+                  </td>
+                  <td className="px-3 py-3 text-xs text-blue-500 font-mono">{store.mall_id}</td>
+                  <td className="px-3 py-3 text-center">
+                    <span className={`text-[10px] font-medium px-2 py-0.5 rounded-full ${store.status === "active" || store.status === "connected" ? "bg-green-100 text-green-700" : "bg-gray-100 text-gray-500"}`}>
+                      {store.status === "active" || store.status === "connected" ? "활성" : store.status}
+                    </span>
+                  </td>
+                  <td className="px-3 py-3 text-sm font-bold text-green-600 text-right">{mappings.length}</td>
+                  <td className="px-3 py-3 text-sm text-right">
+                    {unmapped.length > 0 ? (
+                      <span className="font-bold text-orange-500">{unmapped.length}</span>
+                    ) : (
+                      <span className="text-gray-400">0</span>
+                    )}
+                  </td>
+                  <td className="px-3 py-3 text-right">
+                    <div className="flex items-center justify-end gap-2">
+                      <div className="w-16 h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                        <div className={`h-full rounded-full ${rate >= 80 ? "bg-green-500" : rate >= 50 ? "bg-yellow-500" : "bg-orange-500"}`} style={{ width: `${rate}%` }} />
+                      </div>
+                      <span className={`text-xs font-medium ${rate >= 80 ? "text-green-600" : rate >= 50 ? "text-yellow-600" : "text-orange-500"}`}>{rate}%</span>
+                    </div>
+                  </td>
+                  <td className="px-5 py-3 text-center">
+                    <span className={`w-2 h-2 rounded-full inline-block ${store.status === "active" || store.status === "connected" ? "bg-green-500" : "bg-gray-300"}`} />
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+
       <div className="flex items-center justify-between">
-        <p className="text-sm text-gray-500">TubePing 자체 상품 ↔ 카페24 스토어 매핑 현황</p>
+        <p className="text-sm text-gray-500">스토어 클릭 시 매핑/미매핑 상세 확인</p>
         {activeStores.length > 0 && (
           <select value={filterStoreId} onChange={(e) => setFilterStoreId(e.target.value)} className="px-3 py-2 text-sm border border-gray-200 rounded-lg cursor-pointer">
             <option value="">전체 스토어</option>
