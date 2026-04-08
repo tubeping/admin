@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServiceClient } from "@/lib/supabase";
 
-const CLIENT_ID = process.env.CAFE24_CLIENT_ID || "";
-const CLIENT_SECRET = process.env.CAFE24_CLIENT_SECRET || "";
+const CLIENT_ID = process.env.CAFE24_CLIENT_ID_V2 || process.env.CAFE24_CLIENT_ID || "";
+const CLIENT_SECRET = process.env.CAFE24_CLIENT_SECRET_V2 || process.env.CAFE24_CLIENT_SECRET || "";
 
 /**
  * GET /api/stores/oauth/callback — 카페24 OAuth 콜백

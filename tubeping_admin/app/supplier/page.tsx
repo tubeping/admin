@@ -193,17 +193,6 @@ export default function SupplierPortal() {
             <div className="w-full h-px bg-gray-200 mt-4" />
           </div>
 
-          {/* 발주번호 */}
-          <div className="mb-6">
-            <label className="text-sm text-gray-600 block mb-2">발주번호</label>
-            <input
-              value={poNumber}
-              onChange={(e) => setPoNumber(e.target.value)}
-              className="w-full border border-gray-300 rounded-lg px-4 py-3 text-sm"
-              placeholder="PO-20260403-001"
-            />
-          </div>
-
           {/* 비밀번호 */}
           <div className="mb-6">
             <p className="text-sm text-gray-600 mb-3">
@@ -235,7 +224,7 @@ export default function SupplierPortal() {
 
           <button
             onClick={handleLogin}
-            disabled={!poNumber || password.join("").length !== 4}
+            disabled={password.join("").length !== 4}
             className="w-full py-3 bg-[#1a5c3a] text-white font-semibold rounded-lg hover:bg-[#14472d] transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
           >
             로그인

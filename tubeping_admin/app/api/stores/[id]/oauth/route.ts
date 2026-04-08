@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServiceClient } from "@/lib/supabase";
 
-const CLIENT_ID = process.env.CAFE24_CLIENT_ID || "";
+const CLIENT_ID = process.env.CAFE24_CLIENT_ID_V2 || process.env.CAFE24_CLIENT_ID || "";
 
 /**
  * GET /api/stores/[id]/oauth — OAuth 인증 URL 생성
@@ -29,21 +29,14 @@ export async function GET(
   const authUrl = new URL(`https://${store.mall_id}.cafe24api.com/api/v2/oauth/authorize`);
   authUrl.searchParams.set("response_type", "code");
   authUrl.searchParams.set("client_id", CLIENT_ID);
-  authUrl.searchParams.set("state", id); // store id를 state로 전달
+  authUrl.searchParams.set("state", id);
   authUrl.searchParams.set("redirect_uri", redirectUri);
   authUrl.searchParams.set("scope", [
-    "mall.read_application",
-    "mall.write_application",
-    "mall.read_category",
-    "mall.write_category",
     "mall.read_product",
-    "mall.write_product",
-    "mall.read_collection",
-    "mall.write_collection",
-    "mall.read_supply",
-    "mall.write_supply",
     "mall.read_order",
-    "mall.write_order",
+    "mall.read_supply",
+    "mall.read_shipping",
+    "mall.write_shipping",
   ].join(","));
 
   return NextResponse.redirect(authUrl.toString());

@@ -5,8 +5,8 @@
 
 import { getServiceClient } from "./supabase";
 
-const CLIENT_ID = process.env.CAFE24_CLIENT_ID || "";
-const CLIENT_SECRET = process.env.CAFE24_CLIENT_SECRET || "";
+const CLIENT_ID = process.env.CAFE24_CLIENT_ID_V2 || process.env.CAFE24_CLIENT_ID || "";
+const CLIENT_SECRET = process.env.CAFE24_CLIENT_SECRET_V2 || process.env.CAFE24_CLIENT_SECRET || "";
 const API_VERSION = "2026-03-01";
 
 // 스토어별 토큰 메모리 캐시

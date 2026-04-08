@@ -82,6 +82,23 @@ export default function PurchaseOrdersPage() {
             공급사별 발주서 현황. 주문관리에서 발주서를 생성합니다.
           </p>
         </div>
+        {stats.sent > 0 && (
+          <button
+            onClick={async () => {
+              const res = await fetch("/admin/api/purchase-orders/remind", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({}),
+              });
+              const data = await res.json();
+              alert(`리마인더 발송: ${data.sent}건 완료\n\n${data.results?.map((r: { supplier: string; email: string; success: boolean }) => `${r.supplier}: ${r.success ? r.email : "실패"}`).join("\n") || ""}`);
+              fetchPOs();
+            }}
+            className="px-4 py-2.5 bg-orange-500 text-white text-sm font-medium rounded-lg hover:bg-orange-600 transition-colors cursor-pointer"
+          >
+            미응답 전체 리마인더 ({stats.sent}건)
+          </button>
+        )}
       </div>
 
       {/* Summary */}
@@ -164,13 +181,29 @@ export default function PurchaseOrdersPage() {
                   <td className="px-6 py-3.5 text-sm text-gray-500 text-right">
                     {po.order_date}
                   </td>
-                  <td className="px-3 py-3.5 text-center">
-                    {(po.status === "draft" || po.status === "sent") && (
+                  <td className="px-3 py-3.5 text-center space-x-2">
+                    {po.status === "draft" && (
                       <button
                         onClick={() => handleSendEmail(po)}
                         className="text-xs text-[#C41E1E] hover:underline cursor-pointer"
                       >
-                        {po.status === "draft" ? "메일 발송" : "재발송"}
+                        메일 발송
+                      </button>
+                    )}
+                    {(po.status === "sent" || po.status === "viewed") && (
+                      <button
+                        onClick={async () => {
+                          const res = await fetch("/admin/api/purchase-orders/remind", {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({ purchase_order_id: po.id }),
+                          });
+                          const data = await res.json();
+                          alert(data.sent > 0 ? `리마인더 발송 완료: ${po.suppliers?.email}` : "발송 대상 없음");
+                        }}
+                        className="text-xs text-orange-600 hover:underline cursor-pointer"
+                      >
+                        리마인더
                       </button>
                     )}
                   </td>

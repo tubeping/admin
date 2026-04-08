@@ -3,40 +3,40 @@ import { getServiceClient } from "@/lib/supabase";
 
 /**
  * POST /api/supplier-portal/login — 공급사 접속 인증
- * body: { po_number: string, password: string }
- * → 성공 시 발주서 정보 + 주문 목록 반환
+ * body: { password: string, po_number?: string }
+ * 비밀번호만으로 로그인 가능 (발주번호 선택)
  */
 export async function POST(request: NextRequest) {
   const body = await request.json();
-  const { po_number, password } = body;
+  const { password, po_number } = body;
 
-  if (!po_number || !password) {
+  if (!password) {
     return NextResponse.json(
-      { error: "발주번호와 비밀번호를 입력해주세요" },
+      { error: "비밀번호를 입력해주세요" },
       { status: 400 }
     );
   }
 
   const sb = getServiceClient();
 
-  // 발주서 조회
-  const { data: po, error } = await sb
+  // 비밀번호로 발주서 조회 (발주번호 있으면 함께 매칭)
+  let query = sb
     .from("purchase_orders")
     .select("*, suppliers:supplier_id(name, email)")
-    .eq("po_number", po_number)
-    .single();
+    .eq("access_password", password)
+    .in("status", ["draft", "sent", "viewed"]);
+
+  if (po_number) {
+    query = query.eq("po_number", po_number);
+  }
+
+  const { data: pos, error } = await query.order("created_at", { ascending: false }).limit(1);
+
+  const po = pos?.[0];
 
   if (error || !po) {
     return NextResponse.json(
-      { error: "발주서를 찾을 수 없습니다" },
-      { status: 404 }
-    );
-  }
-
-  // 비밀번호 확인
-  if (po.access_password !== password) {
-    return NextResponse.json(
-      { error: "비밀번호가 일치하지 않습니다" },
+      { error: "비밀번호가 일치하는 발주서가 없습니다" },
       { status: 401 }
     );
   }
