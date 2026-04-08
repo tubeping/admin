@@ -8,7 +8,7 @@ import { getServiceClient } from "@/lib/supabase";
  */
 export async function POST(request: NextRequest) {
   const body = await request.json();
-  const { period, include_no_tracking = true, cutoff_date } = body;
+  const { period, include_no_tracking = true, date_basis = "order_date", start_date, end_date } = body;
 
   if (!period) {
     return NextResponse.json({ error: "period 필수" }, { status: 400 });
@@ -35,12 +35,13 @@ export async function POST(request: NextRequest) {
 
   for (const store of stores) {
     // 해당 기간에 주문이 있는지 확인
+    const dateField = date_basis === "shipped_at" ? "shipped_at" : "order_date";
     const { count } = await sb
       .from("orders")
       .select("id", { count: "exact", head: true })
       .eq("store_id", store.id)
-      .gte("order_date", startDate)
-      .lte("order_date", cutoff_date || endDate);
+      .gte(dateField, start_date || startDate)
+      .lte(dateField, (end_date || endDate) + "T23:59:59");
 
     if (!count || count === 0) {
       results.push({ store_name: store.name, status: "skipped", error: "주문 없음" });
@@ -58,7 +59,9 @@ export async function POST(request: NextRequest) {
             store_id: store.id,
             period,
             include_no_tracking,
-            cutoff_date,
+            date_basis,
+            start_date,
+            end_date,
           }),
         }
       );

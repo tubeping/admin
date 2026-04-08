@@ -103,6 +103,7 @@ async function saveOrdersToDb(
     order_amount: number;
     shipping_company: string;
     tracking_number: string;
+    shipped_at: string | null;
     shipping_status: string;
   }[] = [];
 
@@ -132,6 +133,7 @@ async function saveOrdersToDb(
           (item.quantity || 1) * parseInt(item.product_price || "0", 10),
         shipping_company: item.shipping_company_name || "",
         tracking_number: item.tracking_no || "",
+        shipped_at: item.tracking_no ? (item.shipped_date || new Date().toISOString()) : null,
         shipping_status: mapCafe24Status(item.order_status || order.order_status || ""),
       });
     }

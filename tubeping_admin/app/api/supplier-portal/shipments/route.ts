@@ -54,6 +54,7 @@ export async function POST(request: NextRequest) {
         shipping_company: s.shipping_company,
         tracking_number: s.tracking_number,
         shipping_status: "shipping",
+        shipped_at: new Date().toISOString(),
         cafe24_shipping_synced: false, // 카페24 연동 대기
       })
       .eq("purchase_order_id", po.id)

@@ -169,7 +169,9 @@ export default function SettlementPage() {
   const [createStore, setCreateStore] = useState("");
   const [createPeriod, setCreatePeriod] = useState(periodOptions()[0]);
   const [includeNoTracking, setIncludeNoTracking] = useState(true);
-  const [cutoffDate, setCutoffDate] = useState("");
+  const [dateBasis, setDateBasis] = useState<"order_date" | "shipped_at">("order_date");
+  const [dateStart, setDateStart] = useState("");
+  const [dateEnd, setDateEnd] = useState("");
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [createAllResult, setCreateAllResult] = useState<{ total: number; created: number; skipped: number; errors: number; results: { store_name: string; status: string; error?: string }[] } | null>(null);
 
@@ -212,8 +214,9 @@ export default function SettlementPage() {
     const targetStore = storeId || createStore;
     if (!targetStore) return alert("판매자를 선택하세요");
     setCreating(true);
-    const payload: Record<string, unknown> = { store_id: targetStore, period: createPeriod, include_no_tracking: includeNoTracking };
-    if (cutoffDate) payload.cutoff_date = cutoffDate;
+    const payload: Record<string, unknown> = { store_id: targetStore, period: createPeriod, include_no_tracking: includeNoTracking, date_basis: dateBasis };
+    if (dateStart) payload.start_date = dateStart;
+    if (dateEnd) payload.end_date = dateEnd;
     const res = await fetch("/admin/api/settlements/calculate", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -232,8 +235,9 @@ export default function SettlementPage() {
     if (!confirm("모든 활성 판매사의 정산서를 일괄 생성합니다. 진행하시겠습니까?")) return;
     setCreating(true);
     setCreateAllResult(null);
-    const payload: Record<string, unknown> = { period: createPeriod, include_no_tracking: includeNoTracking };
-    if (cutoffDate) payload.cutoff_date = cutoffDate;
+    const payload: Record<string, unknown> = { period: createPeriod, include_no_tracking: includeNoTracking, date_basis: dateBasis };
+    if (dateStart) payload.start_date = dateStart;
+    if (dateEnd) payload.end_date = dateEnd;
     const res = await fetch("/admin/api/settlements/calculate-all", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -482,25 +486,45 @@ export default function SettlementPage() {
 
                 {/* 옵션 */}
                 <div className="bg-gray-50 rounded-lg p-4 space-y-3">
+                  {/* 정산 기준 */}
                   <div className="flex items-center gap-4">
-                    <span className="text-sm text-gray-700">송장미등록건 (주문+CS) 정산포함 여부:</span>
+                    <span className="text-sm text-gray-700 min-w-[100px]">정산 기준:</span>
                     <label className="flex items-center gap-1.5 cursor-pointer">
-                      <input type="radio" name="noTracking" checked={includeNoTracking} onChange={() => setIncludeNoTracking(true)} className="accent-[#C41E1E]" />
-                      <span className="text-sm">포함(기본값)</span>
+                      <input type="radio" name="dateBasis" checked={dateBasis === "order_date"} onChange={() => setDateBasis("order_date")} className="accent-[#C41E1E]" />
+                      <span className="text-sm">주문일 기준</span>
                     </label>
                     <label className="flex items-center gap-1.5 cursor-pointer">
-                      <input type="radio" name="noTracking" checked={!includeNoTracking} onChange={() => setIncludeNoTracking(false)} className="accent-[#C41E1E]" />
-                      <span className="text-sm">미포함</span>
+                      <input type="radio" name="dateBasis" checked={dateBasis === "shipped_at"} onChange={() => setDateBasis("shipped_at")} className="accent-[#C41E1E]" />
+                      <span className="text-sm">송장등록일 기준</span>
                     </label>
                   </div>
-                  <div className="flex items-center gap-4">
-                    <span className="text-sm text-gray-700">정산 기준일:</span>
-                    <input type="date" value={cutoffDate} onChange={(e) => setCutoffDate(e.target.value)} className="border border-gray-300 rounded-lg px-3 py-1.5 text-sm" placeholder="YYYY-MM-DD" />
-                    <span className="text-xs text-gray-400">비워두면 기간 말일까지 전체 포함</span>
-                  </div>
-                  {cutoffDate && (
-                    <p className="text-xs text-orange-600">기준일 {cutoffDate} 이전 주문만 정산에 포함됩니다.</p>
+
+                  {/* 송장미등록건 (주문일 기준일 때만) */}
+                  {dateBasis === "order_date" && (
+                    <div className="flex items-center gap-4">
+                      <span className="text-sm text-gray-700 min-w-[100px]">송장미등록건:</span>
+                      <label className="flex items-center gap-1.5 cursor-pointer">
+                        <input type="radio" name="noTracking" checked={includeNoTracking} onChange={() => setIncludeNoTracking(true)} className="accent-[#C41E1E]" />
+                        <span className="text-sm">포함(기본값)</span>
+                      </label>
+                      <label className="flex items-center gap-1.5 cursor-pointer">
+                        <input type="radio" name="noTracking" checked={!includeNoTracking} onChange={() => setIncludeNoTracking(false)} className="accent-[#C41E1E]" />
+                        <span className="text-sm">미포함</span>
+                      </label>
+                    </div>
                   )}
+                  {dateBasis === "shipped_at" && (
+                    <p className="text-xs text-blue-600 pl-[116px]">송장등록일 기준 시 송장미등록 주문은 자동으로 제외됩니다.</p>
+                  )}
+
+                  {/* 정산 기간 (시작일 ~ 종료일) */}
+                  <div className="flex items-center gap-3">
+                    <span className="text-sm text-gray-700 min-w-[100px]">정산 기간:</span>
+                    <input type="date" value={dateStart} onChange={(e) => setDateStart(e.target.value)} className="border border-gray-300 rounded-lg px-3 py-1.5 text-sm" />
+                    <span className="text-gray-400">~</span>
+                    <input type="date" value={dateEnd} onChange={(e) => setDateEnd(e.target.value)} className="border border-gray-300 rounded-lg px-3 py-1.5 text-sm" />
+                    <span className="text-xs text-gray-400">비워두면 선택한 월의 1일~말일</span>
+                  </div>
                 </div>
 
                 {/* 버튼 */}

@@ -7,12 +7,14 @@ import { getServiceClient } from "@/lib/supabase";
  * body: {
  *   store_id, period: "2026-03",
  *   include_no_tracking?: boolean,   // 송장미등록건 포함 여부 (기본: true)
- *   cutoff_date?: string,            // 정산 기준일 (기본: 기간 말일). 이 날짜 이전 주문만 포함
+ *   date_basis?: "order_date" | "shipped_at",  // 정산 기준: 주문일 / 송장등록일
+ *   start_date?: string,             // 정산 시작일 (기본: 기간 1일)
+ *   end_date?: string,               // 정산 종료일 (기본: 기간 말일)
  * }
  */
 export async function POST(request: NextRequest) {
   const body = await request.json();
-  const { store_id, period, include_no_tracking = true, cutoff_date } = body;
+  const { store_id, period, include_no_tracking = true, date_basis = "order_date", start_date: customStart, end_date: customEnd } = body;
 
   if (!store_id || !period) {
     return NextResponse.json({ error: "store_id, period 필수" }, { status: 400 });
@@ -23,9 +25,9 @@ export async function POST(request: NextRequest) {
   if (!year || !month) {
     return NextResponse.json({ error: "period 형식: YYYY-MM" }, { status: 400 });
   }
-  const startDate = `${period}-01`;
+  const startDate = customStart || `${period}-01`;
   const lastDay = new Date(year, month, 0).getDate();
-  const endDate = `${period}-${String(lastDay).padStart(2, "0")}`;
+  const endDate = customEnd || `${period}-${String(lastDay).padStart(2, "0")}`;
 
   const sb = getServiceClient();
 
@@ -48,19 +50,20 @@ export async function POST(request: NextRequest) {
   const otherCost = Number(store.other_cost ?? 0);
 
   // ── 2. 해당 기간 주문 가져오기 ──
-  // 정산일 기준: cutoff_date가 있으면 해당 날짜 이전 주문만, 없으면 기간 전체
-  const effectiveEnd = cutoff_date || endDate;
+  // date_basis: 정산 기준 날짜 필드 선택
+  const dateField = date_basis === "shipped_at" ? "shipped_at" : "order_date";
 
   let ordQuery = sb
     .from("orders")
     .select("*, suppliers(id, name)")
     .eq("store_id", store_id)
-    .gte("order_date", startDate)
-    .lte("order_date", effectiveEnd)
+    .gte(dateField, startDate)
+    .lte(dateField, endDate + "T23:59:59")
     .order("order_date", { ascending: true });
 
-  // 송장미등록건 제외 옵션: tracking_number가 없는 주문 제외
-  if (!include_no_tracking) {
+  // 송장등록일 기준이면 shipped_at이 null인 건은 자동 제외됨
+  // 주문일 기준 + 송장미등록건 제외 옵션
+  if (date_basis === "order_date" && !include_no_tracking) {
     ordQuery = ordQuery.or("tracking_number.neq.,shipping_status.eq.cancelled");
   }
 
