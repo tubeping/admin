@@ -26,6 +26,8 @@ type Variant = {
   selling: string;
 };
 
+type ApprovalStatus = "pending" | "requested" | "re_requested" | "approved" | "rejected";
+
 type Product = {
   id: string;
   tp_code: string;
@@ -35,6 +37,8 @@ type Product = {
   retail_price: number;
   image_url: string | null;
   selling: string;
+  display: string;
+  approval_status: string;
   category: string | null;
   description: string | null;
   memo: string | null;
@@ -60,6 +64,7 @@ type SortKey = "tp_code" | "name" | "price" | "supply_price" | "margin" | "updat
 type SortDir = "asc" | "desc";
 type ViewMode = "table" | "card";
 type SellingFilter = "all" | "selling" | "not_selling";
+type DisplayFilter = "all" | "displayed" | "hidden";
 
 /* ══════════════════════════════════════════
    유틸
@@ -85,6 +90,14 @@ function marginNum(price: number, supply: number): number {
   if (!price || !supply || price <= 0) return 0;
   return ((price - supply) / price) * 100;
 }
+
+const APPROVAL_STATUS: Record<string, { label: string; cls: string }> = {
+  pending: { label: "승인대기", cls: "bg-gray-100 text-gray-600" },
+  requested: { label: "승인요청", cls: "bg-blue-100 text-blue-700" },
+  re_requested: { label: "재승인요청", cls: "bg-yellow-100 text-yellow-700" },
+  approved: { label: "승인완료", cls: "bg-green-100 text-green-700" },
+  rejected: { label: "반려", cls: "bg-red-100 text-red-700" },
+};
 
 const SYNC_STATUS: Record<string, { label: string; cls: string }> = {
   synced: { label: "동기화", cls: "bg-green-100 text-green-700" },
@@ -118,6 +131,7 @@ export default function ProductsPage() {
   const [error, setError] = useState("");
   const [keyword, setKeyword] = useState("");
   const [sellingFilter, setSellingFilter] = useState<SellingFilter>("all");
+  const [displayFilter, setDisplayFilter] = useState<DisplayFilter>("all");
   const [catFilter, setCatFilter] = useState("");
   const [offset, setOffset] = useState(0);
   const [total, setTotal] = useState(0);
@@ -176,6 +190,8 @@ export default function ProductsPage() {
     if (catFilter) params.set("category", catFilter);
     if (sellingFilter === "selling") params.set("selling", "T");
     if (sellingFilter === "not_selling") params.set("selling", "F");
+    if (displayFilter === "displayed") params.set("display", "T");
+    if (displayFilter === "hidden") params.set("display", "F");
 
     try {
       const res = await fetch(`/admin/api/products?${params}`);
@@ -596,14 +612,16 @@ export default function ProductsPage() {
                       마진<SortIcon field="margin" />
                     </th>
                     <th className="text-right px-3 py-3 font-medium">재고</th>
-                    <th className="text-center px-3 py-3 font-medium">상태</th>
+                    <th className="text-center px-3 py-3 font-medium">판매</th>
+                    <th className="text-center px-3 py-3 font-medium">진열</th>
+                    <th className="text-center px-3 py-3 font-medium">승인</th>
                     <th className="text-center px-3 py-3 font-medium">카페24 매핑</th>
                     <th className="text-center px-4 py-3 font-medium w-16">관리</th>
                   </tr>
                 </thead>
                 <tbody>
                   {loading && products.length === 0 ? (
-                    <tr><td colSpan={11} className="px-6 py-16 text-center text-sm text-gray-400">상품 로딩 중...</td></tr>
+                    <tr><td colSpan={13} className="px-6 py-16 text-center text-sm text-gray-400">상품 로딩 중...</td></tr>
                   ) : sortedProducts.length === 0 ? (
                     <tr><td colSpan={10} className="px-6 py-16 text-center text-sm text-gray-400">
                       등록된 상품이 없습니다. &quot;상품 등록&quot; 버튼으로 첫 상품을 추가하세요.
@@ -652,6 +670,16 @@ export default function ProductsPage() {
                         <td className="px-3 py-2.5 text-center">
                           <span className={`text-[10px] font-medium px-2 py-0.5 rounded-full ${p.selling === "T" ? "bg-green-100 text-green-700" : "bg-gray-100 text-gray-500"}`}>
                             {p.selling === "T" ? "판매중" : "미판매"}
+                          </span>
+                        </td>
+                        <td className="px-3 py-2.5 text-center">
+                          <span className={`text-[10px] font-medium px-2 py-0.5 rounded-full ${p.display === "T" ? "bg-blue-100 text-blue-700" : "bg-gray-100 text-gray-500"}`}>
+                            {p.display === "T" ? "진열함" : "진열안함"}
+                          </span>
+                        </td>
+                        <td className="px-3 py-2.5 text-center">
+                          <span className={`text-[10px] font-medium px-2 py-0.5 rounded-full ${APPROVAL_STATUS[p.approval_status]?.cls || "bg-gray-100 text-gray-500"}`}>
+                            {APPROVAL_STATUS[p.approval_status]?.label || p.approval_status}
                           </span>
                         </td>
                         <td className="px-3 py-2.5 text-center">
@@ -1012,6 +1040,8 @@ function EditProductModal({
     retail_price: String(product.retail_price),
     image_url: product.image_url || "",
     selling: product.selling,
+    display: product.display || "T",
+    approval_status: product.approval_status || "approved",
     category: product.category || "",
     description: product.description || "",
     memo: product.memo || "",
@@ -1196,12 +1226,29 @@ function EditProductModal({
                 <div className="text-xs text-gray-500">마진액: <span className="font-bold text-sm text-gray-900">₩{(Number(form.price) - Number(form.supply_price)).toLocaleString()}</span></div>
               </div>
 
-              <Field label="판매 상태">
-                <select value={form.selling} onChange={(e) => setForm({ ...form, selling: e.target.value })} className="w-full px-3 py-2.5 text-sm border border-gray-200 rounded-lg focus:outline-none cursor-pointer">
-                  <option value="T">판매중</option>
-                  <option value="F">미판매</option>
-                </select>
-              </Field>
+              <div className="grid grid-cols-3 gap-4">
+                <Field label="판매 상태">
+                  <select value={form.selling} onChange={(e) => setForm({ ...form, selling: e.target.value })} className="w-full px-3 py-2.5 text-sm border border-gray-200 rounded-lg focus:outline-none cursor-pointer">
+                    <option value="T">판매중</option>
+                    <option value="F">미판매</option>
+                  </select>
+                </Field>
+                <Field label="진열 상태">
+                  <select value={form.display} onChange={(e) => setForm({ ...form, display: e.target.value })} className="w-full px-3 py-2.5 text-sm border border-gray-200 rounded-lg focus:outline-none cursor-pointer">
+                    <option value="T">진열함</option>
+                    <option value="F">진열안함</option>
+                  </select>
+                </Field>
+                <Field label="승인 상태">
+                  <select value={form.approval_status} onChange={(e) => setForm({ ...form, approval_status: e.target.value })} className="w-full px-3 py-2.5 text-sm border border-gray-200 rounded-lg focus:outline-none cursor-pointer">
+                    <option value="pending">승인대기</option>
+                    <option value="requested">승인요청</option>
+                    <option value="re_requested">재승인요청</option>
+                    <option value="approved">승인완료</option>
+                    <option value="rejected">반려</option>
+                  </select>
+                </Field>
+              </div>
 
               <Field label="대표 이미지 URL">
                 <input type="text" value={form.image_url} onChange={(e) => setForm({ ...form, image_url: e.target.value })} placeholder="https://..." className="w-full px-3 py-2.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#C41E1E]/20 focus:border-[#C41E1E]" />
@@ -1336,6 +1383,8 @@ function EditProductModal({
    카페24 매핑 탭
    ══════════════════════════════════════════ */
 
+type MappingStat = { id: string; name: string; mall_id: string; status: string; channel: string; mapped: number; unmapped: number; total: number };
+
 function MappingsTab({
   products, stores, storesLoading, getStoreName, removeMapping,
 }: {
@@ -1349,8 +1398,24 @@ function MappingsTab({
   const [filterStoreId, setFilterStoreId] = useState("");
   const [expandedStoreId, setExpandedStoreId] = useState<string | null>(null);
   const [viewFilter, setViewFilter] = useState<"mapped" | "unmapped">("mapped");
+  const [dbStats, setDbStats] = useState<MappingStat[]>([]);
+  const [statsLoading, setStatsLoading] = useState(true);
 
-  // 스토어별 매핑 현황
+  // DB에서 실제 매핑 통계 로드
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await fetch("/admin/api/products/mapping-stats");
+        if (res.ok) {
+          const data = await res.json();
+          setDbStats(data.stats || []);
+        }
+      } catch { /* ignore */ }
+      finally { setStatsLoading(false); }
+    })();
+  }, []);
+
+  // 로드된 상품 기준 매핑 (상세 보기용)
   const storeMap = new Map<string, { store: Store; mappings: { product: Product; mapping: Cafe24Mapping }[]; unmapped: Product[] }>();
   for (const s of activeStores) {
     storeMap.set(s.id, { store: s, mappings: [], unmapped: [] });
@@ -1361,7 +1426,6 @@ function MappingsTab({
       const entry = storeMap.get(m.store_id);
       if (entry) entry.mappings.push({ product: p, mapping: m });
     }
-    // 미매핑 상품 계산
     for (const s of activeStores) {
       if (!mappedStoreIds.has(s.id)) {
         const entry = storeMap.get(s.id);
@@ -1391,29 +1455,30 @@ function MappingsTab({
             </tr>
           </thead>
           <tbody>
-            {[...storeMap.entries()].map(([id, { store, mappings, unmapped }]) => {
-              const total = mappings.length + unmapped.length;
-              const rate = total > 0 ? Math.round((mappings.length / total) * 100) : 0;
+            {statsLoading ? (
+              <tr><td colSpan={7} className="px-6 py-8 text-center text-sm text-gray-400">통계 로딩 중...</td></tr>
+            ) : dbStats.map((s) => {
+              const rate = s.total > 0 ? Math.round((s.mapped / s.total) * 100) : 0;
               return (
-                <tr key={id} className="border-b border-gray-50 last:border-0 hover:bg-gray-50/30 cursor-pointer" onClick={() => { setExpandedStoreId(id); setFilterStoreId(""); }}>
+                <tr key={s.id} className="border-b border-gray-50 last:border-0 hover:bg-gray-50/30 cursor-pointer" onClick={() => { setExpandedStoreId(s.id); setFilterStoreId(""); }}>
                   <td className="px-5 py-3">
                     <div className="flex items-center gap-2.5">
                       <div className="w-8 h-8 rounded-lg bg-[#C41E1E] flex items-center justify-center">
-                        <span className="text-white font-bold text-[10px]">{store.name.slice(0, 2)}</span>
+                        <span className="text-white font-bold text-[10px]">{s.name.slice(0, 2)}</span>
                       </div>
-                      <span className="text-sm font-medium text-gray-900">{store.name}</span>
+                      <span className="text-sm font-medium text-gray-900">{s.name}</span>
                     </div>
                   </td>
-                  <td className="px-3 py-3 text-xs text-blue-500 font-mono">{store.mall_id}</td>
+                  <td className="px-3 py-3 text-xs text-blue-500 font-mono">{s.mall_id}</td>
                   <td className="px-3 py-3 text-center">
-                    <span className={`text-[10px] font-medium px-2 py-0.5 rounded-full ${store.status === "active" || store.status === "connected" ? "bg-green-100 text-green-700" : "bg-gray-100 text-gray-500"}`}>
-                      {store.status === "active" || store.status === "connected" ? "활성" : store.status}
+                    <span className={`text-[10px] font-medium px-2 py-0.5 rounded-full ${s.status === "active" || s.status === "connected" ? "bg-green-100 text-green-700" : "bg-gray-100 text-gray-500"}`}>
+                      {s.status === "active" || s.status === "connected" ? "활성" : s.status}
                     </span>
                   </td>
-                  <td className="px-3 py-3 text-sm font-bold text-green-600 text-right">{mappings.length}</td>
+                  <td className="px-3 py-3 text-sm font-bold text-green-600 text-right">{s.mapped}</td>
                   <td className="px-3 py-3 text-sm text-right">
-                    {unmapped.length > 0 ? (
-                      <span className="font-bold text-orange-500">{unmapped.length}</span>
+                    {s.unmapped > 0 ? (
+                      <span className="font-bold text-orange-500">{s.unmapped}</span>
                     ) : (
                       <span className="text-gray-400">0</span>
                     )}
@@ -1427,7 +1492,7 @@ function MappingsTab({
                     </div>
                   </td>
                   <td className="px-5 py-3 text-center">
-                    <span className={`w-2 h-2 rounded-full inline-block ${store.status === "active" || store.status === "connected" ? "bg-green-500" : "bg-gray-300"}`} />
+                    <span className={`w-2 h-2 rounded-full inline-block ${s.status === "active" || s.status === "connected" ? "bg-green-500" : "bg-gray-300"}`} />
                   </td>
                 </tr>
               );

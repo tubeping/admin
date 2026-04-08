@@ -136,6 +136,7 @@ export async function POST(
     supply_price: String(product.supply_price),
     retail_price: String(product.retail_price),
     selling: product.selling,
+    display: product.display || "T",
   };
 
   const results: { store_id: string; mall_id: string; status: string; error?: string }[] = [];
@@ -203,15 +204,44 @@ export async function POST(
 
     // 배리언트(재고/옵션) 동기화
     if (res.ok && tpVariants.length > 0) {
+      // 해당 스토어의 배리언트 목록 조회 → 코드 매핑
+      let storeVariants: { variant_code: string; options: { name: string; value: string }[] }[] = [];
+      try {
+        const vRes = await fetch(`https://${store.mall_id}.cafe24api.com/api/v2/admin/products/${mapping.cafe24_product_no}?embed=variants`, {
+          headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json", "X-Cafe24-Api-Version": API_VERSION },
+        });
+        if (vRes.ok) {
+          const vData = await vRes.json();
+          storeVariants = vData?.product?.variants || [];
+        }
+      } catch { /* skip */ }
+
       for (const v of tpVariants) {
-        if (!v.variant_code) continue;
+        // 1. 같은 variant_code가 있으면 그대로 사용
+        let targetCode = storeVariants.find(sv => sv.variant_code === v.variant_code)?.variant_code;
+
+        // 2. 없으면 옵션명/값으로 매칭
+        if (!targetCode && v.option_value) {
+          const match = storeVariants.find(sv =>
+            sv.options?.some(o => v.option_value?.includes(o.value))
+          );
+          if (match) targetCode = match.variant_code;
+        }
+
+        // 3. 배리언트가 1개뿐이면 그것 사용
+        if (!targetCode && storeVariants.length === 1) {
+          targetCode = storeVariants[0].variant_code;
+        }
+
+        if (!targetCode) continue;
+
         const variantUpdate: Record<string, unknown> = {
           quantity: v.quantity,
           price: String(v.price),
           display: v.display,
           selling: v.selling,
         };
-        await cafe24PutVariant(store.mall_id, token, mapping.cafe24_product_no, v.variant_code, variantUpdate);
+        await cafe24PutVariant(store.mall_id, token, mapping.cafe24_product_no, targetCode, variantUpdate);
       }
     }
 

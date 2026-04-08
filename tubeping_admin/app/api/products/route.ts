@@ -12,6 +12,7 @@ export async function GET(request: NextRequest) {
   const keyword = searchParams.get("keyword") || "";
   const category = searchParams.get("category") || "";
   const selling = searchParams.get("selling") || "";
+  const display = searchParams.get("display") || "";
 
   const sb = getServiceClient();
 
@@ -29,6 +30,9 @@ export async function GET(request: NextRequest) {
   }
   if (selling === "T" || selling === "F") {
     query = query.eq("selling", selling);
+  }
+  if (display === "T" || display === "F") {
+    query = query.eq("display", display);
   }
 
   const { data, error, count } = await query;

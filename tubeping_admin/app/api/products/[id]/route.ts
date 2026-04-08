@@ -40,7 +40,7 @@ export async function PUT(
 
   // 상품 기본 정보 수정
   const update: Record<string, unknown> = {};
-  const allowed = ["product_name", "price", "supply_price", "retail_price", "image_url", "selling", "category", "description", "memo", "supplier", "total_stock"];
+  const allowed = ["product_name", "price", "supply_price", "retail_price", "image_url", "selling", "display", "approval_status", "category", "description", "memo", "supplier", "total_stock"];
 
   for (const key of allowed) {
     if (body[key] !== undefined) {
