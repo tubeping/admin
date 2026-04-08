@@ -168,6 +168,10 @@ export default function SettlementPage() {
   const [creating, setCreating] = useState(false);
   const [createStore, setCreateStore] = useState("");
   const [createPeriod, setCreatePeriod] = useState(periodOptions()[0]);
+  const [includeNoTracking, setIncludeNoTracking] = useState(true);
+  const [cutoffDate, setCutoffDate] = useState("");
+  const [showCreateForm, setShowCreateForm] = useState(false);
+  const [createAllResult, setCreateAllResult] = useState<{ total: number; created: number; skipped: number; errors: number; results: { store_name: string; status: string; error?: string }[] } | null>(null);
 
   // 공급사 정산
   const [supplierData, setSupplierData] = useState<SupplierSummary[]>([]);
@@ -204,17 +208,40 @@ export default function SettlementPage() {
   useEffect(() => { fetchSettlements(); }, [fetchSettlements]);
   useEffect(() => { if (mainTab === "supplier") fetchSupplierSummary(); }, [mainTab, fetchSupplierSummary]);
 
-  const handleCreate = async () => {
-    if (!createStore) return alert("판매자를 선택하세요");
+  const handleCreate = async (storeId?: string) => {
+    const targetStore = storeId || createStore;
+    if (!targetStore) return alert("판매자를 선택하세요");
     setCreating(true);
+    const payload: Record<string, unknown> = { store_id: targetStore, period: createPeriod, include_no_tracking: includeNoTracking };
+    if (cutoffDate) payload.cutoff_date = cutoffDate;
     const res = await fetch("/admin/api/settlements/calculate", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ store_id: createStore, period: createPeriod }),
+      body: JSON.stringify(payload),
     });
     const data = await res.json();
     setCreating(false);
     if (!res.ok) return alert(data.error || "정산 생성 실패");
+    setPeriod(createPeriod);
+    setFilterStore("");
+    setShowCreateForm(false);
+    fetchSettlements();
+  };
+
+  const handleCreateAll = async () => {
+    if (!confirm("모든 활성 판매사의 정산서를 일괄 생성합니다. 진행하시겠습니까?")) return;
+    setCreating(true);
+    setCreateAllResult(null);
+    const payload: Record<string, unknown> = { period: createPeriod, include_no_tracking: includeNoTracking };
+    if (cutoffDate) payload.cutoff_date = cutoffDate;
+    const res = await fetch("/admin/api/settlements/calculate-all", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    const data = await res.json();
+    setCreating(false);
+    setCreateAllResult(data);
     setPeriod(createPeriod);
     setFilterStore("");
     fetchSettlements();
@@ -429,27 +456,87 @@ export default function SettlementPage() {
       {mainTab === "seller" && (
         <>
           {/* 정산 생성 */}
-          <div className="bg-white rounded-xl border border-gray-200 p-5 mb-6">
-            <h3 className="text-sm font-semibold text-gray-900 mb-3">정산서 생성</h3>
-            <div className="flex gap-3 items-end">
-              <div>
-                <label className="text-xs text-gray-500 block mb-1">판매자</label>
-                <select value={createStore} onChange={(e) => setCreateStore(e.target.value)} className="border border-gray-300 rounded-lg px-3 py-2 text-sm min-w-[180px]">
-                  <option value="">선택</option>
-                  {stores.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
-                </select>
-              </div>
-              <div>
-                <label className="text-xs text-gray-500 block mb-1">정산 기간</label>
-                <select value={createPeriod} onChange={(e) => setCreatePeriod(e.target.value)} className="border border-gray-300 rounded-lg px-3 py-2 text-sm">
-                  {periodOptions().map((p) => <option key={p} value={p}>{p}</option>)}
-                </select>
-              </div>
-              <button onClick={handleCreate} disabled={creating} className="px-5 py-2 bg-[#C41E1E] text-white text-sm font-medium rounded-lg hover:bg-[#A01818] disabled:opacity-50 cursor-pointer">
-                {creating ? "계산 중..." : "정산 생성"}
-              </button>
+          <div className="bg-white rounded-xl border border-gray-200 mb-6">
+            <div className="flex items-center justify-between p-5 border-b border-gray-100 cursor-pointer" onClick={() => setShowCreateForm(!showCreateForm)}>
+              <h3 className="text-sm font-semibold text-gray-900">정산서 생성</h3>
+              <span className="text-xs text-gray-400">{showCreateForm ? "접기 ▲" : "펼치기 ▼"}</span>
             </div>
-            <p className="text-xs text-gray-400 mt-2">해당 기간의 주문 데이터를 기반으로 자동 계산합니다. 기존 임시 정산이 있으면 덮어씁니다.</p>
+            {showCreateForm && (
+              <div className="p-5 space-y-4">
+                {/* 기간 */}
+                <div className="flex gap-4 items-end">
+                  <div>
+                    <label className="text-xs text-gray-500 block mb-1">정산 기간</label>
+                    <select value={createPeriod} onChange={(e) => setCreatePeriod(e.target.value)} className="border border-gray-300 rounded-lg px-3 py-2 text-sm">
+                      {periodOptions().map((p) => <option key={p} value={p}>{p}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="text-xs text-gray-500 block mb-1">판매자 (개별 생성 시)</label>
+                    <select value={createStore} onChange={(e) => setCreateStore(e.target.value)} className="border border-gray-300 rounded-lg px-3 py-2 text-sm min-w-[180px]">
+                      <option value="">전체</option>
+                      {stores.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+                    </select>
+                  </div>
+                </div>
+
+                {/* 옵션 */}
+                <div className="bg-gray-50 rounded-lg p-4 space-y-3">
+                  <div className="flex items-center gap-4">
+                    <span className="text-sm text-gray-700">송장미등록건 (주문+CS) 정산포함 여부:</span>
+                    <label className="flex items-center gap-1.5 cursor-pointer">
+                      <input type="radio" name="noTracking" checked={includeNoTracking} onChange={() => setIncludeNoTracking(true)} className="accent-[#C41E1E]" />
+                      <span className="text-sm">포함(기본값)</span>
+                    </label>
+                    <label className="flex items-center gap-1.5 cursor-pointer">
+                      <input type="radio" name="noTracking" checked={!includeNoTracking} onChange={() => setIncludeNoTracking(false)} className="accent-[#C41E1E]" />
+                      <span className="text-sm">미포함</span>
+                    </label>
+                  </div>
+                  <div className="flex items-center gap-4">
+                    <span className="text-sm text-gray-700">정산 기준일:</span>
+                    <input type="date" value={cutoffDate} onChange={(e) => setCutoffDate(e.target.value)} className="border border-gray-300 rounded-lg px-3 py-1.5 text-sm" placeholder="YYYY-MM-DD" />
+                    <span className="text-xs text-gray-400">비워두면 기간 말일까지 전체 포함</span>
+                  </div>
+                  {cutoffDate && (
+                    <p className="text-xs text-orange-600">기준일 {cutoffDate} 이전 주문만 정산에 포함됩니다.</p>
+                  )}
+                </div>
+
+                {/* 버튼 */}
+                <div className="flex gap-3 items-center">
+                  <button onClick={() => handleCreate()} disabled={creating || !createStore} className="px-5 py-2.5 bg-[#C41E1E] text-white text-sm font-medium rounded-lg hover:bg-[#A01818] disabled:opacity-50 cursor-pointer">
+                    {creating ? "계산 중..." : "정산서 만들기"}
+                  </button>
+                  <button onClick={handleCreateAll} disabled={creating} className="px-5 py-2.5 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 disabled:opacity-50 cursor-pointer">
+                    {creating ? "생성 중..." : "전체 판매사 일괄 생성"}
+                  </button>
+                  <button onClick={() => setShowCreateForm(false)} className="px-4 py-2.5 border border-gray-300 text-sm rounded-lg hover:bg-gray-50 cursor-pointer">취소</button>
+                </div>
+
+                <p className="text-xs text-gray-400">해당 기간의 주문 데이터를 기반으로 자동 계산합니다. 기존 임시 정산이 있으면 덮어씁니다.</p>
+
+                {/* 전체 생성 결과 */}
+                {createAllResult && (
+                  <div className="bg-blue-50 rounded-lg p-4">
+                    <p className="text-sm font-medium text-blue-900 mb-2">
+                      일괄 생성 완료: {createAllResult.created}건 생성 / {createAllResult.skipped}건 스킵 / {createAllResult.errors}건 오류
+                    </p>
+                    <div className="space-y-1">
+                      {createAllResult.results.map((r, i) => (
+                        <div key={i} className="text-xs flex gap-2">
+                          <span className={r.status === "created" ? "text-green-600" : r.status === "skipped" ? "text-gray-400" : "text-red-600"}>
+                            {r.status === "created" ? "✓" : r.status === "skipped" ? "−" : "✗"}
+                          </span>
+                          <span className="text-gray-700">{r.store_name}</span>
+                          {r.error && <span className="text-gray-400">({r.error})</span>}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
 
           <div className="flex gap-3 mb-4">

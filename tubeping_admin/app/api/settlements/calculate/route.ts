@@ -4,17 +4,15 @@ import { getServiceClient } from "@/lib/supabase";
 /**
  * POST /api/settlements/calculate
  * 정산서 자동 계산 + 생성
- * body: { store_id, period: "2026-03" }
- *
- * 계산 로직 (cafe24_settlement_v7 기반, 발주모아 제거):
- * 1. 해당 기간 주문 가져오기 (orders)
- * 2. 공급가 조회 (supplier_products → products fallback)
- * 3. 매출/비용/순익 계산
- * 4. 인플루언서:회사 비율 분배
+ * body: {
+ *   store_id, period: "2026-03",
+ *   include_no_tracking?: boolean,   // 송장미등록건 포함 여부 (기본: true)
+ *   cutoff_date?: string,            // 정산 기준일 (기본: 기간 말일). 이 날짜 이전 주문만 포함
+ * }
  */
 export async function POST(request: NextRequest) {
   const body = await request.json();
-  const { store_id, period } = body;
+  const { store_id, period, include_no_tracking = true, cutoff_date } = body;
 
   if (!store_id || !period) {
     return NextResponse.json({ error: "store_id, period 필수" }, { status: 400 });
@@ -50,15 +48,23 @@ export async function POST(request: NextRequest) {
   const otherCost = Number(store.other_cost ?? 0);
 
   // ── 2. 해당 기간 주문 가져오기 ──
-  // 정산 대상: 배송완료(delivered) + 기간 내 주문
-  // 취소/반품도 포함 (차감 처리)
-  const { data: orders, error: ordErr } = await sb
+  // 정산일 기준: cutoff_date가 있으면 해당 날짜 이전 주문만, 없으면 기간 전체
+  const effectiveEnd = cutoff_date || endDate;
+
+  let ordQuery = sb
     .from("orders")
     .select("*, suppliers(id, name)")
     .eq("store_id", store_id)
     .gte("order_date", startDate)
-    .lte("order_date", endDate)
+    .lte("order_date", effectiveEnd)
     .order("order_date", { ascending: true });
+
+  // 송장미등록건 제외 옵션: tracking_number가 없는 주문 제외
+  if (!include_no_tracking) {
+    ordQuery = ordQuery.or("tracking_number.neq.,shipping_status.eq.cancelled");
+  }
+
+  const { data: orders, error: ordErr } = await ordQuery;
 
   if (ordErr) {
     return NextResponse.json({ error: ordErr.message }, { status: 500 });
