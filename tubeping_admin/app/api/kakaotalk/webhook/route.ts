@@ -3,7 +3,7 @@
  * POST /api/kakaotalk/webhook?channel_id={cs_channel_id}
  *
  * 카카오 i 오픈빌더에서 스킬 서버 URL로 등록:
- * https://admin-mu-two-27.vercel.app/admin/api/kakaotalk/webhook?channel_id=xxx
+ * https://tubepingadmin.vercel.app/admin/api/kakaotalk/webhook?channel_id=xxx
  *
  * 수신 → cs_tickets에 저장 → 자동 응답 또는 콜백 대기
  */

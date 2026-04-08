@@ -3,7 +3,7 @@
  * POST /api/navertalk/webhook?channel_id={cs_channel_id}
  *
  * 네이버톡톡 파트너센터에서 이 URL을 웹훅으로 등록:
- * https://admin-mu-two-27.vercel.app/admin/api/navertalk/webhook?channel_id=xxx
+ * https://tubepingadmin.vercel.app/admin/api/navertalk/webhook?channel_id=xxx
  *
  * 수신 이벤트: open, send, friend, leave, echo
  * → send 이벤트만 cs_tickets에 저장

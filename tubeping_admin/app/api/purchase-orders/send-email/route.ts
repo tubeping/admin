@@ -1,33 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServiceClient } from "@/lib/supabase";
-
-/**
- * POST /api/purchase-orders/send-email — 발주서 이메일 발송
- * body: { purchase_order_id: string }
- *
- * nodemailer 또는 외부 메일 서비스 연동
- * 현재는 Gmail SMTP 사용 (환경변수: SMTP_USER, SMTP_PASS)
- */
-
-async function sendEmail(to: string, subject: string, html: string) {
-  const smtpUser = process.env.SMTP_USER;
-  const smtpPass = process.env.SMTP_PASS;
-
-  if (!smtpUser || !smtpPass) {
-    console.log(`[메일 발송 시뮬레이션] to: ${to}, subject: ${subject}`);
-    console.log(`HTML 길이: ${html.length}자`);
-    return true;
-  }
-
-  // SMTP 발송 (nodemailer 설치 후 활성화)
-  // const nodemailer = require("nodemailer");
-  // const transporter = nodemailer.createTransport({ service: "gmail", auth: { user: smtpUser, pass: smtpPass } });
-  // await transporter.sendMail({ from: `"TubePing" <${smtpUser}>`, to, subject, html });
-
-  // Gmail API 또는 fetch 기반 발송으로 대체 가능
-  console.log(`[메일 발송] to: ${to}, subject: ${subject}`);
-  return true;
-}
+import { sendMail } from "@/lib/mail";
 
 function generateEmailHtml(po: {
   po_number: string;
@@ -101,6 +74,60 @@ function generateEmailHtml(po: {
 </html>`;
 }
 
+interface POConfig {
+  extra_columns?: string[];
+  column_aliases?: Record<string, string>;
+  note?: string;
+}
+
+function generateOrderCsv(
+  orders: {
+    cafe24_order_id: string;
+    cafe24_order_item_code: string;
+    cafe24_product_no: number;
+    product_name: string;
+    option_text: string;
+    quantity: number;
+    receiver_name: string;
+    receiver_address: string;
+    receiver_zipcode: string;
+  }[],
+  poConfig?: POConfig | null
+) {
+  const BOM = "\uFEFF";
+  const aliases = poConfig?.column_aliases || {};
+  const extra = poConfig?.extra_columns || [];
+
+  const baseColumns = ["주문번호", "주문상품고유번호", "상품코드", "상품명", "옵션", "수량", "수령자", "배송지", "우편번호", "택배사", "배송번호"];
+  const allColumns = [...baseColumns, ...extra];
+  const header = allColumns.map((c) => aliases[c] || c).join(",");
+
+  const rows = orders.map((o) => {
+    const base = [
+      o.cafe24_order_id,
+      o.cafe24_order_item_code,
+      o.cafe24_product_no,
+      `"${(o.product_name || "").replace(/"/g, '""')}"`,
+      `"${(o.option_text || "").replace(/"/g, '""')}"`,
+      o.quantity,
+      o.receiver_name,
+      `"${(o.receiver_address || "").replace(/"/g, '""')}"`,
+      o.receiver_zipcode,
+      "",
+      "",
+    ];
+    // 추가 컬럼은 빈 값
+    const extraValues = extra.map(() => "");
+    return [...base, ...extraValues].join(",");
+  });
+
+  let csv = BOM + header + "\n" + rows.join("\n");
+  if (poConfig?.note) {
+    csv += "\n\n\"비고: " + poConfig.note.replace(/"/g, '""') + "\"";
+  }
+  return csv;
+}
+
 export async function POST(request: NextRequest) {
   const body = await request.json();
   const { purchase_order_id } = body;
@@ -127,8 +154,28 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "공급사 이메일이 없습니다" }, { status: 400 });
   }
 
+  // 주문 목록 조회
+  const { data: orders } = await sb
+    .from("orders")
+    .select(
+      "cafe24_order_id, cafe24_order_item_code, cafe24_product_no, product_name, option_text, quantity, receiver_name, receiver_address, receiver_zipcode"
+    )
+    .eq("purchase_order_id", po.id)
+    .order("cafe24_order_id", { ascending: true });
+
+  // 공급사 po_config 조회 (컬럼이 없으면 null 처리)
+  let poConfig: POConfig | null = null;
+  try {
+    const { data: supplierData } = await sb
+      .from("suppliers")
+      .select("po_config")
+      .eq("id", po.supplier_id)
+      .single();
+    poConfig = supplierData?.po_config || null;
+  } catch { /* po_config 컬럼 미존재 시 무시 */ }
+
   // 포털 URL 생성
-  const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || "https://admin-mu-two-27.vercel.app";
+  const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || "https://tubepingadmin.vercel.app";
   const portalUrl = `${baseUrl}/admin/supplier`;
 
   const html = generateEmailHtml(
@@ -142,8 +189,18 @@ export async function POST(request: NextRequest) {
     portalUrl
   );
 
+  // CSV 첨부파일 생성 (공급사별 양식 반영)
+  const csv = generateOrderCsv(orders || [], poConfig);
+  const attachments = [
+    {
+      filename: `발주서_${po.po_number}.csv`,
+      content: Buffer.from(csv, "utf-8"),
+      contentType: "text/csv; charset=utf-8",
+    },
+  ];
+
   const subject = `[TubePing] ${po.order_date} 발주요청서 (${po.po_number})`;
-  const success = await sendEmail(supplierEmail, subject, html);
+  const success = await sendMail(supplierEmail, subject, html, attachments);
 
   if (success) {
     await sb

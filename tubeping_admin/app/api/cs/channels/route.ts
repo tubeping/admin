@@ -40,7 +40,7 @@ export async function POST(req: NextRequest) {
   }
 
   // 웹훅 URL 자동 생성
-  const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || "https://admin-mu-two-27.vercel.app/admin";
+  const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || "https://tubepingadmin.vercel.app/admin";
 
   const { data, error } = await sb
     .from("cs_channels")
