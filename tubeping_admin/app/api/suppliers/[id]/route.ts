@@ -14,6 +14,7 @@ export async function PUT(
   const allowedFields = [
     "name", "email", "contact_name", "phone",
     "business_no", "memo", "status", "po_config",
+    "cafe24_supplier_code", "short_code", "order_email", "settlement_email",
   ];
   const updates: Record<string, unknown> = {};
   for (const key of allowedFields) {

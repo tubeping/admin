@@ -602,6 +602,7 @@ export default function ProductsPage() {
                     <th className="text-left px-3 py-3 font-medium cursor-pointer hover:text-gray-900 select-none" onClick={() => handleSort("name")}>
                       상품명<SortIcon field="name" />
                     </th>
+                    <th className="text-left px-3 py-3 font-medium w-24">공급사</th>
                     <th className="text-right px-3 py-3 font-medium cursor-pointer hover:text-gray-900 select-none" onClick={() => handleSort("price")}>
                       판매가<SortIcon field="price" />
                     </th>
@@ -621,7 +622,7 @@ export default function ProductsPage() {
                 </thead>
                 <tbody>
                   {loading && products.length === 0 ? (
-                    <tr><td colSpan={13} className="px-6 py-16 text-center text-sm text-gray-400">상품 로딩 중...</td></tr>
+                    <tr><td colSpan={14} className="px-6 py-16 text-center text-sm text-gray-400">상품 로딩 중...</td></tr>
                   ) : sortedProducts.length === 0 ? (
                     <tr><td colSpan={10} className="px-6 py-16 text-center text-sm text-gray-400">
                       등록된 상품이 없습니다. &quot;상품 등록&quot; 버튼으로 첫 상품을 추가하세요.
@@ -651,6 +652,9 @@ export default function ProductsPage() {
                             {p.product_name}
                           </button>
                           {p.category && <p className="text-[10px] text-gray-400 mt-0.5">{p.category}</p>}
+                        </td>
+                        <td className="px-3 py-2.5">
+                          <span className="text-xs text-gray-600">{p.supplier || "-"}</span>
                         </td>
                         <td className="px-3 py-2.5 text-sm text-gray-900 text-right font-medium">{formatPrice(p.price)}</td>
                         <td className="px-3 py-2.5 text-sm text-gray-500 text-right">{formatPrice(p.supply_price)}</td>
