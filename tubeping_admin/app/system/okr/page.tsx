@@ -179,6 +179,34 @@ export default function OkrPage() {
         <SummaryCard label="At Risk (<30%)" value={`${atRisk}개`} color="text-red-600" />
       </div>
 
+      {/* Overview Grid — 한눈에 보기 */}
+      {objectives.length > 0 && (
+        <div className="bg-white rounded-xl border border-gray-200 p-5 mb-6">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-sm font-bold text-gray-900">한눈에 보기</h2>
+            <span className="text-xs text-gray-400">클릭하면 해당 Objective로 이동</span>
+          </div>
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-7 gap-3">
+            {objectives.map((o) => (
+              <a
+                key={o.id}
+                href={`#obj-${o.id}`}
+                className="group flex flex-col items-center p-3 rounded-lg border border-gray-100 hover:border-[#C41E1E] hover:bg-[#FFF0F5]/30 transition-all cursor-pointer"
+              >
+                <span className="text-2xl mb-1">{o.emoji}</span>
+                <ProgressRing value={o.progress} size="sm" />
+                <p className="mt-2 text-[11px] font-semibold text-gray-700 text-center line-clamp-2 leading-tight group-hover:text-[#C41E1E]">
+                  {o.title.split(" — ")[0]}
+                </p>
+                <span className={`mt-1 text-[10px] px-1.5 py-0.5 rounded-full font-medium border ${PRIORITY_STYLE[o.priority]?.color || ""}`}>
+                  P{o.priority}
+                </span>
+              </a>
+            ))}
+          </div>
+        </div>
+      )}
+
       {loading ? (
         <div className="text-center py-20 text-gray-400">불러오는 중...</div>
       ) : objectives.length === 0 ? (
@@ -188,7 +216,7 @@ export default function OkrPage() {
       ) : (
         <div className="space-y-5">
           {objectives.map((o) => (
-            <div key={o.id} className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+            <div key={o.id} id={`obj-${o.id}`} className="bg-white rounded-xl border border-gray-200 overflow-hidden scroll-mt-4">
               {/* Objective Header */}
               <div className="p-5 border-b border-gray-100">
                 <div className="flex flex-col sm:flex-row sm:items-start gap-3">
@@ -342,22 +370,22 @@ function SummaryCard({ label, value, highlight, color }: { label: string; value:
   );
 }
 
-function ProgressRing({ value }: { value: number }) {
-  const r = 22;
-  const c = 2 * Math.PI * r;
+function ProgressRing({ value, size = "md" }: { value: number; size?: "sm" | "md" }) {
+  const dims = size === "sm" ? { box: 44, r: 17, sw: 4, text: "text-[10px]" } : { box: 56, r: 22, sw: 5, text: "text-xs" };
+  const c = 2 * Math.PI * dims.r;
   const offset = c - (value / 100) * c;
   const color = value >= 70 ? "#10b981" : value >= 30 ? "#f59e0b" : "#ef4444";
   return (
-    <div className="relative w-14 h-14">
-      <svg className="w-14 h-14 -rotate-90" viewBox="0 0 56 56">
-        <circle cx="28" cy="28" r={r} fill="none" stroke="#f3f4f6" strokeWidth="5" />
+    <div className="relative" style={{ width: dims.box, height: dims.box }}>
+      <svg className="-rotate-90" width={dims.box} height={dims.box} viewBox={`0 0 ${dims.box} ${dims.box}`}>
+        <circle cx={dims.box / 2} cy={dims.box / 2} r={dims.r} fill="none" stroke="#f3f4f6" strokeWidth={dims.sw} />
         <circle
-          cx="28"
-          cy="28"
-          r={r}
+          cx={dims.box / 2}
+          cy={dims.box / 2}
+          r={dims.r}
           fill="none"
           stroke={color}
-          strokeWidth="5"
+          strokeWidth={dims.sw}
           strokeDasharray={c}
           strokeDashoffset={offset}
           strokeLinecap="round"
@@ -365,7 +393,7 @@ function ProgressRing({ value }: { value: number }) {
         />
       </svg>
       <div className="absolute inset-0 flex items-center justify-center">
-        <span className="text-xs font-bold text-gray-700 tabular-nums">{value}%</span>
+        <span className={`${dims.text} font-bold text-gray-700 tabular-nums`}>{value}%</span>
       </div>
     </div>
   );
