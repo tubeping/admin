@@ -29,8 +29,8 @@ export async function sendMail(
 ): Promise<boolean> {
   const t = getTransporter();
   if (!t) {
-    console.log(`[메일 시뮬레이션] to: ${to} | subject: ${subject} | 첨부: ${attachments?.length || 0}개`);
-    return true;
+    console.error(`[메일 미설정] SMTP_USER/SMTP_PASS 환경변수 없음 — 메일 발송 불가 (to: ${to})`);
+    return false;
   }
 
   try {

@@ -53,6 +53,32 @@ export async function POST(request: NextRequest) {
 
   const sb = getServiceClient();
 
+  // 공급사 존재 확인
+  const { data: supplier, error: supplierErr } = await sb
+    .from("suppliers")
+    .select("id, name")
+    .eq("id", supplier_id)
+    .single();
+
+  if (supplierErr || !supplier) {
+    return NextResponse.json({ error: "존재하지 않는 공급사입니다" }, { status: 400 });
+  }
+
+  // 주문의 기존 supplier_id 충돌 검증
+  const { data: conflictOrders } = await sb
+    .from("orders")
+    .select("id, supplier_id")
+    .in("id", order_ids)
+    .not("supplier_id", "is", null)
+    .neq("supplier_id", supplier_id);
+
+  if (conflictOrders && conflictOrders.length > 0) {
+    return NextResponse.json({
+      error: `${conflictOrders.length}건의 주문이 다른 공급사에 이미 배정되어 있습니다. 확인 후 다시 시도하세요.`,
+      conflicting_order_ids: conflictOrders.map((o) => o.id),
+    }, { status: 409 });
+  }
+
   // 발주번호 생성
   const { data: poNum } = await sb.rpc("generate_po_number");
   const poNumber = poNum || `PO-${new Date().toISOString().slice(0, 10).replace(/-/g, "")}-001`;
