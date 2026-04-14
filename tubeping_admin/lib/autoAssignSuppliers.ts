@@ -109,25 +109,19 @@ export async function autoAssignSuppliers(
       if (m && nameToSupplierId[m[1]]) supplierName = m[1];
     }
 
-    // 3) 상품명 매칭 — 정확 일치 → prefix 20자 → 양방향 includes
+    // 3) 상품명 매칭 — 정확 일치만, 또는 충분히 긴 prefix(20자+) 양방향 일치
+    // 짧은 이름의 substring 매칭은 오배정 위험이 높아 사용하지 않음
     if (!supplierName && order.product_name) {
       const trimmed = order.product_name.trim();
       if (productNameToSupplier[trimmed]) {
         supplierName = productNameToSupplier[trimmed];
-      } else {
+      } else if (trimmed.length >= 20) {
         const prefix = trimmed.substring(0, 20);
         for (const [pName, pSupplier] of Object.entries(productNameToSupplier)) {
-          if (pName.startsWith(prefix)) {
+          // 양쪽 모두 prefix 20자가 일치할 때만 매칭 (짧은 이름은 제외)
+          if (pName.length >= 20 && pName.substring(0, 20) === prefix) {
             supplierName = pSupplier;
             break;
-          }
-        }
-        if (!supplierName) {
-          for (const [pName, pSupplier] of Object.entries(productNameToSupplier)) {
-            if (trimmed.includes(pName) || pName.includes(trimmed)) {
-              supplierName = pSupplier;
-              break;
-            }
           }
         }
       }
