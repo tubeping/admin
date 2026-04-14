@@ -29,6 +29,8 @@ const STATUS_META: Record<VerifyGroup["status"], { text: string; cls: string }> 
 function today() { return new Date().toISOString().slice(0, 10); }
 function daysAgo(n: number) { return new Date(Date.now() - n * 86400000).toISOString().slice(0, 10); }
 
+type ProductOption = { id: string; product_name: string; tp_code: string | null; supplier: string | null };
+
 export default function OrderMappingVerificationPage() {
   const [groups, setGroups] = useState<VerifyGroup[]>([]);
   const [loading, setLoading] = useState(true);
@@ -38,6 +40,13 @@ export default function OrderMappingVerificationPage() {
   const [dateTo, setDateTo] = useState(today());
   const [includeVerified, setIncludeVerified] = useState(false);
   const [statusFilter, setStatusFilter] = useState<"all" | "problem" | VerifyGroup["status"]>("problem");
+
+  // 상품 연결 모달
+  const [linkTarget, setLinkTarget] = useState<VerifyGroup | null>(null);
+  const [productSearch, setProductSearch] = useState("");
+  const [productOptions, setProductOptions] = useState<ProductOption[]>([]);
+  const [searching, setSearching] = useState(false);
+  const [linking, setLinking] = useState(false);
 
   const fetchGroups = useCallback(async () => {
     setLoading(true);
@@ -77,6 +86,54 @@ export default function OrderMappingVerificationPage() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ action: "verify", product_id: productId }),
     });
+    fetchGroups();
+  };
+
+  const openLink = (g: VerifyGroup) => {
+    setLinkTarget(g);
+    setProductSearch(g.product_name.slice(0, 10));
+    setProductOptions([]);
+  };
+
+  const searchProducts = useCallback(async (kw: string) => {
+    if (!kw.trim()) { setProductOptions([]); return; }
+    setSearching(true);
+    const res = await fetch(`/admin/api/products?keyword=${encodeURIComponent(kw)}&limit=20`);
+    const data = await res.json();
+    const list: ProductOption[] = (data.products || []).map((p: { id: string; product_name: string; tp_code: string | null; supplier: string | null }) => ({
+      id: p.id, product_name: p.product_name, tp_code: p.tp_code, supplier: p.supplier,
+    }));
+    setProductOptions(list);
+    setSearching(false);
+  }, []);
+
+  useEffect(() => {
+    const t = setTimeout(() => { if (linkTarget) searchProducts(productSearch); }, 300);
+    return () => clearTimeout(t);
+  }, [productSearch, linkTarget, searchProducts]);
+
+  const confirmLink = async (product: ProductOption) => {
+    if (!linkTarget) return;
+    if (!confirm(`'${linkTarget.product_name}' 주문 ${linkTarget.order_count}건을\n'${product.product_name}' (${product.tp_code}) 상품으로 연결합니다.\n\n- 상품의 name_aliases에 추가\n- 주문 공급사 재배정\n- 연결된 모든 카페24 스토어에 custom_product_code=${product.tp_code} 푸시\n\n계속할까요?`)) return;
+    setLinking(true);
+    const res = await fetch("/admin/api/orders/mapping-verification/link", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        order_product_name: linkTarget.product_name,
+        product_id: product.id,
+        order_ids: linkTarget.order_ids,
+      }),
+    });
+    const data = await res.json();
+    setLinking(false);
+    if (!res.ok) {
+      alert(`실패: ${data.error}`);
+      return;
+    }
+    const c = data.cafe24 || { attempted: 0, succeeded: 0, failed: 0 };
+    alert(`연결 완료\n주문 재배정: ${data.reassigned}건\n카페24 자체코드 푸시: ${c.succeeded}/${c.attempted} 성공` + (c.failed > 0 ? `\n실패: ${c.errors?.join("\n") || ""}` : ""));
+    setLinkTarget(null);
     fetchGroups();
   };
 
@@ -188,6 +245,9 @@ export default function OrderMappingVerificationPage() {
                           {g.status === "mismatch" && g.expected_supplier_id && (
                             <button onClick={() => handleReassign(g)} className="text-[11px] px-2 py-0.5 rounded bg-red-600 text-white hover:bg-red-700 cursor-pointer">재배정</button>
                           )}
+                          {g.status === "unmatched_product" && (
+                            <button onClick={() => openLink(g)} className="text-[11px] px-2 py-0.5 rounded bg-blue-600 text-white hover:bg-blue-700 cursor-pointer">상품 연결</button>
+                          )}
                           {g.product_id && !g.mapping_verified && (
                             <button onClick={() => handleVerify(g.product_id!)} className="text-[11px] px-2 py-0.5 rounded bg-white border border-gray-300 text-gray-600 hover:bg-gray-50 cursor-pointer">확인 완료</button>
                           )}
@@ -201,6 +261,54 @@ export default function OrderMappingVerificationPage() {
           </div>
         )}
       </div>
+
+      {/* 상품 연결 모달 */}
+      {linkTarget && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50" onClick={() => setLinkTarget(null)}>
+          <div className="bg-white rounded-2xl w-[640px] max-h-[90vh] overflow-hidden flex flex-col shadow-xl" onClick={(e) => e.stopPropagation()}>
+            <div className="p-5 border-b border-gray-100">
+              <h2 className="text-lg font-bold text-gray-900">상품 연결</h2>
+              <p className="text-xs text-gray-500 mt-1">주문 상품명: <span className="text-gray-900 font-medium">{linkTarget.product_name}</span></p>
+              <p className="text-[11px] text-gray-500">연결 시 이 이름이 선택한 상품의 name_aliases에 추가되고, 해당 주문({linkTarget.order_count}건)의 공급사가 재배정되며, 연결된 모든 카페24 스토어에 자체상품코드(TP코드)가 푸시됩니다.</p>
+            </div>
+            <div className="p-5 border-b border-gray-100">
+              <input
+                type="text"
+                autoFocus
+                value={productSearch}
+                onChange={(e) => setProductSearch(e.target.value)}
+                placeholder="상품명 또는 TP코드 검색"
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+              />
+            </div>
+            <div className="flex-1 overflow-y-auto">
+              {searching ? (
+                <div className="p-8 text-center text-gray-400 text-sm">검색 중...</div>
+              ) : productOptions.length === 0 ? (
+                <div className="p-8 text-center text-gray-400 text-sm">검색 결과 없음</div>
+              ) : (
+                <div className="divide-y divide-gray-100">
+                  {productOptions.map((p) => (
+                    <button key={p.id} onClick={() => confirmLink(p)} disabled={linking}
+                      className="w-full text-left px-5 py-3 hover:bg-gray-50 cursor-pointer disabled:opacity-50">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="flex-1 min-w-0">
+                          <div className="text-sm text-gray-900 line-clamp-2">{p.product_name}</div>
+                          <div className="text-[11px] text-gray-500 mt-0.5">{p.supplier || "-"}</div>
+                        </div>
+                        <span className="text-xs font-mono font-bold text-[#C41E1E] bg-[#FFF0F5] px-2 py-0.5 rounded whitespace-nowrap">{p.tp_code || "-"}</span>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+            <div className="p-4 border-t border-gray-100 flex justify-end">
+              <button onClick={() => setLinkTarget(null)} className="px-4 py-2 border border-gray-300 text-sm rounded-lg hover:bg-gray-50 cursor-pointer">닫기</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

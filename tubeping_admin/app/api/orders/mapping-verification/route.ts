@@ -38,21 +38,43 @@ export async function GET(request: NextRequest) {
   if (oErr) return NextResponse.json({ error: oErr.message }, { status: 500 });
   if (!orders || orders.length === 0) return NextResponse.json({ groups: [] });
 
-  // 2. 상품명으로 products 조회
+  // 2. 상품명 또는 name_aliases로 products 조회
   const names = [...new Set(orders.map((o) => (o.product_name || "").trim()).filter(Boolean))];
-  const { data: products } = await sb
-    .from("products")
-    .select("id, product_name, tp_code, mapping_verified")
-    .in("product_name", names);
-
   const nameToProduct: Record<string, { id: string; tp_code: string | null; verified: boolean }> = {};
-  for (const p of products || []) {
-    if (p.product_name) {
-      nameToProduct[p.product_name.trim()] = {
-        id: p.id,
-        tp_code: p.tp_code,
-        verified: !!p.mapping_verified,
-      };
+  if (names.length > 0) {
+    // product_name 정확 일치
+    const { data: byName } = await sb
+      .from("products")
+      .select("id, product_name, tp_code, mapping_verified")
+      .in("product_name", names);
+    for (const p of byName || []) {
+      if (p.product_name) {
+        nameToProduct[p.product_name.trim()] = {
+          id: p.id,
+          tp_code: p.tp_code,
+          verified: !!p.mapping_verified,
+        };
+      }
+    }
+    // name_aliases 배열 포함 검색 — 아직 매칭 안 된 이름에 대해서만
+    const unresolved = names.filter((n) => !nameToProduct[n]);
+    if (unresolved.length > 0) {
+      const { data: byAlias } = await sb
+        .from("products")
+        .select("id, product_name, tp_code, mapping_verified, name_aliases")
+        .overlaps("name_aliases", unresolved);
+      for (const p of byAlias || []) {
+        const aliases: string[] = p.name_aliases || [];
+        for (const alias of aliases) {
+          if (unresolved.includes(alias) && !nameToProduct[alias]) {
+            nameToProduct[alias] = {
+              id: p.id,
+              tp_code: p.tp_code,
+              verified: !!p.mapping_verified,
+            };
+          }
+        }
+      }
     }
   }
 

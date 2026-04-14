@@ -50,16 +50,32 @@ export async function autoAssignSuppliers(
     for (const m of mappings || []) noToProductId[m.cafe24_product_no] = m.product_id;
   }
 
-  // 2) 상품명 → product_id (Excel 등 정확 일치)
+  // 2) 상품명 → product_id (Excel 등 정확 일치 + name_aliases)
   const targetNames = [...new Set(orders.map((o) => o.product_name?.trim()).filter(Boolean) as string[])];
   const nameToProductId: Record<string, string> = {};
   if (targetNames.length > 0) {
-    const { data: products } = await sb
+    const { data: byName } = await sb
       .from("products")
       .select("id, product_name")
       .in("product_name", targetNames);
-    for (const p of products || []) {
+    for (const p of byName || []) {
       if (p.product_name) nameToProductId[p.product_name.trim()] = p.id;
+    }
+    // name_aliases 매칭 — 아직 매칭되지 않은 이름에 대해서만
+    const unresolved = targetNames.filter((n) => !nameToProductId[n]);
+    if (unresolved.length > 0) {
+      const { data: byAlias } = await sb
+        .from("products")
+        .select("id, name_aliases")
+        .overlaps("name_aliases", unresolved);
+      for (const p of byAlias || []) {
+        const aliases: string[] = p.name_aliases || [];
+        for (const a of aliases) {
+          if (unresolved.includes(a) && !nameToProductId[a]) {
+            nameToProductId[a] = p.id;
+          }
+        }
+      }
     }
   }
 
