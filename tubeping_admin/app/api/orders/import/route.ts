@@ -85,25 +85,29 @@ export async function POST(request: NextRequest) {
   const header = rows[0];
   const col: Record<string, number> = {};
 
+  // 순서 중요: 더 구체적인 alias가 위쪽에 있어야 includes 매칭에서 먼저 잡힘
+  // (예: 상품주문번호가 주문번호보다 먼저 매칭되어야 함)
   const aliases: Record<string, string[]> = {
+    order_item_id: ["상품주문번호", "주문상품번호", "item_order_id"],
     order_id: ["주문번호", "주문코드", "order_id"],
-    order_date: ["주문일", "주문일시", "날짜", "date"],
+    order_date: ["결제완료일", "주문일", "주문일시", "날짜", "date"],
     product_name: ["상품명", "상품", "product"],
     option_text: ["옵션", "option"],
-    quantity: ["수량", "qty", "quantity"],
-    price: ["단가", "상품단가", "price"],
-    amount: ["금액", "주문금액", "총금액", "amount"],
-    buyer_name: ["주문자", "주문자명", "buyer"],
-    receiver_name: ["수령자", "수령자명", "받는분", "receiver"],
-    receiver_phone: ["연락처", "수령자연락처", "전화번호", "phone"],
-    receiver_address: ["배송지", "주소", "address"],
+    quantity: ["주문수량", "수량", "qty", "quantity"],
+    price: ["판매단가", "공급단가", "단가", "상품단가", "price"],
+    amount: ["총결제금액", "결제금액", "주문금액", "총금액", "금액", "amount"],
+    buyer_name: ["구매자명", "구매자", "주문자명", "주문자", "buyer"],
+    receiver_name: ["수취인명", "수취인", "수령자명", "수령자", "받는분", "receiver"],
+    receiver_phone: ["수취인연락처", "연락처", "수령자연락처", "전화번호", "phone"],
+    receiver_address: ["배송지", "배송주소", "주소", "address"],
     receiver_zipcode: ["우편번호", "zipcode"],
-    supplier: ["공급사", "공급사명", "supplier"],
+    supplier: ["공급사명", "공급사", "supplier"],
   };
 
   for (let i = 0; i < header.length; i++) {
-    const h = header[i].toLowerCase();
+    const h = (header[i] || "").toLowerCase().replace(/\s+/g, "");
     for (const [key, aliasList] of Object.entries(aliases)) {
+      if (col[key] !== undefined) continue; // 이미 매칭된 컬럼은 덮어쓰지 않음
       if (aliasList.some((a) => h.includes(a.toLowerCase()))) {
         col[key] = i;
         break;
@@ -136,17 +140,21 @@ export async function POST(request: NextRequest) {
       continue;
     }
 
-    const orderId = cols[col.order_id] || `EXCEL-${Date.now()}-${i}`;
+    const itemOrderId = (cols[col.order_item_id] || "").toString().trim();
+    const parentOrderId = (cols[col.order_id] || "").toString().trim();
+    // 상품주문번호(line) 우선, 없으면 주문번호 사용, 그것도 없으면 fallback
+    const lineKey = itemOrderId || parentOrderId || `EXCEL-${Date.now()}-${i}`;
+    const orderId = parentOrderId || itemOrderId || `EXCEL-${Date.now()}-${i}`;
     const quantity = parseInt(cols[col.quantity] || "1", 10) || 1;
-    const price = parseInt(cols[col.price] || "0", 10) || 0;
-    const amount = parseInt(cols[col.amount] || "0", 10) || price * quantity;
+    const price = parseInt((cols[col.price] || "0").replace(/,/g, ""), 10) || 0;
+    const amount = parseInt((cols[col.amount] || "0").replace(/,/g, ""), 10) || price * quantity;
     const supplierName = cols[col.supplier] || "";
     const supplierId = supMap[supplierName] || null;
 
     const row = {
       store_id: store.id,
       cafe24_order_id: orderId,
-      cafe24_order_item_code: String(i),
+      cafe24_order_item_code: lineKey,
       order_date: cols[col.order_date] || new Date().toISOString(),
       product_name: productName,
       option_text: cols[col.option_text] || "",
