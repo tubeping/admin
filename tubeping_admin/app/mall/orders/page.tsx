@@ -390,8 +390,10 @@ export default function OrdersPage() {
               const res = await fetch("/admin/api/orders/import", { method: "POST", body: fd });
               const data = await res.json();
               if (res.ok) {
-                const msg = `${data.imported}건 등록` + (data.skipped ? ` · ${data.skipped}건 중복(스킵)` : "");
-                alert(msg);
+                const parts = [`${data.imported}건 등록`];
+                if (data.skipped) parts.push(`${data.skipped}건 중복(스킵)`);
+                if (data.autoAssigned) parts.push(`${data.autoAssigned}건 공급사 자동매칭`);
+                alert(parts.join(" · "));
                 fetchOrders();
               } else alert(`오류: ${data.error}`);
               e.target.value = "";
