@@ -160,7 +160,7 @@ export default function ProductsPage() {
 
   /* ── 카페24 가져오기 ── */
   const importFromCafe24 = async () => {
-    if (!confirm("카페24 마스터몰(shinsana)에서 자체상품코드가 있는 상품을 모두 가져옵니다.\n계속할까요?")) return;
+    if (!confirm("카페24 마스터몰(tubeping)에서 자체상품코드가 있는 상품을 모두 가져옵니다.\n계속할까요?")) return;
     setImporting(true);
     setImportResult("");
     try {

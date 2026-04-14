@@ -211,7 +211,7 @@ export default function StoresPage() {
               {stores.map((store) => {
                 const st = STATUS_CONFIG[store.status] || STATUS_CONFIG.pending;
                 const expired = isTokenExpired(store.token_expires_at);
-                const isMaster = store.mall_id === "shinsana";
+                const isMaster = store.mall_id === "tubeping";
 
                 return (
                   <tr key={store.id} className="border-b border-gray-50 last:border-0 hover:bg-gray-50/50">
