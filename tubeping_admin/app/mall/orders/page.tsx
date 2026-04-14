@@ -562,7 +562,25 @@ export default function OrdersPage() {
                           ))}
                         </div>
                       ) : (
-                        <span className="text-[11px] text-red-400 font-medium">미배정</span>
+                        <select
+                          defaultValue=""
+                          onChange={async (e) => {
+                            const supplierId = e.target.value;
+                            if (!supplierId) return;
+                            await fetch("/admin/api/orders", {
+                              method: "PATCH", headers: { "Content-Type": "application/json" },
+                              body: JSON.stringify({ ids: [o.id], updates: { supplier_id: supplierId } }),
+                            });
+                            await sb_patch(o.id, "manual");
+                            fetchOrders();
+                          }}
+                          className="text-[11px] border border-red-200 text-red-500 rounded px-1 py-0.5 max-w-[130px] bg-white cursor-pointer hover:border-red-400"
+                        >
+                          <option value="">미배정 ▾</option>
+                          {suppliers.map((s) => (
+                            <option key={s.id} value={s.id}>{s.name}</option>
+                          ))}
+                        </select>
                       )}
                     </td>
                     <td className="px-2 py-2.5 text-right text-gray-700">{o.quantity}</td>
