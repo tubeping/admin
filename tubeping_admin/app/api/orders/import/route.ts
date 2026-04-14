@@ -127,8 +127,18 @@ export async function POST(request: NextRequest) {
   const supMap: Record<string, string> = {};
   for (const s of suppliers || []) supMap[s.name] = s.id;
 
+  // 기존 등록된 (cafe24_order_id, cafe24_order_item_code) 조합을 미리 조회해 중복 판정
+  const { data: existing } = await sb
+    .from("orders")
+    .select("cafe24_order_id, cafe24_order_item_code")
+    .eq("store_id", store.id);
+  const existingKeys = new Set(
+    (existing || []).map((e) => `${e.cafe24_order_id}::${e.cafe24_order_item_code}`)
+  );
+
   // 데이터 파싱 + 저장
   let imported = 0;
+  let skipped = 0;
   const errors: { row: number; error: string }[] = [];
 
   for (let i = 1; i < rows.length; i++) {
@@ -145,6 +155,12 @@ export async function POST(request: NextRequest) {
     // 상품주문번호(line) 우선, 없으면 주문번호 사용, 그것도 없으면 fallback
     const lineKey = itemOrderId || parentOrderId || `EXCEL-${Date.now()}-${i}`;
     const orderId = parentOrderId || itemOrderId || `EXCEL-${Date.now()}-${i}`;
+
+    // 중복 체크: (주문번호 AND 상품주문번호) 둘 다 일치하면 skip (재등록 없음)
+    if (existingKeys.has(`${orderId}::${lineKey}`)) {
+      skipped++;
+      continue;
+    }
     const quantity = parseInt(cols[col.quantity] || "1", 10) || 1;
     const price = parseInt((cols[col.price] || "0").replace(/,/g, ""), 10) || 0;
     const amount = parseInt((cols[col.amount] || "0").replace(/,/g, ""), 10) || price * quantity;
@@ -170,20 +186,20 @@ export async function POST(request: NextRequest) {
       shipping_status: "pending",
     };
 
-    const { error } = await sb.from("orders").upsert(row, {
-      onConflict: "store_id,cafe24_order_id,cafe24_order_item_code",
-    });
+    const { error } = await sb.from("orders").insert(row);
 
     if (error) {
       errors.push({ row: i + 1, error: error.message });
     } else {
       imported++;
+      existingKeys.add(`${orderId}::${lineKey}`); // 같은 파일 내 중복도 방지
     }
   }
 
   return NextResponse.json({
     total: rows.length - 1,
     imported,
+    skipped,
     errors: errors.length > 0 ? errors : undefined,
   });
 }

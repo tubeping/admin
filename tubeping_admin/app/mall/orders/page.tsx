@@ -389,7 +389,11 @@ export default function OrdersPage() {
               else fd.append("store_name", sel.value.slice(5));
               const res = await fetch("/admin/api/orders/import", { method: "POST", body: fd });
               const data = await res.json();
-              if (res.ok) { alert(`${data.imported}건 등록`); fetchOrders(); } else alert(`오류: ${data.error}`);
+              if (res.ok) {
+                const msg = `${data.imported}건 등록` + (data.skipped ? ` · ${data.skipped}건 중복(스킵)` : "");
+                alert(msg);
+                fetchOrders();
+              } else alert(`오류: ${data.error}`);
               e.target.value = "";
             }} />
           </label>
