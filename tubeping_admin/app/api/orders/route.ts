@@ -54,7 +54,12 @@ export async function PATCH(request: NextRequest) {
     return NextResponse.json({ error: "ids 필수 (배열)" }, { status: 400 });
   }
 
-  const allowedFields = ["supplier_id", "shipping_status", "memo", "purchase_order_id", "is_sample", "auto_assign_status"];
+  const allowedFields = [
+    "supplier_id", "shipping_status", "memo", "purchase_order_id",
+    "is_sample", "auto_assign_status",
+    "tracking_number", "shipping_company",
+    "buyer_name", "buyer_phone", "receiver_name", "receiver_phone", "receiver_address",
+  ];
   const filtered: Record<string, unknown> = {};
   for (const key of allowedFields) {
     if (updates[key] !== undefined) filtered[key] = updates[key];
