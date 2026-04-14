@@ -68,25 +68,7 @@ export default function OrdersPage() {
   const [searchKeyword, setSearchKeyword] = useState("");
 
   // 발주 상태 탭
-  const [poTab, setPoTab] = useState<"all" | "no_po" | "has_po" | "sample" | "verify">("all");
-
-  // 검증 탭 데이터
-  type VerifyGroup = {
-    product_name: string;
-    product_id: string | null;
-    tp_code: string | null;
-    mapping_verified: boolean;
-    expected_supplier_id: string | null;
-    expected_supplier_name: string | null;
-    order_count: number;
-    current_supplier_names: string[];
-    store_names: string[];
-    status: "match" | "mismatch" | "unmatched_product" | "invalid_tp_code" | "unknown_supplier_code";
-    order_ids: string[];
-  };
-  const [verifyGroups, setVerifyGroups] = useState<VerifyGroup[]>([]);
-  const [verifyLoading, setVerifyLoading] = useState(false);
-  const [includeVerified, setIncludeVerified] = useState(false);
+  const [poTab, setPoTab] = useState<"all" | "no_po" | "has_po" | "sample">("all");
 
   const fetchOrders = useCallback(async () => {
     setLoading(true);
@@ -134,23 +116,6 @@ export default function OrdersPage() {
   const fetchSuppliers = async () => { const r = await fetch("/admin/api/suppliers?status=active"); const d = await r.json(); setSuppliers(d.suppliers || []); };
 
   useEffect(() => { fetchOrders(); fetchStores(); fetchSuppliers(); }, [fetchOrders]);
-
-  const fetchVerifyGroups = useCallback(async () => {
-    setVerifyLoading(true);
-    const params = new URLSearchParams();
-    if (filterStore) params.set("store_id", filterStore);
-    if (dateFrom) params.set("start_date", dateFrom);
-    if (dateTo) params.set("end_date", dateTo);
-    if (includeVerified) params.set("include_verified", "true");
-    const res = await fetch(`/admin/api/orders/mapping-verification?${params}`);
-    const data = await res.json();
-    setVerifyGroups(data.groups || []);
-    setVerifyLoading(false);
-  }, [filterStore, dateFrom, dateTo, includeVerified]);
-
-  useEffect(() => {
-    if (poTab === "verify") fetchVerifyGroups();
-  }, [poTab, fetchVerifyGroups]);
 
   // 카페24 주문 수집
   const handleSync = async () => {
@@ -374,7 +339,7 @@ export default function OrdersPage() {
       <div className="flex items-center gap-2 mb-3 flex-wrap">
         {/* 발주 탭 */}
         <div className="flex border border-gray-300 rounded-lg overflow-hidden mr-2">
-          {([["all", "전체"], ["no_po", "미발주"], ["has_po", "발주완료"], ["sample", "샘플"], ["verify", "검증"]] as const).map(([key, label]) => (
+          {([["all", "전체"], ["no_po", "미발주"], ["has_po", "발주완료"], ["sample", "샘플"]] as const).map(([key, label]) => (
             <button key={key} onClick={() => setPoTab(key)}
               className={`px-3 py-1.5 text-xs font-medium cursor-pointer ${poTab === key ? "bg-[#C41E1E] text-white" : "bg-white text-gray-600 hover:bg-gray-50"}`}
             >{label}{key === "no_po" && stats.noPO > 0 ? ` (${stats.noPO})` : ""}{key === "sample" && stats.sample > 0 ? ` (${stats.sample})` : ""}</button>
@@ -552,108 +517,7 @@ export default function OrdersPage() {
         )}
       </div>
 
-      {/* 검증 탭: 상품명 단위 매핑 검증 */}
-      {poTab === "verify" ? (
-        <div className="bg-white rounded-xl border border-gray-200 overflow-x-auto">
-          <div className="px-5 py-3 border-b border-gray-100 flex items-center justify-between">
-            <div>
-              <h3 className="text-sm font-semibold text-gray-900">매핑 검증</h3>
-              <p className="text-[11px] text-gray-500 mt-0.5">상품명 단위로 products.tp_code 기준 공급사 매핑이 맞는지 확인. 확인 완료 상품은 이후 탭에서 숨김.</p>
-            </div>
-            <label className="flex items-center gap-1 text-xs text-gray-600 cursor-pointer">
-              <input type="checkbox" checked={includeVerified} onChange={(e) => setIncludeVerified(e.target.checked)} className="w-3.5 h-3.5" />
-              확인 완료 상품도 보기
-            </label>
-          </div>
-          {verifyLoading ? (
-            <div className="p-12 text-center text-gray-400">불러오는 중...</div>
-          ) : verifyGroups.length === 0 ? (
-            <div className="p-12 text-center text-gray-400">검증할 항목이 없습니다.</div>
-          ) : (
-            <table className="w-full text-sm">
-              <thead className="bg-gray-50 text-[11px] text-gray-500">
-                <tr>
-                  <th className="px-3 py-2 text-left font-medium">상태</th>
-                  <th className="px-3 py-2 text-left font-medium">상품명</th>
-                  <th className="px-3 py-2 text-left font-medium">TP코드</th>
-                  <th className="px-3 py-2 text-left font-medium">판매사</th>
-                  <th className="px-3 py-2 text-center font-medium">주문수</th>
-                  <th className="px-3 py-2 text-left font-medium">현재 공급사</th>
-                  <th className="px-3 py-2 text-left font-medium">tp_code 기반 공급사</th>
-                  <th className="px-3 py-2 text-center font-medium">액션</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-100">
-                {verifyGroups.map((g) => {
-                  const statusLabel = {
-                    match: { text: "일치", cls: "bg-green-100 text-green-700" },
-                    mismatch: { text: "불일치", cls: "bg-red-100 text-red-700" },
-                    unmatched_product: { text: "상품없음", cls: "bg-gray-100 text-gray-600" },
-                    invalid_tp_code: { text: "TP코드 비정상", cls: "bg-orange-100 text-orange-700" },
-                    unknown_supplier_code: { text: "공급사 코드 미등록", cls: "bg-orange-100 text-orange-700" },
-                  }[g.status];
-                  return (
-                    <tr key={g.product_name} className="hover:bg-gray-50">
-                      <td className="px-3 py-2">
-                        <span className={`text-[11px] px-2 py-0.5 rounded-full ${statusLabel.cls}`}>{statusLabel.text}</span>
-                        {g.mapping_verified && <span className="ml-1 text-[10px] text-blue-500">확인완료</span>}
-                      </td>
-                      <td className="px-3 py-2 max-w-[320px] text-gray-900">{g.product_name}</td>
-                      <td className="px-3 py-2 text-xs font-mono text-gray-600">{g.tp_code || "-"}</td>
-                      <td className="px-3 py-2 text-xs text-gray-500">{g.store_names.join(", ") || "-"}</td>
-                      <td className="px-3 py-2 text-center text-gray-700">{g.order_count}</td>
-                      <td className="px-3 py-2 text-xs text-gray-700">{g.current_supplier_names.join(", ")}</td>
-                      <td className="px-3 py-2 text-xs text-gray-700">{g.expected_supplier_name || "-"}</td>
-                      <td className="px-3 py-2 text-center">
-                        <div className="flex items-center justify-center gap-1">
-                          {g.status === "mismatch" && g.expected_supplier_id && (
-                            <button
-                              onClick={async () => {
-                                if (!confirm(`${g.order_count}건을 '${g.expected_supplier_name}'로 재배정합니다. 계속할까요?`)) return;
-                                await fetch("/admin/api/orders/mapping-verification", {
-                                  method: "POST",
-                                  headers: { "Content-Type": "application/json" },
-                                  body: JSON.stringify({
-                                    action: "reassign",
-                                    order_ids: g.order_ids,
-                                    supplier_id: g.expected_supplier_id,
-                                    product_id: g.product_id,
-                                  }),
-                                });
-                                fetchVerifyGroups();
-                                fetchOrders();
-                              }}
-                              className="text-[11px] px-2 py-0.5 rounded bg-red-600 text-white hover:bg-red-700 cursor-pointer"
-                            >
-                              재배정
-                            </button>
-                          )}
-                          {g.product_id && !g.mapping_verified && (
-                            <button
-                              onClick={async () => {
-                                await fetch("/admin/api/orders/mapping-verification", {
-                                  method: "POST",
-                                  headers: { "Content-Type": "application/json" },
-                                  body: JSON.stringify({ action: "verify", product_id: g.product_id }),
-                                });
-                                fetchVerifyGroups();
-                              }}
-                              className="text-[11px] px-2 py-0.5 rounded bg-white border border-gray-300 text-gray-600 hover:bg-gray-50 cursor-pointer"
-                            >
-                              확인 완료
-                            </button>
-                          )}
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          )}
-        </div>
-      ) : (
-      /* 주문 리스트 */
+      {/* 주문 리스트 */}
       <div className="bg-white rounded-xl border border-gray-200 overflow-x-auto">
         {loading ? (
           <div className="p-12 text-center text-gray-400">불러오는 중...</div>
@@ -814,7 +678,6 @@ export default function OrdersPage() {
           </table>
         )}
       </div>
-      )}
 
       {/* 하단 합계 */}
       {orders.length > 0 && (
