@@ -92,10 +92,15 @@ export async function autoAssignSuppliers(
     }
   }
 
-  // tp_code에서 공급사 코드(가운데 2자) 추출 → suppliers.short_code → supplier_id
+  // tp_code에서 공급사 코드 추출 → suppliers.short_code → supplier_id
+  // 엄격 포맷: [채널 2자][공급사 2자][숫자] (예: TPDV00789, EVDV00789)
+  // 구형 포맷 (TP-0166 같은 하이픈 포함)은 공급사 코드가 없으므로 매칭 실패 처리
+  const TP_CODE_RE = /^([A-Z]{2})([A-Z]{2})\d+$/;
   const supplierIdFromTpCode = (tpCode: string): string | null => {
-    if (!tpCode || tpCode.length < 4) return null;
-    const code = tpCode.substring(2, 4).toUpperCase();
+    if (!tpCode) return null;
+    const m = tpCode.toUpperCase().match(TP_CODE_RE);
+    if (!m) return null;
+    const code = m[2];
     return codeToSupplierId[code] || null;
   };
 
