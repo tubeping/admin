@@ -133,15 +133,6 @@ export default function OrdersPage() {
     setSyncing(false);
   };
 
-  // 공급사 자동배정
-  const handleAutoAssign = async () => {
-    setSyncing(true);
-    const res = await fetch("/admin/api/orders/auto-assign", { method: "POST" });
-    const data = await res.json();
-    alert(`자동 배정: ${data.assigned}건 완료, ${data.failed}건 실패`);
-    await fetchOrders();
-    setSyncing(false);
-  };
 
   // 공급사 수동 배정
   const handleAssignSupplier = async (supplierId: string) => {
@@ -351,13 +342,6 @@ export default function OrdersPage() {
           {syncing ? "수집중..." : "주문수집"}
         </button>
 
-        {stats.noSupplier > 0 && (
-          <button onClick={handleAutoAssign} disabled={syncing}
-            className="px-3 py-1.5 bg-white border border-orange-300 text-xs font-medium text-orange-700 rounded-lg hover:bg-orange-50 cursor-pointer disabled:opacity-50">
-            공급사 자동배정 ({stats.noSupplier})
-          </button>
-        )}
-
         {stats.noPO > 0 && (
           <button onClick={handleBulkPO} disabled={syncing}
             className="px-3 py-1.5 bg-blue-600 text-white text-xs font-medium rounded-lg hover:bg-blue-700 cursor-pointer disabled:opacity-50">
@@ -405,8 +389,7 @@ export default function OrdersPage() {
               if (res.ok) {
                 const parts = [`${data.imported}건 등록`];
                 if (data.skipped) parts.push(`${data.skipped}건 중복(스킵)`);
-                if (data.autoAssigned) parts.push(`${data.autoAssigned}건 공급사 자동매칭`);
-                alert(parts.join(" · "));
+                alert(parts.join(" · ") + "\n\n공급사 매칭은 '매핑 검증' 페이지에서 진행하세요.");
                 fetchOrders();
               } else alert(`오류: ${data.error}`);
               e.target.value = "";
@@ -577,50 +560,11 @@ export default function OrdersPage() {
                       )}
                     </td>
                     <td className="px-2 py-2.5 text-xs text-gray-500 whitespace-nowrap">{o.stores?.name || "-"}</td>
-                    <td className="px-2 py-2.5 whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
+                    <td className="px-2 py-2.5 whitespace-nowrap">
                       {o.suppliers?.name ? (
-                        <span className="text-xs text-gray-700">{o.suppliers.name}
-                          {o.auto_assign_status === "auto" && <span className="text-[10px] text-green-500 ml-1">자동</span>}
-                        </span>
-                      ) : o.auto_assign_status === "review" && o.supplier_candidates && o.supplier_candidates.length > 0 ? (
-                        <div className="flex flex-col gap-0.5">
-                          <span className="text-[10px] text-orange-500 font-medium">확인필요</span>
-                          {o.supplier_candidates.map((c, ci) => (
-                            <button key={ci} onClick={async () => {
-                              await fetch("/admin/api/orders", {
-                                method: "PATCH", headers: { "Content-Type": "application/json" },
-                                body: JSON.stringify({ ids: [o.id], updates: { supplier_id: c.supplierId } }),
-                              });
-                              await sb_patch(o.id, "manual");
-                              fetchOrders();
-                            }}
-                              className="text-[11px] text-left text-blue-600 hover:underline cursor-pointer truncate max-w-[120px]"
-                              title={`${c.supplier} (${c.score}점) - ${c.productName}`}
-                            >
-                              {c.supplier} ({c.score}점)
-                            </button>
-                          ))}
-                        </div>
+                        <span className="text-xs text-gray-700">{o.suppliers.name}</span>
                       ) : (
-                        <select
-                          defaultValue=""
-                          onChange={async (e) => {
-                            const supplierId = e.target.value;
-                            if (!supplierId) return;
-                            await fetch("/admin/api/orders", {
-                              method: "PATCH", headers: { "Content-Type": "application/json" },
-                              body: JSON.stringify({ ids: [o.id], updates: { supplier_id: supplierId } }),
-                            });
-                            await sb_patch(o.id, "manual");
-                            fetchOrders();
-                          }}
-                          className="text-[11px] border border-red-200 text-red-500 rounded px-1 py-0.5 max-w-[130px] bg-white cursor-pointer hover:border-red-400"
-                        >
-                          <option value="">미배정 ▾</option>
-                          {suppliers.map((s) => (
-                            <option key={s.id} value={s.id}>{s.name}</option>
-                          ))}
-                        </select>
+                        <span className="text-[11px] text-red-400 font-medium">미배정</span>
                       )}
                     </td>
                     <td className="px-2 py-2.5 text-right text-gray-700">{o.quantity}</td>

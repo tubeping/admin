@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServiceClient } from "@/lib/supabase";
-import { autoAssignSuppliers } from "@/lib/autoAssignSuppliers";
 import * as XLSX from "xlsx";
 
 /**
@@ -199,22 +198,11 @@ export async function POST(request: NextRequest) {
     }
   }
 
-  // 신규 등록된 주문에 대해 공급사 자동 매칭 시도
-  let autoAssigned = 0;
-  if (imported > 0) {
-    try {
-      const r = await autoAssignSuppliers(sb, { storeId: store.id });
-      autoAssigned = r.assigned;
-    } catch (e) {
-      console.error("auto-assign 실패:", e);
-    }
-  }
-
+  // import 시 자동 공급사 배정은 제거됨 — 검증 탭에서만 매칭 처리
   return NextResponse.json({
     total: rows.length - 1,
     imported,
     skipped,
-    autoAssigned,
     errors: errors.length > 0 ? errors : undefined,
   });
 }
