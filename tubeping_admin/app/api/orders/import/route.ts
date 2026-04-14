@@ -13,36 +13,41 @@ import * as XLSX from "xlsx";
 export async function POST(request: NextRequest) {
   const formData = await request.formData();
   const file = formData.get("file") as File;
-  const storeName = (formData.get("store_name") as string) || "엑셀등록";
+  const storeId = formData.get("store_id") as string | null;
+  const storeName = formData.get("store_name") as string | null;
 
   if (!file) {
     return NextResponse.json({ error: "파일이 없습니다" }, { status: 400 });
   }
+  if (!storeId && !storeName) {
+    return NextResponse.json({ error: "판매사를 선택해주세요" }, { status: 400 });
+  }
 
   const sb = getServiceClient();
 
-  // 엑셀 등록용 가상 스토어 확인/생성
-  let { data: store } = await sb
-    .from("stores")
-    .select("id")
-    .eq("name", storeName)
-    .single();
-
-  if (!store) {
-    const { data: newStore } = await sb
-      .from("stores")
-      .insert({
-        mall_id: "excel_" + Date.now(),
-        name: storeName,
-        status: "active",
-      })
-      .select("id")
-      .single();
-    store = newStore;
+  // 판매사 결정: store_id 우선, 없으면 store_name으로 lookup, 없으면 가상 스토어 생성
+  let store: { id: string } | null = null;
+  if (storeId) {
+    const { data } = await sb.from("stores").select("id").eq("id", storeId).single();
+    store = data;
+    if (!store) {
+      return NextResponse.json({ error: "선택한 판매사를 찾을 수 없습니다" }, { status: 404 });
+    }
+  } else if (storeName) {
+    const { data } = await sb.from("stores").select("id").eq("name", storeName).single();
+    store = data;
+    if (!store) {
+      const { data: newStore } = await sb
+        .from("stores")
+        .insert({ mall_id: "manual_" + Date.now(), name: storeName, status: "active" })
+        .select("id")
+        .single();
+      store = newStore;
+    }
   }
 
   if (!store) {
-    return NextResponse.json({ error: "스토어 생성 실패" }, { status: 500 });
+    return NextResponse.json({ error: "스토어 확인 실패" }, { status: 500 });
   }
 
   // 파일 타입 감지: xlsx/xls는 바이너리 파싱, 그 외는 CSV

@@ -368,23 +368,53 @@ export default function OrdersPage() {
         {/* 엑셀 등록 */}
         <div className="relative ml-auto">
           <select id="import-store" className="text-xs border border-gray-300 rounded-lg px-2 py-1.5 pr-16 appearance-none bg-white" defaultValue="">
-            <option value="" disabled>판매채널</option>
-            <option value="전화주문">전화주문</option>
-            <option value="수기주문">수기주문</option>
-            {stores.filter((s) => s.status === "active").map((s) => (<option key={s.id} value={s.name}>{s.name}</option>))}
+            <option value="" disabled>판매사 선택</option>
+            <option value="name:전화주문">전화주문</option>
+            <option value="name:수기주문">수기주문</option>
+            {stores.filter((s) => s.status === "active").map((s) => (<option key={s.id} value={`id:${s.id}`}>{s.name}</option>))}
           </select>
           <label className="absolute right-0 top-0 h-full px-2 flex items-center bg-gray-100 border border-gray-300 rounded-r-lg text-xs font-medium text-gray-700 hover:bg-gray-200 cursor-pointer">
             수기등록
             <input type="file" accept=".csv,.xlsx,.xls" className="hidden" onChange={async (e) => {
               const file = e.target.files?.[0]; if (!file) return;
               const sel = document.getElementById("import-store") as HTMLSelectElement;
-              const fd = new FormData(); fd.append("file", file); fd.append("store_name", sel.value || "엑셀등록");
+              if (!sel.value) {
+                alert("판매사를 먼저 선택해주세요");
+                e.target.value = "";
+                return;
+              }
+              const fd = new FormData();
+              fd.append("file", file);
+              if (sel.value.startsWith("id:")) fd.append("store_id", sel.value.slice(3));
+              else fd.append("store_name", sel.value.slice(5));
               const res = await fetch("/admin/api/orders/import", { method: "POST", body: fd });
               const data = await res.json();
               if (res.ok) { alert(`${data.imported}건 등록`); fetchOrders(); } else alert(`오류: ${data.error}`);
               e.target.value = "";
             }} />
           </label>
+        </div>
+
+        {/* 송장 다운로드 */}
+        <div className="relative">
+          <select id="export-store" className="text-xs border border-gray-300 rounded-lg px-2 py-1.5 pr-24 appearance-none bg-white" defaultValue="">
+            <option value="" disabled>판매사 선택</option>
+            <option value="__all__">전체</option>
+            {stores.filter((s) => s.status === "active").map((s) => (<option key={s.id} value={s.id} data-name={s.name}>{s.name}</option>))}
+          </select>
+          <div className="absolute right-0 top-0 h-full flex">
+            <button onClick={() => {
+              const sel = document.getElementById("export-store") as HTMLSelectElement;
+              const storeId = sel.value;
+              if (!storeId) { alert("판매사를 선택해주세요"); return; }
+              const params = new URLSearchParams({ tracking_only: "true", format: "acts" });
+              if (storeId !== "__all__") params.set("store_id", storeId);
+              window.open(`/admin/api/orders/export?${params}`, "_blank");
+            }}
+              className="h-full px-2 flex items-center bg-green-100 border border-green-300 rounded-r-lg text-xs font-medium text-green-700 hover:bg-green-200 cursor-pointer">
+              송장↓
+            </button>
+          </div>
         </div>
 
         {/* 선택 액션 */}
