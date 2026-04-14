@@ -1,11 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServiceClient } from "@/lib/supabase";
+import * as XLSX from "xlsx";
 
 /**
- * POST /api/orders/import — 엑셀(CSV) 주문 등록 (폐쇄몰 등)
- * FormData: file (CSV), store_name (스토어명, 선택)
+ * POST /api/orders/import — 엑셀(xlsx/xls/csv) 주문 등록 (폐쇄몰 등)
+ * FormData: file, store_name (스토어명, 선택)
  *
- * CSV 컬럼 (유연 매칭):
+ * 컬럼 (유연 매칭):
  * 주문번호, 주문일, 상품명, 옵션, 수량, 단가, 주문금액,
  * 주문자, 수령자, 연락처, 배송지, 우편번호, 공급사
  */
@@ -44,19 +45,39 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "스토어 생성 실패" }, { status: 500 });
   }
 
-  const text = await file.text();
-  const lines = text
-    .replace(/^\uFEFF/, "")
-    .split("\n")
-    .map((l) => l.trim())
-    .filter((l) => l);
+  // 파일 타입 감지: xlsx/xls는 바이너리 파싱, 그 외는 CSV
+  const fileName = (file.name || "").toLowerCase();
+  const isExcel = fileName.endsWith(".xlsx") || fileName.endsWith(".xls");
 
-  if (lines.length < 2) {
+  let rows: string[][] = [];
+
+  if (isExcel) {
+    const buf = await file.arrayBuffer();
+    const wb = XLSX.read(buf, { type: "array" });
+    const sheet = wb.Sheets[wb.SheetNames[0]];
+    if (!sheet) {
+      return NextResponse.json({ error: "시트를 찾을 수 없습니다" }, { status: 400 });
+    }
+    const aoa = XLSX.utils.sheet_to_json<unknown[]>(sheet, { header: 1, defval: "", raw: false });
+    rows = aoa
+      .map((r) => (r as unknown[]).map((c) => (c == null ? "" : String(c).trim())))
+      .filter((r) => r.some((c) => c !== ""));
+  } else {
+    const text = await file.text();
+    const lines = text
+      .replace(/^\uFEFF/, "")
+      .split("\n")
+      .map((l) => l.trim())
+      .filter((l) => l);
+    rows = lines.map((l) => l.split(",").map((c) => c.replace(/"/g, "").trim()));
+  }
+
+  if (rows.length < 2) {
     return NextResponse.json({ error: "데이터가 없습니다" }, { status: 400 });
   }
 
   // 헤더 파싱
-  const header = lines[0].split(",").map((h) => h.replace(/"/g, "").trim());
+  const header = rows[0];
   const col: Record<string, number> = {};
 
   const aliases: Record<string, string[]> = {
@@ -101,8 +122,8 @@ export async function POST(request: NextRequest) {
   let imported = 0;
   const errors: { row: number; error: string }[] = [];
 
-  for (let i = 1; i < lines.length; i++) {
-    const cols = lines[i].split(",").map((c) => c.replace(/"/g, "").trim());
+  for (let i = 1; i < rows.length; i++) {
+    const cols = rows[i];
 
     const productName = cols[col.product_name] || "";
     if (!productName) {
@@ -148,7 +169,7 @@ export async function POST(request: NextRequest) {
   }
 
   return NextResponse.json({
-    total: lines.length - 1,
+    total: rows.length - 1,
     imported,
     errors: errors.length > 0 ? errors : undefined,
   });
