@@ -16,6 +16,7 @@ export async function POST(request: NextRequest) {
   const file = formData.get("file") as File;
   const storeId = formData.get("store_id") as string | null;
   const storeName = formData.get("store_name") as string | null;
+  const isSample = formData.get("is_sample") === "true";
 
   if (!file) {
     return NextResponse.json({ error: "파일이 없습니다" }, { status: 400 });
@@ -185,6 +186,7 @@ export async function POST(request: NextRequest) {
       receiver_zipcode: cols[col.receiver_zipcode] || "",
       supplier_id: supplierId,
       shipping_status: "pending",
+      is_sample: isSample,
     };
 
     const { error } = await sb.from("orders").insert(row);

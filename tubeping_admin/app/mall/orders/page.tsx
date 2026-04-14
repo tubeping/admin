@@ -373,7 +373,11 @@ export default function OrdersPage() {
         )}
 
         {/* 엑셀 등록 */}
-        <div className="relative ml-auto">
+        <label className="ml-auto flex items-center gap-1 text-xs text-gray-600 cursor-pointer select-none">
+          <input id="import-is-sample" type="checkbox" className="w-3.5 h-3.5 cursor-pointer" />
+          샘플로 등록
+        </label>
+        <div className="relative">
           <select id="import-store" className="text-xs border border-gray-300 rounded-lg px-2 py-1.5 pr-16 appearance-none bg-white" defaultValue="">
             <option value="" disabled>판매사 선택</option>
             <option value="name:전화주문">전화주문</option>
@@ -390,10 +394,12 @@ export default function OrdersPage() {
                 e.target.value = "";
                 return;
               }
+              const sampleEl = document.getElementById("import-is-sample") as HTMLInputElement;
               const fd = new FormData();
               fd.append("file", file);
               if (sel.value.startsWith("id:")) fd.append("store_id", sel.value.slice(3));
               else fd.append("store_name", sel.value.slice(5));
+              if (sampleEl?.checked) fd.append("is_sample", "true");
               const res = await fetch("/admin/api/orders/import", { method: "POST", body: fd });
               const data = await res.json();
               if (res.ok) {
