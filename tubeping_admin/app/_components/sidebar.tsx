@@ -3,12 +3,19 @@
 import { useState, useEffect, useCallback } from "react";
 import { usePathname, useRouter } from "next/navigation";
 
+type SubMenuItem = {
+  key: string;
+  label: string;
+  href: string;
+};
+
 type MenuItem = {
   key: string;
   label: string;
   icon: React.ReactNode;
   href: string;
   badge?: number;
+  children?: SubMenuItem[];
 };
 
 type MenuGroup = {
@@ -89,6 +96,10 @@ const MENU_GROUPS: MenuGroup[] = [
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" />
           </svg>
         ),
+        children: [
+          { key: "orders-manage", label: "주문관리", href: "/mall/orders" },
+          { key: "orders-lookup", label: "주문조회", href: "/mall/orders/lookup" },
+        ],
       },
       {
         key: "purchase-orders",
@@ -274,6 +285,14 @@ export default function Sidebar({ collapsed, onToggle }: SidebarProps) {
     return pathname.startsWith(href);
   };
 
+  const isChildActive = (item: MenuItem, child: SubMenuItem) => {
+    if (!item.children) return false;
+    const matches = item.children
+      .filter((c) => pathname === c.href || pathname.startsWith(c.href + "/"))
+      .sort((a, b) => b.href.length - a.href.length);
+    return matches[0]?.key === child.key;
+  };
+
   return (
     <aside
       className={`fixed top-0 left-0 h-full bg-white border-r border-gray-200 flex flex-col transition-all duration-300 z-50 ${
@@ -333,37 +352,58 @@ export default function Sidebar({ collapsed, onToggle }: SidebarProps) {
               const active = isActive(item.href);
               const badge = item.key === "cs" ? csOpen : 0;
               return (
-                <button
-                  key={item.key}
-                  onClick={() => router.push(item.href)}
-                  title={collapsed ? item.label : undefined}
-                  className={`w-full flex items-center gap-3 text-sm font-medium transition-colors cursor-pointer relative ${
-                    collapsed ? "px-0 py-3 justify-center" : "px-5 py-2.5"
-                  } ${
-                    active
-                      ? "text-[#C41E1E] bg-[#FFF0F5]"
-                      : "text-gray-600 hover:text-gray-900 hover:bg-gray-50"
-                  }`}
-                >
-                  <span className={`relative ${active ? "text-[#C41E1E]" : "text-gray-400"}`}>
-                    {item.icon}
-                    {collapsed && badge > 0 && (
-                      <span className="absolute -top-1.5 -right-1.5 min-w-[16px] h-4 bg-[#C41E1E] text-white text-[10px] font-bold rounded-full flex items-center justify-center px-1">
-                        {badge > 99 ? "99+" : badge}
-                      </span>
-                    )}
-                  </span>
-                  {!collapsed && (
-                    <>
-                      <span>{item.label}</span>
-                      {badge > 0 && (
-                        <span className="ml-auto min-w-[20px] h-5 bg-[#C41E1E] text-white text-[11px] font-bold rounded-full flex items-center justify-center px-1.5">
+                <div key={item.key}>
+                  <button
+                    onClick={() => router.push(item.href)}
+                    title={collapsed ? item.label : undefined}
+                    className={`w-full flex items-center gap-3 text-sm font-medium transition-colors cursor-pointer relative ${
+                      collapsed ? "px-0 py-3 justify-center" : "px-5 py-2.5"
+                    } ${
+                      active
+                        ? "text-[#C41E1E] bg-[#FFF0F5]"
+                        : "text-gray-600 hover:text-gray-900 hover:bg-gray-50"
+                    }`}
+                  >
+                    <span className={`relative ${active ? "text-[#C41E1E]" : "text-gray-400"}`}>
+                      {item.icon}
+                      {collapsed && badge > 0 && (
+                        <span className="absolute -top-1.5 -right-1.5 min-w-[16px] h-4 bg-[#C41E1E] text-white text-[10px] font-bold rounded-full flex items-center justify-center px-1">
                           {badge > 99 ? "99+" : badge}
                         </span>
                       )}
-                    </>
+                    </span>
+                    {!collapsed && (
+                      <>
+                        <span>{item.label}</span>
+                        {badge > 0 && (
+                          <span className="ml-auto min-w-[20px] h-5 bg-[#C41E1E] text-white text-[11px] font-bold rounded-full flex items-center justify-center px-1.5">
+                            {badge > 99 ? "99+" : badge}
+                          </span>
+                        )}
+                      </>
+                    )}
+                  </button>
+                  {!collapsed && item.children && active && (
+                    <div className="ml-[44px] border-l border-gray-200">
+                      {item.children.map((child) => {
+                        const childActive = isChildActive(item, child);
+                        return (
+                          <button
+                            key={child.key}
+                            onClick={() => router.push(child.href)}
+                            className={`w-full text-left text-[13px] py-1.5 pl-4 pr-3 transition-colors cursor-pointer border-l-2 -ml-[1px] ${
+                              childActive
+                                ? "text-[#C41E1E] border-[#C41E1E] font-semibold"
+                                : "text-gray-500 border-transparent hover:text-gray-900"
+                            }`}
+                          >
+                            {child.label}
+                          </button>
+                        );
+                      })}
+                    </div>
                   )}
-                </button>
+                </div>
               );
             })}
           </div>
