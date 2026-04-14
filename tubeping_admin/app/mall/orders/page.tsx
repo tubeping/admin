@@ -29,6 +29,7 @@ interface Order {
   purchase_order_id: string | null;
   auto_assign_status: string | null;
   supplier_candidates: { supplier: string; supplierId: string; tpCode: string; productName: string; score: number }[] | null;
+  is_sample: boolean;
   stores: { name: string; mall_id: string } | null;
   suppliers: { name: string; email: string } | null;
 }
@@ -51,6 +52,7 @@ export default function OrdersPage() {
   const [stores, setStores] = useState<Store[]>([]);
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [total, setTotal] = useState(0);
+  const [sampleCount, setSampleCount] = useState(0);
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -66,7 +68,7 @@ export default function OrdersPage() {
   const [searchKeyword, setSearchKeyword] = useState("");
 
   // 발주 상태 탭
-  const [poTab, setPoTab] = useState<"all" | "no_po" | "has_po">("all");
+  const [poTab, setPoTab] = useState<"all" | "no_po" | "has_po" | "sample">("all");
 
   const fetchOrders = useCallback(async () => {
     setLoading(true);
@@ -82,12 +84,16 @@ export default function OrdersPage() {
     if (!res.ok) { setLoading(false); return; }
     const data = await res.json();
     let list: Order[] = data.orders || [];
+    setSampleCount(list.filter((o) => o.is_sample).length);
 
     // 클라이언트 필터
     if (filterNoTracking) list = list.filter((o) => !o.tracking_number && o.shipping_status !== "cancelled" && o.shipping_status !== "delivered");
     if (filterNoSupplier || filterSupplier === "__none__") list = list.filter((o) => !o.supplier_id);
-    if (poTab === "no_po") list = list.filter((o) => !o.purchase_order_id && o.shipping_status !== "cancelled" && o.shipping_status !== "delivered");
+    if (poTab === "no_po") list = list.filter((o) => !o.purchase_order_id && o.shipping_status !== "cancelled" && o.shipping_status !== "delivered" && !o.is_sample);
     if (poTab === "has_po") list = list.filter((o) => o.purchase_order_id);
+    if (poTab === "sample") list = list.filter((o) => o.is_sample);
+    // 샘플 탭이 아닐 땐 기본적으로 샘플은 숨김 (별도 정산 대상이므로)
+    if (poTab !== "sample") list = list.filter((o) => !o.is_sample);
     if (searchKeyword) {
       const kw = searchKeyword.toLowerCase();
       list = list.filter((o) =>
@@ -216,6 +222,7 @@ export default function OrdersPage() {
     unsynced: orders.filter((o) => o.tracking_number && !o.cafe24_shipping_synced).length,
     totalQty: orders.reduce((s, o) => s + o.quantity, 0),
     totalAmount: orders.reduce((s, o) => s + o.order_amount, 0),
+    sample: sampleCount,
   };
 
   return (
@@ -332,10 +339,10 @@ export default function OrdersPage() {
       <div className="flex items-center gap-2 mb-3 flex-wrap">
         {/* 발주 탭 */}
         <div className="flex border border-gray-300 rounded-lg overflow-hidden mr-2">
-          {([["all", "전체"], ["no_po", "미발주"], ["has_po", "발주완료"]] as const).map(([key, label]) => (
+          {([["all", "전체"], ["no_po", "미발주"], ["has_po", "발주완료"], ["sample", "샘플"]] as const).map(([key, label]) => (
             <button key={key} onClick={() => setPoTab(key)}
               className={`px-3 py-1.5 text-xs font-medium cursor-pointer ${poTab === key ? "bg-[#C41E1E] text-white" : "bg-white text-gray-600 hover:bg-gray-50"}`}
-            >{label}{key === "no_po" && stats.noPO > 0 ? ` (${stats.noPO})` : ""}</button>
+            >{label}{key === "no_po" && stats.noPO > 0 ? ` (${stats.noPO})` : ""}{key === "sample" && stats.sample > 0 ? ` (${stats.sample})` : ""}</button>
           ))}
         </div>
 
@@ -635,9 +642,27 @@ export default function OrdersPage() {
                       )}
                     </td>
                     <td className="px-2 py-2.5 text-center">
-                      <span className={`text-[11px] font-medium px-1.5 py-0.5 rounded-full ${STATUS_STYLE[o.shipping_status] || STATUS_STYLE.pending}`}>
-                        {STATUS_LABEL[o.shipping_status] || o.shipping_status}
-                      </span>
+                      <div className="flex flex-col items-center gap-0.5">
+                        <span className={`text-[11px] font-medium px-1.5 py-0.5 rounded-full ${STATUS_STYLE[o.shipping_status] || STATUS_STYLE.pending}`}>
+                          {STATUS_LABEL[o.shipping_status] || o.shipping_status}
+                        </span>
+                        <button
+                          onClick={async (e) => {
+                            e.stopPropagation();
+                            const next = !o.is_sample;
+                            await fetch("/admin/api/orders", {
+                              method: "PATCH",
+                              headers: { "Content-Type": "application/json" },
+                              body: JSON.stringify({ ids: [o.id], updates: { is_sample: next } }),
+                            });
+                            fetchOrders();
+                          }}
+                          title={o.is_sample ? "샘플 해제" : "샘플로 표시"}
+                          className={`text-[10px] px-1.5 py-0.5 rounded-full border cursor-pointer ${o.is_sample ? "bg-purple-100 text-purple-700 border-purple-300" : "bg-white text-gray-400 border-gray-200 hover:border-purple-300 hover:text-purple-600"}`}
+                        >
+                          {o.is_sample ? "샘플" : "샘플?"}
+                        </button>
+                      </div>
                     </td>
                     <td className="px-3 py-2.5 text-xs text-gray-400 text-right whitespace-nowrap">{formatDate(o.order_date)}</td>
                   </tr>
