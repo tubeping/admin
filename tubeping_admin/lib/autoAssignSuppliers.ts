@@ -92,22 +92,6 @@ export async function autoAssignSuppliers(
     }
   }
 
-  // 4) 학습 캐시: 같은 상품명의 다른 주문이 이미 supplier_id를 가지면 사용
-  const learnedNameToSupplierId: Record<string, string> = {};
-  if (targetNames.length > 0) {
-    const { data: prior } = await sb
-      .from("orders")
-      .select("product_name, supplier_id")
-      .in("product_name", targetNames)
-      .not("supplier_id", "is", null);
-    for (const p of prior || []) {
-      const k = (p.product_name || "").trim();
-      if (k && p.supplier_id && !learnedNameToSupplierId[k]) {
-        learnedNameToSupplierId[k] = p.supplier_id;
-      }
-    }
-  }
-
   // tp_code에서 공급사 코드 추출 → suppliers.short_code → supplier_id
   // 포맷: [채널 2자: A-Z][공급사 2자: A-Z0-9][숫자] (예: TPDV00789, TP0H00817)
   // 구형 하이픈 포맷(TP-0166 등)은 매칭 실패
@@ -143,11 +127,7 @@ export async function autoAssignSuppliers(
         if (tpCode) supplierId = supplierIdFromTpCode(tpCode);
       }
     }
-
-    // 경로 C: 학습 캐시 — 같은 상품명의 다른 주문에 이미 배정된 supplier
-    if (!supplierId && order.product_name) {
-      supplierId = learnedNameToSupplierId[order.product_name.trim()] || null;
-    }
+    // 경로 C(학습 캐시) 제거됨 — TP코드가 단일 진실이므로 다른 주문의 배정을 참조하지 않음
 
     if (supplierId) {
       const { error } = await sb
@@ -155,9 +135,6 @@ export async function autoAssignSuppliers(
         .update({ supplier_id: supplierId, auto_assign_status: "auto" })
         .eq("id", order.id);
       if (!error) {
-        if (order.product_name) {
-          learnedNameToSupplierId[order.product_name.trim()] = supplierId;
-        }
         assigned++;
         continue;
       }
