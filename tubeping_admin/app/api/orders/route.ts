@@ -76,3 +76,31 @@ export async function PATCH(request: NextRequest) {
   }
   return NextResponse.json({ updated: data?.length || 0 });
 }
+
+/**
+ * DELETE /api/orders — 주문 일괄 삭제
+ * body: { ids: string[] }
+ * settlement_items가 FK로 참조하므로 먼저 정리한 뒤 orders 삭제
+ */
+export async function DELETE(request: NextRequest) {
+  const body = await request.json().catch(() => ({}));
+  const { ids } = body as { ids?: string[] };
+
+  if (!ids || !Array.isArray(ids) || ids.length === 0) {
+    return NextResponse.json({ error: "ids 필수 (배열)" }, { status: 400 });
+  }
+
+  const sb = getServiceClient();
+
+  // 자식 테이블(settlement_items) 먼저 삭제 — FK 위반 방지
+  const { error: siErr } = await sb.from("settlement_items").delete().in("order_id", ids);
+  if (siErr) {
+    return NextResponse.json({ error: `정산항목 삭제 실패: ${siErr.message}` }, { status: 500 });
+  }
+
+  const { data, error } = await sb.from("orders").delete().in("id", ids).select("id");
+  if (error) {
+    return NextResponse.json({ error: error.message }, { status: 500 });
+  }
+  return NextResponse.json({ deleted: data?.length || 0 });
+}

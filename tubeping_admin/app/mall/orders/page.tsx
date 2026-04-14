@@ -477,6 +477,27 @@ export default function OrdersPage() {
             >
               선택 발주 ({selected.size})
             </button>
+            <button
+              onClick={async () => {
+                if (!confirm(`선택한 ${selected.size}건을 삭제합니다.\n관련 정산 항목도 함께 삭제됩니다. 계속할까요?`)) return;
+                const res = await fetch("/admin/api/orders", {
+                  method: "DELETE",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ ids: Array.from(selected) }),
+                });
+                const data = await res.json();
+                if (res.ok) {
+                  alert(`${data.deleted}건 삭제 완료`);
+                  setSelected(new Set());
+                  fetchOrders();
+                } else {
+                  alert(`삭제 실패: ${data.error}`);
+                }
+              }}
+              className="px-3 py-1.5 bg-red-600 text-white text-xs font-medium rounded-lg hover:bg-red-700 cursor-pointer"
+            >
+              선택 삭제 ({selected.size})
+            </button>
           </>
         )}
       </div>
