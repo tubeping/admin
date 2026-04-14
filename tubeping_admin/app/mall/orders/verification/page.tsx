@@ -30,6 +30,7 @@ function today() { return new Date().toISOString().slice(0, 10); }
 function daysAgo(n: number) { return new Date(Date.now() - n * 86400000).toISOString().slice(0, 10); }
 
 type ProductOption = { id: string; product_name: string; tp_code: string | null; supplier: string | null };
+type Supplier = { id: string; name: string; short_code: string | null };
 
 export default function OrderMappingVerificationPage() {
   const [groups, setGroups] = useState<VerifyGroup[]>([]);
@@ -47,6 +48,7 @@ export default function OrderMappingVerificationPage() {
   const [productOptions, setProductOptions] = useState<ProductOption[]>([]);
   const [searching, setSearching] = useState(false);
   const [linking, setLinking] = useState(false);
+  const [suppliers, setSuppliers] = useState<Supplier[]>([]);
 
   const fetchGroups = useCallback(async () => {
     setLoading(true);
@@ -64,6 +66,7 @@ export default function OrderMappingVerificationPage() {
   useEffect(() => { fetchGroups(); }, [fetchGroups]);
   useEffect(() => {
     fetch("/admin/api/stores").then((r) => r.json()).then((d) => setStores(d.stores || []));
+    fetch("/admin/api/suppliers").then((r) => r.json()).then((d) => setSuppliers(d.suppliers || []));
   }, []);
 
   const filtered = groups.filter((g) => {
@@ -151,6 +154,13 @@ export default function OrderMappingVerificationPage() {
       }),
     });
     fetchGroups();
+  };
+
+  // TP코드에서 공급사 코드 2자 추출 (TP0H00817 → '0H', TPAR00004 → 'AR')
+  const extractSupplierCode = (tpCode: string | null): string | null => {
+    if (!tpCode) return null;
+    const m = tpCode.toUpperCase().match(/^([A-Z]{2})([A-Z0-9]{2})\d+$/);
+    return m ? m[2] : null;
   };
 
   return (

@@ -109,9 +109,9 @@ export async function autoAssignSuppliers(
   }
 
   // tp_code에서 공급사 코드 추출 → suppliers.short_code → supplier_id
-  // 엄격 포맷: [채널 2자][공급사 2자][숫자] (예: TPDV00789, EVDV00789)
-  // 구형 포맷 (TP-0166 같은 하이픈 포함)은 공급사 코드가 없으므로 매칭 실패 처리
-  const TP_CODE_RE = /^([A-Z]{2})([A-Z]{2})\d+$/;
+  // 포맷: [채널 2자: A-Z][공급사 2자: A-Z0-9][숫자] (예: TPDV00789, TP0H00817)
+  // 구형 하이픈 포맷(TP-0166 등)은 매칭 실패
+  const TP_CODE_RE = /^([A-Z]{2})([A-Z0-9]{2})\d+$/;
   const supplierIdFromTpCode = (tpCode: string): string | null => {
     if (!tpCode) return null;
     const m = tpCode.toUpperCase().match(TP_CODE_RE);

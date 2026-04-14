@@ -14,7 +14,7 @@ export const maxDuration = 120;
  * 4) product_cafe24_mappings 전체 순회하면서 각 cafe24 스토어에 custom_product_code = tp_code PUT
  */
 
-const TP_CODE_RE = /^([A-Z]{2})([A-Z]{2})\d+$/;
+const TP_CODE_RE = /^([A-Z]{2})([A-Z0-9]{2})\d+$/;
 
 export async function POST(request: NextRequest) {
   const body = await request.json().catch(() => ({}));

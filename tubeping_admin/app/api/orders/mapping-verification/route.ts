@@ -13,7 +13,7 @@ import { getServiceClient } from "@/lib/supabase";
  * include_verified=false(기본)이면 products.mapping_verified=true 는 제외
  */
 
-const TP_CODE_RE = /^([A-Z]{2})([A-Z]{2})\d+$/;
+const TP_CODE_RE = /^([A-Z]{2})([A-Z0-9]{2})\d+$/;
 
 export async function GET(request: NextRequest) {
   const sp = request.nextUrl.searchParams;
