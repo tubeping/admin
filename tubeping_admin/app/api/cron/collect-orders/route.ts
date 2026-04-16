@@ -27,7 +27,7 @@ export async function GET(request: NextRequest) {
     try {
       const res = await cafe24Fetch(
         store,
-        `/orders?start_date=${startDate}&end_date=${endDate}&limit=100&embed=items`
+        `/orders?start_date=${startDate}&end_date=${endDate}&limit=100&embed=items,receivers`
       );
 
       if (!res.ok) {
@@ -47,6 +47,7 @@ export async function GET(request: NextRequest) {
       let saved = 0;
       for (const order of orders) {
         const items = order.items || [order];
+        const receiver = order.receivers?.[0] || {};
         for (const item of items) {
           const { error } = await sb.from("orders").upsert({
             store_id: store.id,
@@ -56,16 +57,17 @@ export async function GET(request: NextRequest) {
             buyer_name: order.buyer_name || "",
             buyer_email: order.buyer_email || "",
             buyer_phone: order.buyer_cellphone || "",
-            receiver_name: order.receiver_name || "",
-            receiver_phone: order.receiver_cellphone || "",
-            receiver_address: [order.receiver_address1, order.receiver_address2].filter(Boolean).join(" "),
-            receiver_zipcode: order.receiver_zipcode || "",
+            receiver_name: receiver.name || order.receiver_name || "",
+            receiver_phone: receiver.cellphone || receiver.phone || order.receiver_cellphone || "",
+            receiver_address: [receiver.address1 || order.receiver_address1, receiver.address2 || order.receiver_address2].filter(Boolean).join(" "),
+            receiver_zipcode: receiver.zipcode || order.receiver_zipcode || "",
             cafe24_product_no: item.product_no || 0,
             product_name: item.product_name || "",
             option_text: item.option_value || "",
             quantity: item.quantity || 1,
             product_price: parseInt(item.product_price || "0", 10),
             order_amount: (item.quantity || 1) * parseInt(item.product_price || "0", 10),
+            memo: receiver.shipping_message || order.shipping_message || order.user_message || "",
             shipping_company: item.shipping_company_name || "",
             tracking_number: item.tracking_no || "",
             shipping_status: statusMap[item.order_status || order.order_status] || "pending",

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServiceClient } from "@/lib/supabase";
 import { sendMail } from "@/lib/mail";
+import { generateOrderCsv, enrichWithTpCode, POConfig } from "@/lib/purchaseOrderCsv";
 
 function generateEmailHtml(po: {
   po_number: string;
@@ -74,59 +75,6 @@ function generateEmailHtml(po: {
 </html>`;
 }
 
-interface POConfig {
-  extra_columns?: string[];
-  column_aliases?: Record<string, string>;
-  note?: string;
-}
-
-function generateOrderCsv(
-  orders: {
-    cafe24_order_id: string;
-    cafe24_order_item_code: string;
-    cafe24_product_no: number;
-    product_name: string;
-    option_text: string;
-    quantity: number;
-    receiver_name: string;
-    receiver_address: string;
-    receiver_zipcode: string;
-  }[],
-  poConfig?: POConfig | null
-) {
-  const BOM = "\uFEFF";
-  const aliases = poConfig?.column_aliases || {};
-  const extra = poConfig?.extra_columns || [];
-
-  const baseColumns = ["주문번호", "주문상품고유번호", "상품코드", "상품명", "옵션", "수량", "수령자", "배송지", "우편번호", "택배사", "배송번호"];
-  const allColumns = [...baseColumns, ...extra];
-  const header = allColumns.map((c) => aliases[c] || c).join(",");
-
-  const rows = orders.map((o) => {
-    const base = [
-      o.cafe24_order_id,
-      o.cafe24_order_item_code,
-      o.cafe24_product_no,
-      `"${(o.product_name || "").replace(/"/g, '""')}"`,
-      `"${(o.option_text || "").replace(/"/g, '""')}"`,
-      o.quantity,
-      o.receiver_name,
-      `"${(o.receiver_address || "").replace(/"/g, '""')}"`,
-      o.receiver_zipcode,
-      "",
-      "",
-    ];
-    // 추가 컬럼은 빈 값
-    const extraValues = extra.map(() => "");
-    return [...base, ...extraValues].join(",");
-  });
-
-  let csv = BOM + header + "\n" + rows.join("\n");
-  if (poConfig?.note) {
-    csv += "\n\n\"비고: " + poConfig.note.replace(/"/g, '""') + "\"";
-  }
-  return csv;
-}
 
 export async function POST(request: NextRequest) {
   const body = await request.json();
@@ -158,7 +106,7 @@ export async function POST(request: NextRequest) {
   const { data: orders } = await sb
     .from("orders")
     .select(
-      "cafe24_order_id, cafe24_order_item_code, cafe24_product_no, product_name, option_text, quantity, receiver_name, receiver_address, receiver_zipcode"
+      "store_id, cafe24_order_id, cafe24_order_item_code, cafe24_product_no, product_name, option_text, quantity, order_date, buyer_name, buyer_phone, receiver_name, receiver_phone, receiver_address, receiver_zipcode, memo, shipping_company, tracking_number"
     )
     .eq("purchase_order_id", po.id)
     .order("cafe24_order_id", { ascending: true });
@@ -190,7 +138,8 @@ export async function POST(request: NextRequest) {
   );
 
   // CSV 첨부파일 생성 (공급사별 양식 반영)
-  const csv = generateOrderCsv(orders || [], poConfig);
+  const enriched = await enrichWithTpCode(sb, orders || []);
+  const csv = generateOrderCsv(enriched, poConfig);
   const attachments = [
     {
       filename: `발주서_${po.po_number}.csv`,
@@ -199,7 +148,7 @@ export async function POST(request: NextRequest) {
     },
   ];
 
-  const subject = `[TubePing] ${po.order_date} 발주요청서 (${po.po_number})`;
+  const subject = `[${po.order_date}] 튜핑에서 ${po.suppliers?.name || "공급사"}로 보내드리는 발주 요청서 입니다.`;
   const success = await sendMail(supplierEmail, subject, html, attachments);
 
   if (success) {

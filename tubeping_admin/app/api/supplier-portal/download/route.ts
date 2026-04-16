@@ -1,12 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServiceClient } from "@/lib/supabase";
+import { generateOrderCsv, enrichWithTpCode } from "@/lib/purchaseOrderCsv";
 
 /**
- * GET /api/supplier-portal/download — 발주서 Excel 다운로드
+ * GET /api/supplier-portal/download — 발주서 CSV 다운로드
  * ?po_number=xxx&password=xxx
  *
- * CSV 형식으로 반환 (공급사가 Excel에서 열어서 송장번호 입력 후 업로드)
- * 컬럼: 주문번호, 주문상품고유번호, 상품코드, 상품명, 옵션, 수량, 수령자, 배송지, 우편번호, 택배사, 배송번호
+ * 공급사별 po_config가 있으면 해당 양식으로, 없으면 기본 양식으로 생성.
  */
 export async function GET(request: NextRequest) {
   const { searchParams } = request.nextUrl;
@@ -22,7 +22,7 @@ export async function GET(request: NextRequest) {
   // 인증
   const { data: po } = await sb
     .from("purchase_orders")
-    .select("id, access_password, access_expires_at")
+    .select("id, supplier_id, access_password, access_expires_at")
     .eq("po_number", poNumber)
     .single();
 
@@ -37,7 +37,7 @@ export async function GET(request: NextRequest) {
   const { data: orders } = await sb
     .from("orders")
     .select(
-      "cafe24_order_id, cafe24_order_item_code, cafe24_product_no, product_name, option_text, quantity, receiver_name, receiver_address, receiver_zipcode, shipping_company, tracking_number"
+      "store_id, cafe24_order_id, cafe24_order_item_code, cafe24_product_no, product_name, option_text, quantity, order_date, buyer_name, buyer_phone, receiver_name, receiver_phone, receiver_address, receiver_zipcode, memo, shipping_company, tracking_number"
     )
     .eq("purchase_order_id", po.id)
     .order("cafe24_order_id", { ascending: true });
@@ -46,26 +46,19 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "주문이 없습니다" }, { status: 404 });
   }
 
-  // BOM + CSV 생성
-  const BOM = "\uFEFF";
-  const header = "주문번호,주문상품고유번호,상품코드,상품명,옵션,수량,수령자,배송지,우편번호,택배사,배송번호";
-  const rows = orders.map((o) =>
-    [
-      o.cafe24_order_id,
-      o.cafe24_order_item_code,
-      o.cafe24_product_no,
-      `"${(o.product_name || "").replace(/"/g, '""')}"`,
-      `"${(o.option_text || "").replace(/"/g, '""')}"`,
-      o.quantity,
-      o.receiver_name,
-      `"${(o.receiver_address || "").replace(/"/g, '""')}"`,
-      o.receiver_zipcode,
-      o.shipping_company || "",
-      o.tracking_number || "",
-    ].join(",")
-  );
+  // 공급사 po_config 조회
+  let poConfig = null;
+  try {
+    const { data: supplierData } = await sb
+      .from("suppliers")
+      .select("po_config")
+      .eq("id", po.supplier_id)
+      .single();
+    poConfig = supplierData?.po_config || null;
+  } catch { /* po_config 컬럼 미존재 시 무시 */ }
 
-  const csv = BOM + header + "\n" + rows.join("\n");
+  const enriched = await enrichWithTpCode(sb, orders);
+  const csv = generateOrderCsv(enriched, poConfig);
   const filename = `발주서_${poNumber}.csv`;
 
   return new NextResponse(csv, {

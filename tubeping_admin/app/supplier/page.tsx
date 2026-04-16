@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import * as XLSX from "xlsx";
 
 interface OrderItem {
   id: string;
@@ -72,13 +73,13 @@ export default function SupplierPortal() {
 
   const handleLogin = async () => {
     const pw = password.join("");
-    if (!poNumber || pw.length !== 4) return;
+    if (pw.length !== 4) return;
 
     setLoginError("");
     const res = await fetch("/admin/api/supplier-portal/login", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ po_number: poNumber, password: pw }),
+      body: JSON.stringify({ password: pw }),
     });
 
     const data = await res.json();
@@ -89,6 +90,7 @@ export default function SupplierPortal() {
 
     setPo(data.purchase_order);
     setOrders(data.orders);
+    setPoNumber(data.purchase_order.po_number);
 
     // 기존 송장 정보 로드
     const initial: Record<string, { shipping_company: string; tracking_number: string }> = {};
@@ -114,31 +116,117 @@ export default function SupplierPortal() {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    // CSV 파싱
-    const text = await file.text();
-    const lines = text.split("\n").filter((l) => l.trim());
-    if (lines.length < 2) return;
+    // 파일 타입 감지 (.xlsx / .xls / .csv)
+    const fname = file.name.toLowerCase();
+    const isExcel = fname.endsWith(".xlsx") || fname.endsWith(".xls");
+
+    let rows: string[][] = [];
+    try {
+      if (isExcel) {
+        const buf = await file.arrayBuffer();
+        const wb = XLSX.read(buf, { type: "array" });
+        const sheet = wb.Sheets[wb.SheetNames[0]];
+        if (!sheet) {
+          alert("엑셀 시트를 찾을 수 없습니다.");
+          return;
+        }
+        const aoa = XLSX.utils.sheet_to_json<unknown[]>(sheet, { header: 1, defval: "", raw: false });
+        rows = aoa
+          .map((r) => (r as unknown[]).map((c) => (c == null ? "" : String(c).trim())))
+          .filter((r) => r.some((c) => c !== ""));
+      } else {
+        const text = await file.text();
+        const lines = text.replace(/^\uFEFF/, "").split("\n").map((l) => l.trim()).filter((l) => l);
+        rows = lines.map((l) => {
+          // 간단 CSV 파서: 따옴표 안의 쉼표 처리
+          const out: string[] = [];
+          let cur = "";
+          let inQ = false;
+          for (let i = 0; i < l.length; i++) {
+            const ch = l[i];
+            if (ch === '"') inQ = !inQ;
+            else if (ch === "," && !inQ) { out.push(cur); cur = ""; }
+            else cur += ch;
+          }
+          out.push(cur);
+          return out.map((c) => c.replace(/^"|"$/g, "").trim());
+        });
+      }
+    } catch (err) {
+      alert("파일을 읽을 수 없습니다: " + (err instanceof Error ? err.message : String(err)));
+      return;
+    }
+
+    if (rows.length < 2) {
+      alert("데이터가 없습니다.");
+      return;
+    }
+
+    // 헤더 이름으로 컬럼 위치 찾기 (공급사별 커스텀 양식 지원)
+    const header = rows[0].map((h) => h.replace(/\s+/g, "").toLowerCase());
+    const findCol = (...candidates: string[]): number => {
+      for (const c of candidates) {
+        const idx = header.indexOf(c.toLowerCase());
+        if (idx >= 0) return idx;
+      }
+      // 부분 매칭도 허용
+      for (const c of candidates) {
+        const idx = header.findIndex((h) => h.includes(c.toLowerCase()));
+        if (idx >= 0) return idx;
+      }
+      return -1;
+    };
+
+    const orderIdCol = findCol("주문번호", "order_id");
+    const itemCodeCol = findCol("주문상품고유번호", "주문상품번호", "상품주문번호", "order_item_code");
+    const companyCol = findCol("택배사", "배송사", "shipping_company");
+    const trackingCol = findCol("배송번호", "송장번호", "운송장번호", "tracking_number");
+
+    if (orderIdCol < 0 || trackingCol < 0) {
+      alert(
+        `필수 컬럼을 찾을 수 없습니다.\n헤더: ${rows[0].join(", ")}\n\n"주문번호" / "배송번호" 컬럼이 반드시 있어야 합니다.`
+      );
+      return;
+    }
 
     const updated = { ...shipments };
-    for (let i = 1; i < lines.length; i++) {
-      const cols = lines[i].split(",").map((c) => c.replace(/"/g, "").trim());
-      // 컬럼: 주문번호, 주문상품고유번호, 상품코드, 상품명, 옵션, 수량, 수령자, 배송지, 우편번호, 택배사, 배송번호
-      const orderId = cols[0];
-      const company = cols[9] || "";
-      const tracking = cols[10] || "";
+    // 중복 매칭 방지: 같은 주문에 여러 옵션이 있으면 item_code로 정확히 구분.
+    // 파일에 item_code 컬럼이 없으면 같은 주문의 미등록 항목 순서대로 배정.
+    const consumedIds = new Set<string>();
+    let matched = 0;
+    let skipped = 0;
+    for (let i = 1; i < rows.length; i++) {
+      const cols = rows[i];
+      const orderId = (cols[orderIdCol] || "").trim();
+      const itemCode = itemCodeCol >= 0 ? (cols[itemCodeCol] || "").trim() : "";
+      const tracking = (cols[trackingCol] || "").trim();
+      const company = companyCol >= 0 ? (cols[companyCol] || "").trim() : "";
+      if (!orderId || !tracking) { skipped++; continue; }
 
-      if (orderId && tracking) {
-        // 매칭되는 주문 찾기
-        const order = orders.find((o) => o.cafe24_order_id === orderId);
-        if (order) {
-          updated[order.id] = {
-            shipping_company: company || "CJ대한통운",
-            tracking_number: tracking,
-          };
-        }
+      let order: OrderItem | undefined;
+      if (itemCode) {
+        // 정확 매칭: (order_id, item_code)
+        order = orders.find(
+          (o) => o.cafe24_order_id === orderId && o.cafe24_order_item_code === itemCode
+        );
       }
+      if (!order) {
+        // fallback: 같은 주문번호 중 아직 매칭 안 된 첫 항목
+        order = orders.find(
+          (o) => o.cafe24_order_id === orderId && !consumedIds.has(o.id)
+        );
+      }
+      if (!order) { skipped++; continue; }
+
+      consumedIds.add(order.id);
+      updated[order.id] = {
+        shipping_company: company || "CJ대한통운",
+        tracking_number: tracking,
+      };
+      matched++;
     }
     setShipments(updated);
+    alert(`${matched}건 반영 (${skipped}건 건너뜀)\n\n아래 "송장번호 등록" 버튼을 눌러 최종 저장하세요.`);
   };
 
   const handleSubmitShipments = async () => {
@@ -171,7 +259,11 @@ export default function SupplierPortal() {
     });
 
     const data = await res.json();
-    alert(`송장 등록 완료: ${data.success}건 성공, ${data.failed}건 실패`);
+    if (data.failed && data.failed > 0) {
+      alert(`송장 등록 완료: ${data.success}건 성공, ${data.failed}건 실패\n실패한 항목은 다시 확인해주세요.`);
+    } else {
+      alert("송장 등록이 완료되었습니다.");
+    }
     setSubmitting(false);
 
     // 새로고침
@@ -279,10 +371,6 @@ export default function SupplierPortal() {
                 <span className="text-gray-500">총 상품수</span>
                 <p className="font-semibold mt-1">{po.total_items}건</p>
               </div>
-              <div>
-                <span className="text-gray-500">총 금액</span>
-                <p className="font-semibold mt-1">₩{po.total_amount.toLocaleString()}</p>
-              </div>
             </div>
           </div>
         )}
@@ -290,14 +378,26 @@ export default function SupplierPortal() {
         {/* 안내 + 버튼 */}
         <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 mb-6">
           <p className="text-sm font-semibold text-amber-800 mb-2">
-            거래처에서 전달 받은 엑셀 파일로 송장번호를 등록합니다.
+            송장번호를 등록해주세요.
           </p>
-          <ul className="text-xs text-amber-700 space-y-1">
-            <li>· 엑셀 첫행의 제목은 변경하실 수 없습니다.</li>
+          <ol className="text-xs text-amber-700 space-y-1 mb-2 list-decimal list-inside">
             <li>
-              · 엑셀의 <span className="text-red-600 font-medium">주문번호, 주문상품고유번호, 상품코드, 택배사, 배송번호</span> 열은 반드시 존재해야 합니다.
+              <span className="font-semibold">[발주서 다운로드]</span> 버튼으로 주문 목록 엑셀을 받습니다.
             </li>
-            <li>· 이미 등록하신 송장번호가 있으면 새로 등록한 송장번호로 업데이트 됩니다.</li>
+            <li>
+              엑셀의 <span className="text-red-600 font-medium">택배사 · 배송번호</span> 열을 채워서 저장합니다.
+            </li>
+            <li>
+              <span className="font-semibold">[엑셀송장등록]</span> 버튼으로 파일을 업로드하면 아래 표에 값이 자동으로 채워집니다.
+            </li>
+            <li>
+              표 내용을 확인한 뒤 <span className="font-semibold">[송장번호 등록]</span> 버튼을 눌러 최종 저장하세요.
+            </li>
+          </ol>
+          <ul className="text-[11px] text-amber-600 space-y-0.5 pt-2 border-t border-amber-200">
+            <li>· 엑셀 첫행(헤더) 제목은 변경하면 인식되지 않습니다.</li>
+            <li>· 필수 컬럼: <span className="font-medium">주문번호, 택배사, 배송번호</span></li>
+            <li>· 이미 등록한 송장번호가 있으면 새로 등록한 값으로 업데이트됩니다.</li>
           </ul>
         </div>
 
@@ -309,7 +409,7 @@ export default function SupplierPortal() {
             발주서 다운로드 (CSV)
           </button>
           <label className="px-4 py-2.5 bg-[#1a5c3a] text-white text-sm font-medium rounded-lg hover:bg-[#14472d] cursor-pointer">
-            엑셀파일 찾기
+            엑셀송장등록
             <input
               type="file"
               accept=".csv,.xlsx,.xls"

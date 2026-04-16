@@ -44,6 +44,7 @@ const STATUS_STYLE: Record<string, string> = {
 };
 
 function formatDate(d: string) { return d?.slice(0, 10) || ""; }
+function formatDateTime(d: string) { return d?.slice(0, 16).replace("T", " ") || ""; }
 function today() { return new Date().toISOString().slice(0, 10); }
 function daysAgo(n: number) { return new Date(Date.now() - n * 86400000).toISOString().slice(0, 10); }
 
@@ -63,12 +64,16 @@ export default function OrdersPage() {
   const [filterSupplier, setFilterSupplier] = useState("");
   const [filterNoTracking, setFilterNoTracking] = useState(false);
   const [filterNoSupplier, setFilterNoSupplier] = useState(false);
-  const [dateFrom, setDateFrom] = useState(daysAgo(60));
+  // 기본값: 이번 달 1일 ~ 오늘
+  const [dateFrom, setDateFrom] = useState(() => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-01`;
+  });
   const [dateTo, setDateTo] = useState(today());
   const [searchKeyword, setSearchKeyword] = useState("");
 
   // 발주 상태 탭
-  const [poTab, setPoTab] = useState<"all" | "no_po" | "has_po" | "sample">("all");
+  const [poTab, setPoTab] = useState<"all" | "no_po" | "has_po" | "sample">("no_po");
 
   const fetchOrders = useCallback(async () => {
     setLoading(true);
@@ -89,7 +94,7 @@ export default function OrdersPage() {
     // 클라이언트 필터
     if (filterNoTracking) list = list.filter((o) => !o.tracking_number && o.shipping_status !== "cancelled" && o.shipping_status !== "delivered");
     if (filterNoSupplier || filterSupplier === "__none__") list = list.filter((o) => !o.supplier_id);
-    if (poTab === "no_po") list = list.filter((o) => !o.purchase_order_id && o.shipping_status !== "cancelled" && o.shipping_status !== "delivered" && !o.is_sample);
+    if (poTab === "no_po") list = list.filter((o) => !o.purchase_order_id && o.shipping_status === "pending" && !o.is_sample);
     if (poTab === "has_po") list = list.filter((o) => o.purchase_order_id);
     if (poTab === "sample") list = list.filter((o) => o.is_sample);
     // 샘플 탭이 아닐 땐 기본적으로 샘플은 숨김 (별도 정산 대상이므로)
@@ -147,35 +152,44 @@ export default function OrdersPage() {
   };
 
   // 발주서 생성 + 이메일 발송
-  const handleCreatePOAndSend = async (supplierId: string) => {
-    const orderIds = Array.from(selected);
-    if (orderIds.length === 0) return;
+  // orderIdsOverride: 주어지면 그 id들로 생성 (다중 공급사 루프용), 없으면 selected 사용
+  const handleCreatePOAndSend = async (supplierId: string, orderIdsOverride?: string[]): Promise<{ ok: boolean; message: string }> => {
+    const orderIds = orderIdsOverride ?? Array.from(selected);
+    const supplier = suppliers.find((s) => s.id === supplierId);
+    if (orderIds.length === 0) return { ok: false, message: `${supplier?.name || "?"}: 대상 주문 없음` };
 
     // 이미 발주서가 있는 주문 체크
     const alreadyPO = orders.filter(o => orderIds.includes(o.id) && o.purchase_order_id);
-    if (alreadyPO.length > 0) {
-      if (!confirm(`${alreadyPO.length}건은 이미 발주서가 생성되어 있습니다.\n중복 생성하시겠습니까?`)) return;
+    if (alreadyPO.length > 0 && !orderIdsOverride) {
+      // 단일 공급사 수동 실행 경로에서만 confirm — 루프에서는 skip 안 함
+      if (!confirm(`${alreadyPO.length}건은 이미 발주서가 생성되어 있습니다.\n중복 생성하시겠습니까?`)) {
+        return { ok: false, message: "취소됨" };
+      }
     }
+
     const res = await fetch("/admin/api/purchase-orders", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ supplier_id: supplierId, order_ids: orderIds }),
     });
     const data = await res.json();
-    if (data.purchase_order) {
-      const emailRes = await fetch("/admin/api/purchase-orders/send-email", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ purchase_order_id: data.purchase_order.id }),
-      });
-      const emailData = await emailRes.json();
-      const supplier = suppliers.find((s) => s.id === supplierId);
-      alert(
-        `발주서 생성: ${data.purchase_order.po_number}\n비밀번호: ${data.purchase_order.access_password}\n공급사: ${supplier?.name || ""}\n메일: ${emailData.success ? emailData.email + " 발송완료" : "실패"}`
-      );
+
+    if (!res.ok || !data.purchase_order) {
+      return { ok: false, message: `${supplier?.name || "?"}: 발주서 생성 실패 — ${data.error || res.status}` };
     }
-    setSelected(new Set());
-    fetchOrders();
+
+    const emailRes = await fetch("/admin/api/purchase-orders/send-email", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ purchase_order_id: data.purchase_order.id }),
+    });
+    const emailData = await emailRes.json();
+    const mailMsg = emailData.success ? `메일 ${emailData.email} 발송완료` : `메일 발송 실패: ${emailData.error || "?"}`;
+
+    return {
+      ok: emailData.success,
+      message: `${supplier?.name || "?"}: ${data.purchase_order.po_number} (${orderIds.length}건) — ${mailMsg}`,
+    };
   };
 
   // 일괄 발주
@@ -184,19 +198,24 @@ export default function OrdersPage() {
       (o) => !o.tracking_number && o.supplier_id && o.shipping_status !== "cancelled" && o.shipping_status !== "delivered" && !o.purchase_order_id
     );
     if (untrackedOrders.length === 0) { alert("발주 대상 없음 (공급사 배정 + 미발주 건이 없습니다)"); return; }
-    const grouped: Record<string, string[]> = {};
-    for (const o of untrackedOrders) { if (!o.supplier_id) continue; if (!grouped[o.supplier_id]) grouped[o.supplier_id] = []; grouped[o.supplier_id].push(o.id); }
-    const results: string[] = [];
-    for (const [supplierId, orderIds] of Object.entries(grouped)) {
-      const supplier = suppliers.find((s) => s.id === supplierId);
-      const res = await fetch("/admin/api/purchase-orders", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ supplier_id: supplierId, order_ids: orderIds }) });
-      const data = await res.json();
-      if (data.purchase_order) {
-        await fetch("/admin/api/purchase-orders/send-email", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ purchase_order_id: data.purchase_order.id }) });
-        results.push(`${supplier?.name}: ${orderIds.length}건 → ${data.purchase_order.po_number}`);
-      }
-    }
-    alert(`일괄 발주 완료:\n\n${results.join("\n")}`);
+    if (!confirm(`${untrackedOrders.length}건 일괄 발주를 생성합니다.\n(창고발주 상품은 자동으로 창고로 라우팅됩니다)\n\n진행하시겠습니까?`)) return;
+
+    const res = await fetch("/admin/api/purchase-orders/bulk-create", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ order_ids: untrackedOrders.map(o => o.id) }),
+    });
+    const data = await res.json();
+    if (!res.ok) { alert(`발주 실패: ${data.error || res.status}`); return; }
+    const lines = (data.results || []).map((r: { supplier_name: string; po_number?: string; order_count: number; is_warehouse: boolean; email_sent: boolean; error?: string }) => {
+      const tag = r.is_warehouse ? "[창고] " : "";
+      const status = r.email_sent ? "✓" : "✗";
+      const err = r.error ? ` (${r.error})` : "";
+      return `${status} ${tag}${r.supplier_name}: ${r.po_number || "?"} (${r.order_count}건)${err}`;
+    });
+    let msg = `일괄 발주 결과: PO ${data.created_count}건 생성, 메일 ${data.email_success}건 발송\n\n` + lines.join("\n");
+    if (data.skipped?.length) msg += `\n\n건너뜀 ${data.skipped.length}건`;
+    alert(msg);
     fetchOrders();
   };
 
@@ -209,7 +228,7 @@ export default function OrdersPage() {
     pending: orders.filter((o) => o.shipping_status === "pending").length,
     noTracking: orders.filter((o) => !o.tracking_number && o.shipping_status !== "cancelled" && o.shipping_status !== "delivered").length,
     noSupplier: orders.filter((o) => !o.supplier_id && o.shipping_status !== "cancelled" && o.shipping_status !== "delivered").length,
-    noPO: orders.filter((o) => !o.purchase_order_id && o.shipping_status !== "cancelled" && o.shipping_status !== "delivered").length,
+    noPO: orders.filter((o) => !o.purchase_order_id && o.shipping_status === "pending" && !o.is_sample).length,
     unsynced: orders.filter((o) => o.tracking_number && !o.cafe24_shipping_synced).length,
     totalQty: orders.reduce((s, o) => s + o.quantity, 0),
     totalAmount: orders.reduce((s, o) => s + o.order_amount, 0),
@@ -220,7 +239,7 @@ export default function OrdersPage() {
     <div className="p-6">
       {/* Header */}
       <div className="flex items-center justify-between mb-5">
-        <h1 className="text-2xl font-bold text-gray-900">주문 현황</h1>
+        <h1 className="text-2xl font-bold text-gray-900">주문 집계</h1>
         <div className="text-sm text-gray-500">
           전체 <span className="font-bold text-gray-900">{stats.total}</span>건
           {stats.displayed !== stats.total && <> · 필터 <span className="font-bold text-blue-600">{stats.displayed}</span>건</>}
@@ -270,6 +289,7 @@ export default function OrdersPage() {
             <label className="text-xs text-gray-500 block mb-1">빠른선택</label>
             <div className="flex gap-1 flex-wrap">
               {[
+                { label: "이번달", from: (() => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-01`; })(), to: today() },
                 { label: "오늘", from: today(), to: today() },
                 { label: "7일", from: daysAgo(7), to: today() },
                 { label: "15일", from: daysAgo(15), to: today() },
@@ -302,7 +322,7 @@ export default function OrdersPage() {
 
           <div className="ml-auto flex gap-2">
             <button onClick={() => fetchOrders()} className="px-3 py-2 bg-gray-900 text-white text-sm rounded-lg hover:bg-gray-700 cursor-pointer">검색</button>
-            <button onClick={() => { setFilterStatus(""); setFilterStore(""); setFilterSupplier(""); setFilterNoTracking(false); setFilterNoSupplier(false); setDateFrom(daysAgo(60)); setDateTo(today()); setSearchKeyword(""); setPoTab("all"); }}
+            <button onClick={() => { const d = new Date(); setFilterStatus(""); setFilterStore(""); setFilterSupplier(""); setFilterNoTracking(false); setFilterNoSupplier(false); setDateFrom(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-01`); setDateTo(today()); setSearchKeyword(""); setPoTab("no_po"); }}
               className="px-3 py-2 border border-gray-300 text-sm rounded-lg hover:bg-gray-50 cursor-pointer">초기화</button>
           </div>
         </div>
@@ -357,10 +377,20 @@ export default function OrdersPage() {
         )}
 
         {/* 엑셀 등록 */}
-        <label className="ml-auto flex items-center gap-1 text-xs text-gray-600 cursor-pointer select-none">
-          <input id="import-is-sample" type="checkbox" className="w-3.5 h-3.5 cursor-pointer" />
-          샘플로 등록
-        </label>
+        <div className="ml-auto flex items-center gap-2">
+          <label className="flex items-center gap-1 text-xs text-gray-600 cursor-pointer select-none">
+            <input id="import-is-sample" type="checkbox" className="w-3.5 h-3.5 cursor-pointer" />
+            샘플로 등록
+          </label>
+          <label className="flex items-center gap-1 text-xs text-gray-600 cursor-pointer select-none">
+            <input id="import-is-phone" type="checkbox" className="w-3.5 h-3.5 cursor-pointer" onChange={(e) => {
+              const sel = document.getElementById("import-store") as HTMLSelectElement;
+              if (e.target.checked) sel.value = "name:전화주문";
+              else sel.value = "";
+            }} />
+            <span className="px-1.5 py-0.5 rounded bg-purple-100 text-purple-700 font-medium">전화주문</span>
+          </label>
+        </div>
         <div className="relative">
           <select id="import-store" className="text-xs border border-gray-300 rounded-lg px-2 py-1.5 pr-16 appearance-none bg-white" defaultValue="">
             <option value="" disabled>판매사 선택</option>
@@ -389,7 +419,15 @@ export default function OrdersPage() {
               if (res.ok) {
                 const parts = [`${data.imported}건 등록`];
                 if (data.skipped) parts.push(`${data.skipped}건 중복(스킵)`);
-                alert(parts.join(" · ") + "\n\n공급사 매칭은 '매핑 검증' 페이지에서 진행하세요.");
+                let msg = parts.join(" · ");
+                const mc = data.matched_columns || {};
+                const critical = ["receiver_name", "receiver_phone", "receiver_address"];
+                const missing = critical.filter((k) => !mc[k]);
+                if (missing.length > 0) {
+                  msg += `\n\n⚠ 수령인 정보 일부가 매칭 안됨: ${missing.join(", ")}\n헤더명을 확인해주세요.\n(인식 못한 헤더: ${(data.unmatched_headers || []).join(", ") || "없음"})`;
+                }
+                msg += "\n\n공급사 매칭은 '매핑 검증' 페이지에서 진행하세요.";
+                alert(msg);
                 fetchOrders();
               } else alert(`오류: ${data.error}`);
               e.target.value = "";
@@ -430,46 +468,36 @@ export default function OrdersPage() {
               {suppliers.map((s) => (<option key={s.id} value={s.id}>{s.name}</option>))}
             </select>
             <button
-              onClick={() => {
-                // 선택된 주문의 공급사 확인
+              onClick={async () => {
                 const selectedOrders = orders.filter(o => selected.has(o.id));
-                const supplierIds = [...new Set(selectedOrders.map(o => o.supplier_id).filter(Boolean))];
-
-                if (supplierIds.length === 0) {
+                const withSupplier = selectedOrders.filter(o => o.supplier_id);
+                if (withSupplier.length === 0) {
                   alert("선택한 주문에 배정된 공급사가 없습니다.\n먼저 공급사를 배정해주세요.");
                   return;
                 }
+                if (!confirm(`선택한 ${withSupplier.length}건의 발주서를 생성하고 메일을 발송합니다.\n(창고발주 상품은 자동으로 창고로 라우팅됩니다)\n\n진행하시겠습니까?`)) return;
 
-                if (supplierIds.length > 1) {
-                  // 여러 공급사 → 공급사별로 자동 분리
-                  const groups: Record<string, string[]> = {};
-                  for (const o of selectedOrders) {
-                    if (!o.supplier_id) continue;
-                    if (!groups[o.supplier_id]) groups[o.supplier_id] = [];
-                    groups[o.supplier_id].push(o.id);
-                  }
-                  const summary = Object.entries(groups).map(([sid, ids]) => {
-                    const sup = suppliers.find(s => s.id === sid);
-                    return `${sup?.name}: ${ids.length}건`;
-                  }).join("\n");
-
-                  if (!confirm(`공급사별로 발주서를 생성합니다.\n\n${summary}\n\n진행하시겠습니까?`)) return;
-
-                  (async () => {
-                    for (const [sid, ids] of Object.entries(groups)) {
-                      setSelected(new Set(ids));
-                      await handleCreatePOAndSend(sid);
-                    }
-                    setSelected(new Set());
-                    fetchOrders();
-                  })();
-                } else {
-                  // 단일 공급사
-                  const sup = suppliers.find(s => s.id === supplierIds[0]);
-                  if (confirm(`발주서를 생성하고 메일을 발송합니다.\n\n공급사: ${sup?.name}\n주문: ${selected.size}건\n\n진행하시겠습니까?`)) {
-                    handleCreatePOAndSend(supplierIds[0] as string);
-                  }
+                const res = await fetch("/admin/api/purchase-orders/bulk-create", {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ order_ids: withSupplier.map(o => o.id) }),
+                });
+                const data = await res.json();
+                if (!res.ok) {
+                  alert(`발주 실패: ${data.error || res.status}`);
+                  return;
                 }
+                const lines = (data.results || []).map((r: { supplier_name: string; po_number?: string; order_count: number; is_warehouse: boolean; email_sent: boolean; error?: string }) => {
+                  const tag = r.is_warehouse ? "[창고] " : "";
+                  const status = r.email_sent ? "✓" : "✗";
+                  const err = r.error ? ` (${r.error})` : "";
+                  return `${status} ${tag}${r.supplier_name}: ${r.po_number || "?"} (${r.order_count}건)${err}`;
+                });
+                let msg = `발주 결과: PO ${data.created_count}건 생성, 메일 ${data.email_success}건 발송\n\n` + lines.join("\n");
+                if (data.skipped?.length) msg += `\n\n건너뜀 ${data.skipped.length}건`;
+                alert(msg);
+                setSelected(new Set());
+                fetchOrders();
               }}
               className="px-3 py-1.5 bg-blue-600 text-white text-xs font-medium rounded-lg hover:bg-blue-700 cursor-pointer"
             >
@@ -547,7 +575,7 @@ export default function OrdersPage() {
                     <td className="px-2 py-2.5 text-xs text-gray-400">{stats.displayed - idx}</td>
                     <td className="px-2 py-2.5 whitespace-nowrap">
                       <div className="text-xs font-medium text-gray-900">{o.cafe24_order_id}</div>
-                      <div className="text-[11px] text-gray-400">{formatDate(o.order_date)}</div>
+                      <div className="text-[11px] text-gray-400">{formatDateTime(o.order_date)}</div>
                     </td>
                     <td className="px-2 py-2.5 max-w-[220px]">
                       <div className="text-sm text-gray-900 truncate">{o.product_name}</div>
@@ -559,7 +587,13 @@ export default function OrdersPage() {
                         <div className="text-[11px] text-gray-400">→ {o.receiver_name}</div>
                       )}
                     </td>
-                    <td className="px-2 py-2.5 text-xs text-gray-500 whitespace-nowrap">{o.stores?.name || "-"}</td>
+                    <td className="px-2 py-2.5 text-xs whitespace-nowrap">
+                      {o.stores?.name ? (
+                        o.stores.mall_id?.startsWith("manual_") || o.stores.mall_id?.startsWith("excel_")
+                          ? <span className="px-1.5 py-0.5 rounded bg-purple-100 text-purple-700 font-medium">{o.stores.name}</span>
+                          : <span className="text-gray-500">{o.stores.name}</span>
+                      ) : "-"}
+                    </td>
                     <td className="px-2 py-2.5 whitespace-nowrap">
                       {o.suppliers?.name ? (
                         <span className="text-xs text-gray-700">{o.suppliers.name}</span>
@@ -592,27 +626,9 @@ export default function OrdersPage() {
                       )}
                     </td>
                     <td className="px-2 py-2.5 text-center">
-                      <div className="flex flex-col items-center gap-0.5">
-                        <span className={`text-[11px] font-medium px-1.5 py-0.5 rounded-full ${STATUS_STYLE[o.shipping_status] || STATUS_STYLE.pending}`}>
-                          {STATUS_LABEL[o.shipping_status] || o.shipping_status}
-                        </span>
-                        <button
-                          onClick={async (e) => {
-                            e.stopPropagation();
-                            const next = !o.is_sample;
-                            await fetch("/admin/api/orders", {
-                              method: "PATCH",
-                              headers: { "Content-Type": "application/json" },
-                              body: JSON.stringify({ ids: [o.id], updates: { is_sample: next } }),
-                            });
-                            fetchOrders();
-                          }}
-                          title={o.is_sample ? "샘플 해제" : "샘플로 표시"}
-                          className={`text-[10px] px-1.5 py-0.5 rounded-full border cursor-pointer ${o.is_sample ? "bg-purple-100 text-purple-700 border-purple-300" : "bg-white text-gray-400 border-gray-200 hover:border-purple-300 hover:text-purple-600"}`}
-                        >
-                          {o.is_sample ? "샘플" : "샘플?"}
-                        </button>
-                      </div>
+                      <span className={`text-[11px] font-medium px-1.5 py-0.5 rounded-full ${STATUS_STYLE[o.shipping_status] || STATUS_STYLE.pending}`}>
+                        {STATUS_LABEL[o.shipping_status] || o.shipping_status}
+                      </span>
                     </td>
                     <td className="px-3 py-2.5 text-xs text-gray-400 text-right whitespace-nowrap">{formatDate(o.order_date)}</td>
                   </tr>

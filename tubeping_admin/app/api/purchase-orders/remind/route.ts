@@ -58,8 +58,8 @@ export async function POST(request: NextRequest) {
 
     const isViewed = po.status === "viewed";
     const subject = isViewed
-      ? `[TubePing] 송장번호 등록 요청 (${po.po_number})`
-      : `[TubePing] 발주 확인 요청 — ${daysSinceSent}일 경과 (${po.po_number})`;
+      ? `[${po.order_date}] 튜핑에서 ${supplierName}에 송장번호 등록을 요청드립니다.`
+      : `[${po.order_date}] 튜핑 발주 확인 요청 — ${daysSinceSent}일 경과 (${supplierName})`;
 
     const html = `
 <!DOCTYPE html>

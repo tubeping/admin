@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServiceClient } from "@/lib/supabase";
 
-const CLIENT_ID = process.env.CAFE24_CLIENT_ID_V2 || process.env.CAFE24_CLIENT_ID || "";
-const CLIENT_SECRET = process.env.CAFE24_CLIENT_SECRET_V2 || process.env.CAFE24_CLIENT_SECRET || "";
+const CLIENT_ID = (process.env.CAFE24_CLIENT_ID || "").trim();
+const CLIENT_SECRET = (process.env.CAFE24_CLIENT_SECRET || "").trim();
 
 /**
  * GET /api/stores/oauth/callback — 카페24 OAuth 콜백
@@ -10,11 +10,15 @@ const CLIENT_SECRET = process.env.CAFE24_CLIENT_SECRET_V2 || process.env.CAFE24_
  */
 export async function GET(request: NextRequest) {
   const code = request.nextUrl.searchParams.get("code");
-  const storeId = request.nextUrl.searchParams.get("state");
+  const stateParam = request.nextUrl.searchParams.get("state");
 
-  if (!code || !storeId) {
+  if (!code || !stateParam) {
     return new NextResponse("code 또는 state가 없습니다", { status: 400 });
   }
+
+  // wizard 모드: state = "currentStoreId|nextId,nextId,..."
+  const [storeId, ...queueParts] = stateParam.split("|");
+  const queue = queueParts.join("|"); // "id1,id2,id3" 형식
 
   const sb = getServiceClient();
 
@@ -29,32 +33,32 @@ export async function GET(request: NextRequest) {
     return new NextResponse("스토어를 찾을 수 없습니다", { status: 404 });
   }
 
-  // authorization code → token 교환
+  // authorize 단계와 정확히 동일해야 함 (카페24가 비교)
   const origin = request.nextUrl.origin;
-  const redirectUri = `${origin}/admin/api/stores/oauth/callback`;
+  const redirectUri = "https://tubepingadmin.vercel.app/admin/api/stores/oauth/callback";
 
-  const tokenRes = await fetch(
-    `https://${store.mall_id}.cafe24api.com/api/v2/oauth/token`,
-    {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/x-www-form-urlencoded",
-        Authorization: `Basic ${Buffer.from(`${CLIENT_ID}:${CLIENT_SECRET}`).toString("base64")}`,
-      },
-      body: new URLSearchParams({
-        grant_type: "authorization_code",
-        code,
-        redirect_uri: redirectUri,
-      }),
-    }
-  );
+  const tokenUrl = `https://${store.mall_id}.cafe24api.com/api/v2/oauth/token`;
+  const tokenBody = new URLSearchParams({
+    grant_type: "authorization_code",
+    code,
+    redirect_uri: redirectUri,
+  });
+  const tokenRes = await fetch(tokenUrl, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/x-www-form-urlencoded",
+      Authorization: `Basic ${Buffer.from(`${CLIENT_ID}:${CLIENT_SECRET}`).toString("base64")}`,
+    },
+    body: tokenBody,
+  });
+
+  const respText = await tokenRes.text();
 
   if (!tokenRes.ok) {
-    const err = await tokenRes.text();
-    return new NextResponse(`토큰 발급 실패: ${err}`, { status: 500 });
+    return new NextResponse(`토큰 발급 실패 [${tokenRes.status}]: ${respText}`, { status: 500 });
   }
 
-  const tokenData = await tokenRes.json();
+  const tokenData = JSON.parse(respText);
 
   // DB에 토큰 저장
   await sb
@@ -68,6 +72,18 @@ export async function GET(request: NextRequest) {
     })
     .eq("id", storeId);
 
-  // 어드민 스토어 관리 페이지로 리다이렉트
+  // wizard 모드: 큐에 다음 store가 있으면 그쪽으로 OAuth 체이닝
+  if (queue) {
+    const ids = queue.split(",").filter(Boolean);
+    if (ids.length > 0) {
+      const nextId = ids[0];
+      const restQueue = ids.slice(1).join(",");
+      const nextUrl = new URL(`${origin}/admin/api/stores/${nextId}/oauth`);
+      if (restQueue) nextUrl.searchParams.set("queue", restQueue);
+      return NextResponse.redirect(nextUrl.toString());
+    }
+  }
+
+  // 마법사 끝 또는 단일 모드 → admin으로 복귀
   return NextResponse.redirect(`${origin}/admin/system/stores?connected=${store.mall_id}`);
 }

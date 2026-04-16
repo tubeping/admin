@@ -40,12 +40,15 @@ export async function PUT(
 
   // 상품 기본 정보 수정
   const update: Record<string, unknown> = {};
-  const allowed = ["product_name", "price", "supply_price", "retail_price", "image_url", "selling", "display", "approval_status", "category", "description", "memo", "supplier", "total_stock"];
+  const allowed = ["tp_code", "product_name", "price", "supply_price", "retail_price", "image_url", "selling", "display", "approval_status", "category", "description", "memo", "supplier", "total_stock", "fulfillment_warehouse_supplier_id"];
 
   for (const key of allowed) {
     if (body[key] !== undefined) {
       if (["price", "supply_price", "retail_price", "total_stock"].includes(key)) {
         update[key] = Number(body[key]) || 0;
+      } else if (key === "tp_code") {
+        const v = String(body[key]).trim();
+        if (v) update[key] = v;
       } else {
         update[key] = body[key];
       }
@@ -59,6 +62,9 @@ export async function PUT(
       .eq("id", id);
 
     if (error) {
+      if (error.code === "23505") {
+        return NextResponse.json({ error: "이미 존재하는 자체코드입니다" }, { status: 409 });
+      }
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
   }

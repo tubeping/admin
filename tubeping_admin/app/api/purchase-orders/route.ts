@@ -28,7 +28,43 @@ export async function GET(request: NextRequest) {
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
-  return NextResponse.json({ purchase_orders: data });
+
+  // 각 PO 별 송장/카페24 연동 현황 + 판매사(스토어) 집계
+  const poIds = (data || []).map((p) => p.id);
+  const stats: Record<string, { tracked: number; synced: number; total: number }> = {};
+  const poStoreIds: Record<string, Set<string>> = {};
+  if (poIds.length > 0) {
+    const { data: orderRows } = await sb
+      .from("orders")
+      .select("purchase_order_id, store_id, tracking_number, cafe24_shipping_synced")
+      .in("purchase_order_id", poIds);
+    for (const id of poIds) { stats[id] = { tracked: 0, synced: 0, total: 0 }; poStoreIds[id] = new Set(); }
+    for (const o of orderRows || []) {
+      if (!o.purchase_order_id) continue;
+      const s = stats[o.purchase_order_id];
+      if (!s) continue;
+      s.total += 1;
+      if (o.tracking_number && String(o.tracking_number).trim()) s.tracked += 1;
+      if (o.cafe24_shipping_synced) s.synced += 1;
+      if (o.store_id) poStoreIds[o.purchase_order_id].add(o.store_id);
+    }
+  }
+
+  // 스토어 이름 조회
+  const allStoreIds = [...new Set(Object.values(poStoreIds).flatMap((s) => [...s]))];
+  const storeNames: Record<string, string> = {};
+  if (allStoreIds.length > 0) {
+    const { data: stores } = await sb.from("stores").select("id, name").in("id", allStoreIds);
+    for (const s of stores || []) storeNames[s.id] = s.name;
+  }
+
+  const enriched = (data || []).map((p) => ({
+    ...p,
+    shipment_stats: stats[p.id] || { tracked: 0, synced: 0, total: 0 },
+    store_names: [...(poStoreIds[p.id] || [])].map((sid) => storeNames[sid] || sid),
+  }));
+
+  return NextResponse.json({ purchase_orders: enriched });
 }
 
 /**
@@ -132,4 +168,40 @@ export async function POST(request: NextRequest) {
     purchase_order: po,
     assigned_orders: order_ids.length,
   });
+}
+
+/**
+ * DELETE /api/purchase-orders — 발주서 삭제
+ * body: { id: string }
+ *
+ * 1. 연결된 주문의 purchase_order_id 해제 + shipping_status를 pending으로 되돌림
+ * 2. 발주서 row 삭제
+ */
+export async function DELETE(request: NextRequest) {
+  const body = await request.json();
+  const { id } = body;
+
+  if (!id) {
+    return NextResponse.json({ error: "id 필수" }, { status: 400 });
+  }
+
+  const sb = getServiceClient();
+
+  // 연결된 주문 해제
+  await sb
+    .from("orders")
+    .update({ purchase_order_id: null, shipping_status: "pending" })
+    .eq("purchase_order_id", id);
+
+  // 발주서 삭제
+  const { error } = await sb
+    .from("purchase_orders")
+    .delete()
+    .eq("id", id);
+
+  if (error) {
+    return NextResponse.json({ error: error.message }, { status: 500 });
+  }
+
+  return NextResponse.json({ success: true });
 }

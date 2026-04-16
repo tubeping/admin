@@ -88,28 +88,47 @@ export async function POST(request: NextRequest) {
 
   // 순서 중요: 더 구체적인 alias가 위쪽에 있어야 includes 매칭에서 먼저 잡힘
   // (예: 상품주문번호가 주문번호보다 먼저 매칭되어야 함)
+  // 더 구체적인 alias가 먼저 와야 부분일치 시 우선 매칭됨
   const aliases: Record<string, string[]> = {
-    order_item_id: ["상품주문번호", "주문상품번호", "item_order_id"],
+    order_item_id: ["상품주문번호", "주문상품번호", "주문상품고유번호", "item_order_id"],
     order_id: ["주문번호", "주문코드", "order_id"],
-    order_date: ["결제완료일", "주문일", "주문일시", "날짜", "date"],
-    product_name: ["상품명", "상품", "product"],
-    option_text: ["옵션", "option"],
-    quantity: ["주문수량", "수량", "qty", "quantity"],
-    price: ["판매단가", "공급단가", "단가", "상품단가", "price"],
+    order_date: ["결제완료일", "주문일자", "주문일시", "주문일", "결제일", "날짜", "date"],
+    product_name: ["상품명", "품명", "제품명", "상품", "product"],
+    option_text: ["옵션명", "옵션", "option"],
+    quantity: ["주문수량", "구매수량", "수량", "qty", "quantity"],
+    price: ["판매단가", "공급단가", "판매가", "단가", "상품단가", "price"],
     amount: ["총결제금액", "결제금액", "주문금액", "총금액", "금액", "amount"],
+    // buyer/receiver는 반드시 receiver_* 가 먼저 매칭되어야 함 (substring 충돌 방지)
+    receiver_phone: ["수령인연락처", "수령인휴대폰", "수령인전화", "수취인연락처", "수취인휴대폰", "수령자연락처", "받는분연락처", "배송연락처", "휴대폰번호", "핸드폰번호", "수취인전화"],
+    receiver_name: ["수령인명", "수령인", "수취인명", "수취인", "수령자명", "수령자", "받는분", "받으시는분", "수신인", "고객명", "receiver"],
+    receiver_address: ["배송지주소", "배송주소", "수령지주소", "수령인주소", "수취인주소", "받는주소", "배송지", "주소", "address"],
+    receiver_zipcode: ["배송우편번호", "수령인우편번호", "우편번호", "zipcode", "zip"],
+    buyer_phone: ["구매자연락처", "주문자연락처", "구매자휴대폰", "주문자휴대폰", "buyer_phone"],
     buyer_name: ["구매자명", "구매자", "주문자명", "주문자", "buyer"],
-    receiver_name: ["수취인명", "수취인", "수령자명", "수령자", "받는분", "receiver"],
-    receiver_phone: ["수취인연락처", "연락처", "수령자연락처", "전화번호", "phone"],
-    receiver_address: ["배송지", "배송주소", "주소", "address"],
-    receiver_zipcode: ["우편번호", "zipcode"],
+    memo: ["배송메시지", "배송메세지", "배송요청사항", "요청사항", "배송시요청사항", "메모"],
     supplier: ["공급사명", "공급사", "supplier"],
   };
 
-  for (let i = 0; i < header.length; i++) {
-    const h = (header[i] || "").toLowerCase().replace(/\s+/g, "");
+  // 1차: 정확 일치 (수령인연락처 → receiver_phone처럼 더 긴 단어가 우선)
+  const headerNorm = header.map((h) => (h || "").toLowerCase().replace(/[\s\-_()]/g, ""));
+  for (let i = 0; i < headerNorm.length; i++) {
+    const h = headerNorm[i];
     for (const [key, aliasList] of Object.entries(aliases)) {
-      if (col[key] !== undefined) continue; // 이미 매칭된 컬럼은 덮어쓰지 않음
-      if (aliasList.some((a) => h.includes(a.toLowerCase()))) {
+      if (col[key] !== undefined) continue;
+      if (aliasList.some((a) => a.toLowerCase().replace(/[\s\-_()]/g, "") === h)) {
+        col[key] = i;
+        break;
+      }
+    }
+  }
+  // 2차: 부분 일치 (정확 일치로 못 잡은 컬럼 대상)
+  for (let i = 0; i < headerNorm.length; i++) {
+    const h = headerNorm[i];
+    // 이 위치가 이미 다른 key에 점유됐으면 skip
+    if (Object.values(col).includes(i)) continue;
+    for (const [key, aliasList] of Object.entries(aliases)) {
+      if (col[key] !== undefined) continue;
+      if (aliasList.some((a) => h.includes(a.toLowerCase().replace(/[\s\-_()]/g, "")))) {
         col[key] = i;
         break;
       }
@@ -179,10 +198,12 @@ export async function POST(request: NextRequest) {
       product_price: price,
       order_amount: amount,
       buyer_name: cols[col.buyer_name] || "",
+      buyer_phone: cols[col.buyer_phone] || "",
       receiver_name: cols[col.receiver_name] || "",
       receiver_phone: cols[col.receiver_phone] || "",
       receiver_address: cols[col.receiver_address] || "",
       receiver_zipcode: cols[col.receiver_zipcode] || "",
+      memo: cols[col.memo] || "",
       supplier_id: supplierId,
       shipping_status: "pending",
       is_sample: isSample,
@@ -199,10 +220,19 @@ export async function POST(request: NextRequest) {
   }
 
   // import 시 자동 공급사 배정은 제거됨 — 검증 탭에서만 매칭 처리
+  // 디버깅: 어떤 헤더가 어떤 필드로 매칭됐는지 응답에 포함
+  const matchedColumns: Record<string, string> = {};
+  for (const [key, idx] of Object.entries(col)) {
+    matchedColumns[key] = header[idx];
+  }
+  const unmatchedHeaders = header.filter((_, i) => !Object.values(col).includes(i));
+
   return NextResponse.json({
     total: rows.length - 1,
     imported,
     skipped,
+    matched_columns: matchedColumns,
+    unmatched_headers: unmatchedHeaders,
     errors: errors.length > 0 ? errors : undefined,
   });
 }

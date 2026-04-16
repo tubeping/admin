@@ -21,7 +21,7 @@ export async function GET(request: NextRequest) {
   let query = sb
     .from("orders")
     .select(
-      "*, stores:store_id(name, mall_id), suppliers:supplier_id(name, email)",
+      "*, stores:store_id(name, mall_id), suppliers:supplier_id(name, email), purchase_orders:purchase_order_id(id, po_number, status, sent_at, viewed_at, completed_at)",
       { count: "exact" }
     )
     .order("order_date", { ascending: false })

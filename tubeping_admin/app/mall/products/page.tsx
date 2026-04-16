@@ -44,10 +44,17 @@ type Product = {
   memo: string | null;
   supplier: string | null;
   total_stock: number;
+  fulfillment_warehouse_supplier_id: string | null;
   created_at: string;
   updated_at: string;
   product_cafe24_mappings: Cafe24Mapping[];
   product_variants: Variant[];
+};
+
+type SupplierOption = {
+  id: string;
+  name: string;
+  short_code: string | null;
 };
 
 type Store = {
@@ -65,6 +72,7 @@ type SortDir = "asc" | "desc";
 type ViewMode = "table" | "card";
 type SellingFilter = "all" | "selling" | "not_selling";
 type DisplayFilter = "all" | "displayed" | "hidden";
+type FulfillmentFilter = "all" | "direct" | "warehouse";
 
 /* ══════════════════════════════════════════
    유틸
@@ -132,6 +140,7 @@ export default function ProductsPage() {
   const [keyword, setKeyword] = useState("");
   const [sellingFilter, setSellingFilter] = useState<SellingFilter>("all");
   const [displayFilter, setDisplayFilter] = useState<DisplayFilter>("all");
+  const [fulfillmentFilter, setFulfillmentFilter] = useState<FulfillmentFilter>("all");
   const [catFilter, setCatFilter] = useState("");
   const [offset, setOffset] = useState(0);
   const [total, setTotal] = useState(0);
@@ -139,6 +148,8 @@ export default function ProductsPage() {
 
   const [selectedProducts, setSelectedProducts] = useState<Set<string>>(new Set());
   const [showAssignDropdown, setShowAssignDropdown] = useState(false);
+  const [showFulfillmentDropdown, setShowFulfillmentDropdown] = useState(false);
+  const [warehouses, setWarehouses] = useState<SupplierOption[]>([]);
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
   const [showAddModal, setShowAddModal] = useState(false);
 
@@ -157,6 +168,7 @@ export default function ProductsPage() {
   const [bulkSyncing, setBulkSyncing] = useState(false);
 
   const assignDropdownRef = useRef<HTMLDivElement>(null);
+  const fulfillmentDropdownRef = useRef<HTMLDivElement>(null);
 
   /* ── 카페24 가져오기 ── */
   const importFromCafe24 = async () => {
@@ -194,25 +206,36 @@ export default function ProductsPage() {
     if (displayFilter === "hidden") baseParams.set("display", "F");
 
     try {
-      let allProducts: Product[] = [];
-      let currentOffset = 0;
       const pageSize = 200;
 
-      while (true) {
-        const params = new URLSearchParams(baseParams);
-        params.set("limit", String(pageSize));
-        params.set("offset", String(currentOffset));
+      // 첫 페이지로 total 파악
+      const firstParams = new URLSearchParams(baseParams);
+      firstParams.set("limit", String(pageSize));
+      firstParams.set("offset", "0");
+      const firstRes = await fetch(`/admin/api/products?${firstParams}`);
+      if (!firstRes.ok) throw new Error(`API 오류 (${firstRes.status})`);
+      const firstData = await firstRes.json();
+      const totalCount: number = firstData.total || 0;
+      setTotal(totalCount);
+      const firstBatch: Product[] = firstData.products || [];
 
-        const res = await fetch(`/admin/api/products?${params}`);
-        if (!res.ok) throw new Error(`API 오류 (${res.status})`);
-        const data = await res.json();
-        const fetched: Product[] = data.products || [];
-        allProducts = allProducts.concat(fetched);
-        setTotal(data.total || allProducts.length);
-
-        if (fetched.length < pageSize) break;
-        currentOffset += pageSize;
+      // 나머지 페이지 동시 fetch
+      const remainingPages: number[] = [];
+      for (let off = pageSize; off < totalCount; off += pageSize) {
+        remainingPages.push(off);
       }
+      const restBatches = await Promise.all(
+        remainingPages.map(async (off) => {
+          const p = new URLSearchParams(baseParams);
+          p.set("limit", String(pageSize));
+          p.set("offset", String(off));
+          const r = await fetch(`/admin/api/products?${p}`);
+          if (!r.ok) throw new Error(`API 오류 (${r.status})`);
+          const d = await r.json();
+          return (d.products || []) as Product[];
+        })
+      );
+      const allProducts = firstBatch.concat(...restBatches);
 
       setProducts(allProducts);
       setOffset(allProducts.length);
@@ -246,6 +269,18 @@ export default function ProductsPage() {
   useEffect(() => {
     fetchProducts(true);
     fetchStores();
+    // 창고 공급사 로드 — short_code 가 "WH"로 시작하는 공급사만 창고 후보로 노출
+    (async () => {
+      try {
+        const res = await fetch("/admin/api/suppliers?status=active");
+        if (!res.ok) return;
+        const data = await res.json();
+        const whs = (data.suppliers || [])
+          .filter((s: SupplierOption) => (s.short_code || "").toUpperCase().startsWith("WH"))
+          .map((s: SupplierOption) => ({ id: s.id, name: s.name, short_code: s.short_code }));
+        setWarehouses(whs);
+      } catch { /* ignore */ }
+    })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -254,6 +289,9 @@ export default function ProductsPage() {
     function handleClickOutside(e: MouseEvent) {
       if (assignDropdownRef.current && !assignDropdownRef.current.contains(e.target as Node)) {
         setShowAssignDropdown(false);
+      }
+      if (fulfillmentDropdownRef.current && !fulfillmentDropdownRef.current.contains(e.target as Node)) {
+        setShowFulfillmentDropdown(false);
       }
     }
     document.addEventListener("mousedown", handleClickOutside);
@@ -271,7 +309,13 @@ export default function ProductsPage() {
     else { setSortKey(key); setSortDir("asc"); }
   };
 
-  const sortedProducts = [...products].sort((a, b) => {
+  const filteredProducts = products.filter((p) => {
+    if (fulfillmentFilter === "warehouse") return !!p.fulfillment_warehouse_supplier_id;
+    if (fulfillmentFilter === "direct") return !p.fulfillment_warehouse_supplier_id;
+    return true;
+  });
+
+  const sortedProducts = [...filteredProducts].sort((a, b) => {
     const dir = sortDir === "asc" ? 1 : -1;
     switch (sortKey) {
       case "tp_code": return dir * a.tp_code.localeCompare(b.tp_code);
@@ -361,7 +405,26 @@ export default function ProductsPage() {
     } catch { /* skip */ }
   };
 
-  /* ── 상품 삭제 ── */
+  /* ── 대량 출고 방식 변경 ── */
+  const bulkSetFulfillment = async (warehouseId: string | null) => {
+    const label = warehouseId ? "창고발주" : "직배송";
+    if (!confirm(`${selectedProducts.size}개 상품을 "${label}"(으)로 변경합니다.\n계속할까요?`)) return;
+    for (const pid of selectedProducts) {
+      try {
+        await fetch(`/admin/api/products/${pid}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ fulfillment_warehouse_supplier_id: warehouseId }),
+        });
+      } catch { /* skip */ }
+    }
+    const count = selectedProducts.size;
+    setSelectedProducts(new Set());
+    setShowFulfillmentDropdown(false);
+    fetchProducts(true);
+    alert(`${count}개 상품을 "${label}"(으)로 변경했습니다.`);
+  };
+
   /* ── 대량 동기화 ── */
   const bulkSync = async () => {
     if (!confirm(`${selectedProducts.size}개 상품을 매핑된 카페24 스토어에 동기화합니다.\n계속할까요?`)) return;
@@ -507,7 +570,7 @@ export default function ProductsPage() {
               </svg>
               <input
                 type="text"
-                placeholder="상품명 또는 TP코드 검색..."
+                placeholder="상품명 / TP코드 / 공급사명 / 공급사코드(예: ar) 검색..."
                 value={keyword}
                 onChange={(e) => setKeyword(e.target.value)}
                 onKeyDown={(e) => e.key === "Enter" && handleSearch()}
@@ -535,6 +598,15 @@ export default function ProductsPage() {
               <option value="selling">판매중</option>
               <option value="not_selling">미판매</option>
             </select>
+            <select
+              value={fulfillmentFilter}
+              onChange={(e) => setFulfillmentFilter(e.target.value as FulfillmentFilter)}
+              className="px-3 py-2.5 text-sm border border-gray-200 rounded-lg text-gray-600 focus:outline-none cursor-pointer"
+            >
+              <option value="all">전체 출고</option>
+              <option value="direct">직배송</option>
+              <option value="warehouse">창고발주</option>
+            </select>
             <button onClick={handleSearch} className="px-4 py-2.5 bg-[#C41E1E] text-white text-sm font-medium rounded-lg hover:bg-[#A01818] cursor-pointer">검색</button>
 
             <div className="flex-1" />
@@ -545,6 +617,37 @@ export default function ProductsPage() {
                 <span className="text-xs text-gray-500 font-medium">{selectedProducts.size}개 선택</span>
                 <button onClick={() => bulkUpdateSelling("T")} className="px-3 py-2 text-xs font-medium text-green-700 bg-green-50 border border-green-200 rounded-lg hover:bg-green-100 cursor-pointer">판매 전환</button>
                 <button onClick={() => bulkUpdateSelling("F")} className="px-3 py-2 text-xs font-medium text-gray-600 bg-gray-50 border border-gray-200 rounded-lg hover:bg-gray-100 cursor-pointer">미판매 전환</button>
+                <div className="relative" ref={fulfillmentDropdownRef}>
+                  <button onClick={() => setShowFulfillmentDropdown(!showFulfillmentDropdown)} className="px-3 py-2 text-xs font-medium text-amber-700 bg-amber-50 border border-amber-200 rounded-lg hover:bg-amber-100 cursor-pointer">출고 방식</button>
+                  {showFulfillmentDropdown && (
+                    <div className="absolute right-0 top-10 w-64 bg-white rounded-xl border border-gray-200 shadow-lg z-50 py-2">
+                      <p className="px-4 py-2 text-xs text-gray-500 font-semibold border-b border-gray-100 mb-1">출고 방식 변경</p>
+                      {warehouses.length === 0 ? (
+                        <p className="px-4 py-3 text-xs text-gray-400 text-center">
+                          등록된 창고 공급사가 없습니다.<br />
+                          (공급사 short_code를 WH로 지정)
+                        </p>
+                      ) : warehouses.map((w) => (
+                        <button
+                          key={w.id}
+                          onClick={() => bulkSetFulfillment(w.id)}
+                          className="w-full px-4 py-2.5 text-left hover:bg-amber-50 flex items-center justify-between cursor-pointer"
+                        >
+                          <div>
+                            <p className="text-sm font-medium text-gray-900">창고발주: {w.name}</p>
+                            {w.short_code && <p className="text-[10px] text-gray-400">{w.short_code}</p>}
+                          </div>
+                        </button>
+                      ))}
+                      <div className="border-t border-gray-100 mt-1 pt-1">
+                        <button onClick={() => bulkSetFulfillment(null)} className="w-full px-4 py-2.5 text-left hover:bg-gray-50 cursor-pointer">
+                          <p className="text-sm font-medium text-gray-700">직배송으로 해제</p>
+                          <p className="text-[10px] text-gray-400">tp_code 공급사가 직접 출고</p>
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
                 <button onClick={bulkSync} disabled={bulkSyncing} className="px-3 py-2 text-xs font-medium text-blue-700 bg-blue-50 border border-blue-200 rounded-lg hover:bg-blue-100 disabled:opacity-50 cursor-pointer flex items-center gap-1">
                   {bulkSyncing ? (
                     <svg className="w-3 h-3 animate-spin" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>
@@ -642,8 +745,12 @@ export default function ProductsPage() {
                     const mr = marginNum(p.price, p.supply_price);
                     const mappings = p.product_cafe24_mappings || [];
 
+                    const warehouse = p.fulfillment_warehouse_supplier_id
+                      ? warehouses.find((w) => w.id === p.fulfillment_warehouse_supplier_id)
+                      : null;
+
                     return (
-                      <tr key={p.id} className={`border-b border-gray-50 last:border-0 hover:bg-gray-50/50 transition-colors ${isSelected ? "bg-[#FFF0F5]/40" : ""}`}>
+                      <tr key={p.id} className={`border-b border-gray-50 last:border-0 hover:bg-gray-50/50 transition-colors ${isSelected ? "bg-[#FFF0F5]/40" : warehouse ? "bg-amber-50/40" : ""}`}>
                         <td className="px-4 py-2.5">
                           <input type="checkbox" checked={isSelected} onChange={() => toggleSelect(p.id)} className="rounded border-gray-300 cursor-pointer" />
                         </td>
@@ -664,7 +771,17 @@ export default function ProductsPage() {
                           {p.category && <p className="text-[10px] text-gray-400 mt-0.5">{p.category}</p>}
                         </td>
                         <td className="px-3 py-2.5">
-                          <span className="text-xs text-gray-600">{p.supplier || "-"}</span>
+                          {warehouse ? (
+                            <div className="flex flex-col gap-0.5">
+                              <span className="inline-flex items-center gap-1 text-[10px] font-bold text-amber-800 bg-amber-100 border border-amber-200 px-2 py-0.5 rounded w-fit">
+                                <svg className="w-2.5 h-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 8h14M5 8l-1 4m1-4l1-4h12l1 4M5 12h14M5 12l-1 8h16l-1-8" /></svg>
+                                창고발주
+                              </span>
+                              <span className="text-xs text-gray-700">{p.supplier || "-"}</span>
+                            </div>
+                          ) : (
+                            <span className="text-xs text-gray-600">{p.supplier || "-"}</span>
+                          )}
                         </td>
                         <td className="px-3 py-2.5 text-sm text-gray-900 text-right font-medium">{formatPrice(p.price)}</td>
                         <td className="px-3 py-2.5 text-sm text-gray-500 text-right">{formatPrice(p.supply_price)}</td>
@@ -1048,6 +1165,7 @@ function EditProductModal({
   onSaved: () => void;
 }) {
   const [form, setForm] = useState({
+    tp_code: product.tp_code,
     product_name: product.product_name,
     price: String(product.price),
     supply_price: String(product.supply_price),
@@ -1061,7 +1179,27 @@ function EditProductModal({
     memo: product.memo || "",
   });
   const [variants, setVariants] = useState<Variant[]>(product.product_variants || []);
+  const [fullMappings, setFullMappings] = useState<Cafe24Mapping[]>(product.product_cafe24_mappings || []);
   const [deleteVariantIds, setDeleteVariantIds] = useState<string[]>([]);
+
+  // 모달 열릴 때 detail full data fetch (list query는 슬림화돼서 detail 컬럼이 없음)
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(`/admin/api/products/${product.id}`);
+        if (!res.ok) return;
+        const data = await res.json();
+        const p = data.product;
+        if (cancelled || !p) return;
+        if (p.product_variants) setVariants(p.product_variants);
+        if (p.product_cafe24_mappings) setFullMappings(p.product_cafe24_mappings);
+        if (p.description !== undefined) setForm((f) => ({ ...f, description: p.description || "" }));
+        if (p.memo !== undefined) setForm((f) => ({ ...f, memo: p.memo || "" }));
+      } catch { /* ignore */ }
+    })();
+    return () => { cancelled = true; };
+  }, [product.id]);
   const [activeTab, setActiveTab] = useState<"basic" | "variants" | "mappings">("basic");
   const [saving, setSaving] = useState(false);
   const [syncing, setSyncing] = useState(false);
@@ -1133,7 +1271,7 @@ function EditProductModal({
     ? (((Number(form.price) - Number(form.supply_price)) / Number(form.price)) * 100).toFixed(1)
     : "0";
 
-  const mappings = product.product_cafe24_mappings || [];
+  const mappings = fullMappings;
 
   return (
     <div className="fixed inset-0 z-50 flex">
@@ -1210,6 +1348,9 @@ function EditProductModal({
           {/* ── 기본 정보 탭 ── */}
           {activeTab === "basic" && (
             <div className="space-y-4">
+              <Field label="자체코드 (TP코드)">
+                <input type="text" value={form.tp_code} onChange={(e) => setForm({ ...form, tp_code: e.target.value })} placeholder="예: TP-0001" className="w-full px-3 py-2.5 text-sm font-mono border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#C41E1E]/20 focus:border-[#C41E1E]" />
+              </Field>
               <Field label="상품명">
                 <input type="text" value={form.product_name} onChange={(e) => setForm({ ...form, product_name: e.target.value })} className="w-full px-3 py-2.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#C41E1E]/20 focus:border-[#C41E1E]" />
               </Field>
@@ -1279,6 +1420,15 @@ function EditProductModal({
               <Field label="관리자 메모">
                 <textarea value={form.memo} onChange={(e) => setForm({ ...form, memo: e.target.value })} rows={2} className="w-full px-3 py-2.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#C41E1E]/20 focus:border-[#C41E1E]" />
               </Field>
+
+              {product.fulfillment_warehouse_supplier_id && (
+                <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg">
+                  <p className="text-xs font-semibold text-amber-800">창고발주 상품</p>
+                  <p className="text-[11px] text-amber-600 mt-0.5">
+                    주문 시 지정된 창고로 발주가 나갑니다. 출고 설정 변경은 상품 목록의 <span className="font-semibold">[출고 방식]</span> 대량 버튼을 이용하세요.
+                  </p>
+                </div>
+              )}
             </div>
           )}
 

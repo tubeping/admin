@@ -1,9 +1,19 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
+import * as XLSX from "xlsx";
 
 interface Store { id: string; name: string; mall_id: string; status: string; }
 interface Supplier { id: string; name: string; email: string; }
+
+interface PurchaseOrderRef {
+  id: string;
+  po_number: string;
+  status: string;
+  sent_at: string | null;
+  viewed_at: string | null;
+  completed_at: string | null;
+}
 
 interface Order {
   id: string;
@@ -23,26 +33,72 @@ interface Order {
   shipping_status: string;
   shipping_company: string;
   tracking_number: string;
+  purchase_order_id: string | null;
   supplier_id: string | null;
   memo: string | null;
   stores: { name: string; mall_id: string } | null;
   suppliers: { name: string; email: string } | null;
+  purchase_orders: PurchaseOrderRef | null;
 }
 
-const STATUS_LABEL: Record<string, string> = {
-  pending: "대기", ordered: "발주완료", shipping: "배송중", delivered: "배송완료",
-  cancelled: "취소", refunded: "환불완료", returned: "반품완료", exchanged: "교환완료",
+// 취소/환불/반품/교환 같은 종결 상태는 그대로 표시, 그 외는 발주 진행 단계를 derive
+const TERMINAL_LABEL: Record<string, string> = {
+  cancelled: "취소",
+  refunded: "환불완료",
+  returned: "반품완료",
+  exchanged: "교환완료",
 };
 const STATUS_STYLE: Record<string, string> = {
-  pending: "bg-gray-100 text-gray-600", ordered: "bg-blue-100 text-blue-700",
-  shipping: "bg-yellow-100 text-yellow-700", delivered: "bg-green-100 text-green-700",
-  cancelled: "bg-red-100 text-red-600",
-  refunded: "bg-red-50 text-red-600 border border-red-200",
-  returned: "bg-orange-50 text-orange-600 border border-orange-200",
-  exchanged: "bg-purple-50 text-purple-600 border border-purple-200",
+  발주대기: "bg-gray-100 text-gray-600",
+  발주완료: "bg-blue-100 text-blue-700",
+  수신완료: "bg-indigo-100 text-indigo-700",
+  송장미입력: "bg-yellow-100 text-yellow-700",
+  송장입력: "bg-green-100 text-green-700",
+  취소: "bg-red-100 text-red-600",
+  환불완료: "bg-red-50 text-red-600 border border-red-200",
+  반품완료: "bg-orange-50 text-orange-600 border border-orange-200",
+  교환완료: "bg-purple-50 text-purple-600 border border-purple-200",
 };
 
+function deriveOrderStatus(o: Order): string {
+  // 종결 상태(취소/환불/반품/교환)는 그대로
+  if (TERMINAL_LABEL[o.shipping_status]) return TERMINAL_LABEL[o.shipping_status];
+  const hasTracking = !!(o.tracking_number && o.tracking_number.trim());
+  // 송장 입력 완료
+  if (hasTracking) return "송장입력";
+  const po = o.purchase_orders;
+  // 발주 자체 안 됨
+  if (!o.purchase_order_id || !po) return "발주대기";
+  // 발주 완료 단계(완료되었지만 이 주문은 송장 없음 = 송장미입력 경고)
+  if (po.status === "completed" || po.completed_at) return "송장미입력";
+  // 공급사가 열람했지만 아직 송장 등록 안 함
+  if (po.viewed_at || po.status === "viewed") return "수신완료";
+  // 발주메일 발송만 된 상태
+  if (po.sent_at || po.status === "sent") return "발주완료";
+  return "발주대기";
+}
+
+const STATUS_OPTIONS = ["발주대기", "발주완료", "수신완료", "송장미입력", "송장입력", "취소", "환불완료", "반품완료", "교환완료"];
+
 const SHIPPING_COMPANIES = ["CJ대한통운", "한진택배", "롯데택배", "우체국택배", "로젠택배", "경동택배", "대신택배"];
+
+const TRACKING_URLS: Record<string, string> = {
+  "CJ대한통운": "https://trace.cjlogistics.com/next/tracking.html?wblNo=",
+  "한진택배": "https://www.hanjin.com/kor/CMS/DeliveryMgr/WaybillResult.do?mession=&wblnumText2=&schLang=KR&wblnumText=",
+  "롯데택배": "https://www.lotteglogis.com/home/reservation/tracking/link498?InvNo=",
+  "우체국택배": "https://service.epost.go.kr/trace.RetrieveDomRi498Track.postal?sid1=",
+  "로젠택배": "https://www.ilogen.com/web/personal/trace/",
+  "경동택배": "https://kdexp.com/newDeliverySearch.kd?barcode=",
+  "대신택배": "https://www.ds3211.co.kr/freight/internalFreightSearch.ht?billno=",
+};
+
+function getTrackingUrl(company: string, trackingNo: string): string | null {
+  if (!company || !trackingNo) return null;
+  for (const [name, url] of Object.entries(TRACKING_URLS)) {
+    if (company.includes(name) || name.includes(company)) return url + trackingNo;
+  }
+  return null;
+}
 
 function formatDate(d: string) { return d?.slice(0, 10) || ""; }
 function today() { return new Date().toISOString().slice(0, 10); }
@@ -58,7 +114,10 @@ export default function OrdersLookupPage() {
   const [filterStore, setFilterStore] = useState("");
   const [filterSupplier, setFilterSupplier] = useState("");
   const [filterStatus, setFilterStatus] = useState("");
-  const [dateFrom, setDateFrom] = useState(daysAgo(90));
+  const [dateFrom, setDateFrom] = useState(() => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-01`;
+  });
   const [dateTo, setDateTo] = useState(today());
   const [searchKeyword, setSearchKeyword] = useState("");
   const [appliedKeyword, setAppliedKeyword] = useState("");
@@ -112,7 +171,6 @@ export default function OrdersLookupPage() {
   const fetchOrders = useCallback(async () => {
     setLoading(true);
     const params = new URLSearchParams();
-    if (filterStatus) params.set("status", filterStatus);
     if (filterStore) params.set("store_id", filterStore);
     if (filterSupplier) params.set("supplier_id", filterSupplier);
     if (dateFrom) params.set("start_date", dateFrom);
@@ -123,6 +181,11 @@ export default function OrdersLookupPage() {
     if (!res.ok) { setLoading(false); return; }
     const data = await res.json();
     let list: Order[] = data.orders || [];
+
+    // 상태 필터는 derived status 기준 (client-side)
+    if (filterStatus) {
+      list = list.filter((o) => deriveOrderStatus(o) === filterStatus);
+    }
 
     if (appliedKeyword) {
       const kw = appliedKeyword.toLowerCase().trim();
@@ -189,7 +252,7 @@ export default function OrdersLookupPage() {
             <label className="block text-xs text-gray-500 mb-1">주문상태</label>
             <select value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)} className="w-full border border-gray-200 rounded px-2 py-1.5 text-sm">
               <option value="">전체</option>
-              {Object.entries(STATUS_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+              {STATUS_OPTIONS.map((s) => <option key={s} value={s}>{s}</option>)}
             </select>
           </div>
           <div>
@@ -212,6 +275,58 @@ export default function OrdersLookupPage() {
           />
           <button onClick={handleSearch} className="px-4 py-2 bg-gray-900 text-white text-sm rounded hover:bg-black cursor-pointer">검색</button>
           <button onClick={handleReset} className="px-4 py-2 bg-white border border-gray-200 text-sm rounded hover:bg-gray-50 cursor-pointer">초기화</button>
+          <button
+            onClick={() => {
+              if (orders.length === 0) { alert("다운로드할 주문이 없습니다."); return; }
+              const rows = orders.map((o) => ({
+                "주문일": formatDate(o.order_date),
+                "판매처": o.stores?.name || "",
+                "주문번호": o.cafe24_order_id,
+                "주문상품고유번호": o.cafe24_order_item_code,
+                "상품명": o.product_name,
+                "옵션": o.option_text || "",
+                "수량": o.quantity,
+                "구매자": o.buyer_name,
+                "구매자연락처": o.buyer_phone || "",
+                "수령인": o.receiver_name,
+                "수령인연락처": o.receiver_phone || "",
+                "배송지": o.receiver_address || "",
+                "배송메시지": o.memo || "",
+                "공급사": o.suppliers?.name || "",
+                "상태": deriveOrderStatus(o),
+                "택배사": o.shipping_company || "",
+                "송장번호": o.tracking_number || "",
+              }));
+              const ws = XLSX.utils.json_to_sheet(rows);
+              const wb = XLSX.utils.book_new();
+              XLSX.utils.book_append_sheet(wb, ws, "주문조회");
+              const storeName = stores.find((s) => s.id === filterStore)?.name || "전체";
+              XLSX.writeFile(wb, `주문조회_${storeName}_${dateFrom}~${dateTo}.xlsx`);
+            }}
+            disabled={orders.length === 0}
+            className="px-4 py-2 bg-green-700 text-white text-sm rounded hover:bg-green-800 cursor-pointer disabled:opacity-50"
+          >
+            엑셀 다운로드 ({orders.length})
+          </button>
+          <button
+            onClick={() => {
+              if (orders.length === 0) { alert("다운로드할 주문이 없습니다."); return; }
+              const rows = orders.map((o) => ({
+                "상품주문번호": o.cafe24_order_item_code || o.cafe24_order_id || "",
+                "택배사": o.shipping_company || "",
+                "송장번호": o.tracking_number || "",
+              }));
+              const ws = XLSX.utils.json_to_sheet(rows);
+              const wb = XLSX.utils.book_new();
+              XLSX.utils.book_append_sheet(wb, ws, "발송처리");
+              const storeName = stores.find((s) => s.id === filterStore)?.name || "전체";
+              XLSX.writeFile(wb, `acts_송장_발송처리_${storeName}_${today()}.xlsx`);
+            }}
+            disabled={orders.length === 0}
+            className="px-4 py-2 bg-purple-700 text-white text-sm rounded hover:bg-purple-800 cursor-pointer disabled:opacity-50"
+          >
+            ACTs 양식
+          </button>
         </div>
       </div>
 
@@ -265,12 +380,12 @@ export default function OrdersLookupPage() {
                       <div className="text-xs text-gray-500 line-clamp-2">{o.receiver_address || "-"}</div>
                     </td>
                     <td className="px-3 py-2 whitespace-nowrap">
-                      <span className={`text-xs px-2 py-0.5 rounded ${STATUS_STYLE[o.shipping_status] || "bg-gray-100 text-gray-600"}`}>
-                        {STATUS_LABEL[o.shipping_status] || o.shipping_status}
-                      </span>
-                      {o.memo && (
-                        <div className="text-[10px] text-gray-400 mt-1 max-w-[140px] line-clamp-2" title={o.memo}>{o.memo}</div>
-                      )}
+                      {(() => {
+                        const label = deriveOrderStatus(o);
+                        const cls = STATUS_STYLE[label] || "bg-gray-100 text-gray-600";
+                        const full = label === "발주완료" ? "발주완료 (발주메일 발송)" : label;
+                        return <span className={`text-xs px-2 py-0.5 rounded ${cls}`}>{full}</span>;
+                      })()}
                     </td>
                     <td className="px-3 py-2 whitespace-nowrap text-gray-700">{o.suppliers?.name || "-"}</td>
                     <td className="px-3 py-2 text-xs">
@@ -288,11 +403,27 @@ export default function OrdersLookupPage() {
                           </div>
                         </div>
                       ) : o.tracking_number ? (
-                        <button onClick={() => setTrackingEdit((p) => ({ ...p, [o.id]: { company: o.shipping_company || "CJ대한통운", number: o.tracking_number } }))}
-                          className="text-left hover:bg-gray-100 rounded px-1 py-0.5 cursor-pointer">
-                          <div className="text-gray-500">{o.shipping_company}</div>
-                          <div className="font-mono text-gray-700">{o.tracking_number}</div>
-                        </button>
+                        <div className="flex flex-col gap-0.5">
+                          <div className="flex items-center gap-1">
+                            {(() => {
+                              const url = getTrackingUrl(o.shipping_company, o.tracking_number);
+                              return url ? (
+                                <a href={url} target="_blank" rel="noopener noreferrer"
+                                  className="text-blue-600 hover:text-blue-800 hover:underline font-mono text-xs"
+                                  title="배송추적 열기">
+                                  {o.tracking_number}
+                                </a>
+                              ) : (
+                                <span className="font-mono text-gray-700 text-xs">{o.tracking_number}</span>
+                              );
+                            })()}
+                            <button onClick={() => setTrackingEdit((p) => ({ ...p, [o.id]: { company: o.shipping_company || "CJ대한통운", number: o.tracking_number } }))}
+                              className="text-gray-400 hover:text-gray-600 cursor-pointer" title="수정">
+                              <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>
+                            </button>
+                          </div>
+                          <span className="text-[10px] text-gray-400">{o.shipping_company}</span>
+                        </div>
                       ) : (
                         <button onClick={() => setTrackingEdit((p) => ({ ...p, [o.id]: { company: "CJ대한통운", number: "" } }))}
                           className="text-[11px] text-blue-600 hover:underline cursor-pointer">+ 송장 입력</button>

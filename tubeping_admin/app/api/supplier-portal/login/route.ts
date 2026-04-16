@@ -20,11 +20,12 @@ export async function POST(request: NextRequest) {
   const sb = getServiceClient();
 
   // 비밀번호로 발주서 조회 (발주번호 있으면 함께 매칭)
+  // completed도 허용 — 이미 송장 등록 완료해도 접속 기간 내엔 재열람 가능해야 함
   let query = sb
     .from("purchase_orders")
     .select("*, suppliers:supplier_id(name, email)")
     .eq("access_password", password)
-    .in("status", ["draft", "sent", "viewed"]);
+    .in("status", ["draft", "sent", "viewed", "completed"]);
 
   if (po_number) {
     query = query.eq("po_number", po_number);

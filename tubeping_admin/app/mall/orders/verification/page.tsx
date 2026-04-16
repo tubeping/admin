@@ -5,7 +5,10 @@ import { useState, useEffect, useCallback } from "react";
 interface Store { id: string; name: string; }
 
 type VerifyGroup = {
+  key: string;
   product_name: string;
+  cafe24_product_no: number | null;
+  store_id: string;
   product_id: string | null;
   tp_code: string | null;
   mapping_verified: boolean;
@@ -168,7 +171,7 @@ export default function OrderMappingVerificationPage() {
       <div className="flex items-center justify-between mb-4">
         <div>
           <h1 className="text-xl font-bold text-gray-900">매핑 검증</h1>
-          <p className="text-xs text-gray-500 mt-1">상품명 단위로 products.tp_code 기반 공급사 매핑이 올바른지 검증합니다. 확인 완료한 상품은 기본적으로 숨김 처리됩니다.</p>
+          <p className="text-xs text-gray-500 mt-1">자체코드(custom_product_code = tp_code) 기반 매핑을 검증합니다. 매핑되지 않은 주문은 수동으로 상품을 연결하세요.</p>
         </div>
         <span className="text-sm text-gray-500">총 {counts.total}개 상품</span>
       </div>
@@ -239,7 +242,7 @@ export default function OrderMappingVerificationPage() {
                 {filtered.map((g) => {
                   const meta = STATUS_META[g.status];
                   return (
-                    <tr key={g.product_name} className="hover:bg-gray-50">
+                    <tr key={g.key} className="hover:bg-gray-50">
                       <td className="px-3 py-2 whitespace-nowrap">
                         <span className={`text-[11px] px-2 py-0.5 rounded-full ${meta.cls}`}>{meta.text}</span>
                         {g.mapping_verified && <div className="text-[10px] text-blue-500 mt-0.5">확인완료</div>}

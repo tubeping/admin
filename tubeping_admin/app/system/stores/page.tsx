@@ -24,6 +24,7 @@ const STATUS_CONFIG: Record<string, { label: string; cls: string }> = {
   building: { label: "구축중", cls: "bg-blue-100 text-blue-700" },
   paused: { label: "중지", cls: "bg-gray-100 text-gray-500" },
   error: { label: "오류", cls: "bg-red-100 text-red-700" },
+  auth_failed: { label: "재인증 필요", cls: "bg-red-100 text-red-700" },
 };
 
 function formatNumber(n: number): string {
@@ -99,6 +100,25 @@ export default function StoresPage() {
     window.location.href = `/admin/api/stores/${id}/oauth`;
   };
 
+  const handleOAuthAll = () => {
+    // 마스터(tubeping) + 더미(manual_/excel_/test_) 제외, 나머지 전부 큐에 (스코프 갱신/강제 재인증 용도)
+    const targets = stores.filter((s) => {
+      if (s.mall_id === "tubeping") return false;
+      if (s.mall_id.startsWith("manual_") || s.mall_id.startsWith("excel_") || s.mall_id.startsWith("test_")) return false;
+      return true;
+    });
+    if (targets.length === 0) {
+      alert("OAuth 가능한 sub-mall이 없습니다.");
+      return;
+    }
+    if (!confirm(`${targets.length}개 sub-mall을 순차로 OAuth합니다. 카페24에서 권한 승인 화면이 ${targets.length}번 뜹니다. 진행할까요?`)) return;
+    const [first, ...rest] = targets.map((s) => s.id);
+    const url = rest.length > 0
+      ? `/admin/api/stores/${first}/oauth?queue=${rest.join(",")}`
+      : `/admin/api/stores/${first}/oauth`;
+    window.location.href = url;
+  };
+
   const isTokenExpired = (expiresAt: string | null) => {
     if (!expiresAt) return true;
     return new Date(expiresAt).getTime() < Date.now();
@@ -115,12 +135,20 @@ export default function StoresPage() {
           <h1 className="text-2xl font-bold text-gray-900">카페24 스토어 관리</h1>
           <p className="text-sm text-gray-500 mt-1">유튜버별 카페24 계정을 연동하고 관리합니다.</p>
         </div>
-        <button
-          onClick={() => setShowAdd(true)}
-          className="px-4 py-2.5 bg-[#C41E1E] text-white text-sm font-medium rounded-lg hover:bg-[#A01818] cursor-pointer"
-        >
-          + 스토어 추가
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={handleOAuthAll}
+            className="px-4 py-2.5 bg-white border border-[#C41E1E] text-[#C41E1E] text-sm font-medium rounded-lg hover:bg-red-50 cursor-pointer"
+          >
+            전체 일괄 OAuth
+          </button>
+          <button
+            onClick={() => setShowAdd(true)}
+            className="px-4 py-2.5 bg-[#C41E1E] text-white text-sm font-medium rounded-lg hover:bg-[#A01818] cursor-pointer"
+          >
+            + 스토어 추가
+          </button>
+        </div>
       </div>
 
       {/* 성공 메시지 */}
@@ -256,21 +284,21 @@ export default function StoresPage() {
                     </td>
                     <td className="px-6 py-3.5 text-center">
                       <div className="flex items-center justify-center gap-2">
-                        {store.status === "pending" || (store.access_token && expired) ? (
+                        {store.status === "pending" || store.status === "auth_failed" || (store.access_token && expired) ? (
                           <button
                             onClick={() => handleOAuth(store.id)}
                             className="text-xs font-medium text-white bg-[#C41E1E] px-3 py-1.5 rounded-lg hover:bg-[#A01818] cursor-pointer"
                           >
                             연동하기
                           </button>
-                        ) : store.status === "active" && !expired ? (
+                        ) : (
                           <button
                             onClick={() => handleOAuth(store.id)}
                             className="text-xs text-gray-500 hover:text-[#C41E1E] cursor-pointer"
                           >
                             재연동
                           </button>
-                        ) : null}
+                        )}
                         {!isMaster && (
                           <button
                             onClick={() => handleDelete(store.id, store.name)}

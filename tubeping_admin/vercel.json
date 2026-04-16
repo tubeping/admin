@@ -8,5 +8,10 @@
       "path": "/admin/api/cron/collect-orders",
       "schedule": "0 22 * * *"
     }
-  ]
+  ],
+  "functions": {
+    "app/api/products/import-cafe24/route.ts": {
+      "maxDuration": 300
+    }
+  }
 }
