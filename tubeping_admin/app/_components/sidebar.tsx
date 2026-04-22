@@ -71,6 +71,11 @@ const MENU_GROUPS: MenuGroup[] = [
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
           </svg>
         ),
+        children: [
+          { key: "outreach-youtube", label: "유튜브", href: "/sales/outreach" },
+          { key: "outreach-instagram", label: "인스타", href: "/sales/outreach/instagram" },
+          { key: "outreach-suppliers", label: "공급사", href: "/sales/outreach/suppliers" },
+        ],
       },
     ],
   },
@@ -86,6 +91,10 @@ const MENU_GROUPS: MenuGroup[] = [
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
           </svg>
         ),
+        children: [
+          { key: "products-list", label: "상품 목록", href: "/mall/products" },
+          { key: "stock-alerts", label: "품절/재입고 알림", href: "/mall/stock-alerts" },
+        ],
       },
       {
         key: "orders",
@@ -99,7 +108,10 @@ const MENU_GROUPS: MenuGroup[] = [
         children: [
           { key: "orders-manage", label: "주문집계", href: "/mall/orders" },
           { key: "orders-lookup", label: "주문조회", href: "/mall/orders/lookup" },
+          { key: "orders-phone", label: "전화주문 입력", href: "/mall/orders/phone" },
+          { key: "orders-payment", label: "입금확인", href: "/mall/orders/payment" },
           { key: "orders-verification", label: "매핑 검증", href: "/mall/orders/verification" },
+          { key: "supplier-holidays", label: "공급사 휴무", href: "/mall/supplier-holidays" },
         ],
       },
       {
