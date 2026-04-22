@@ -98,7 +98,7 @@ export default function ReviewEditor({ review, onSave, onBack }: Props) {
             <h1 className="text-2xl font-bold text-gray-900">
               {review.title ? "리뷰 수정" : "새 리뷰 작성"}
             </h1>
-            <p className="text-sm text-gray-500 mt-1">🦉 리뷰엉이</p>
+            <p className="text-sm text-gray-500 mt-1">🦉 리뷰양이</p>
           </div>
         </div>
         <div className="flex items-center gap-2">

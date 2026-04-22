@@ -34,18 +34,19 @@ interface Cafe24OrderItem {
 }
 
 function mapCafe24Status(status: string): string {
+  // N10(상품준비중)·N20(배송준비중)은 신용카드 PG 결제가 이미 완료된 상태 → admin에서 '입금완료'(ordered)로 반영
+  // 수동 입금확인 대상은 N00(입금전) + 전화주문(EXCEL-*)만
+  if (!status) return "pending";
+  // 모든 C*(취소 계열: C00/C10/C34/C40/C48 등), R*(반품 계열)은 cancelled
+  if (status.startsWith("C") || status.startsWith("R")) return "cancelled";
   const map: Record<string, string> = {
-    N00: "pending",      // 입금전
-    N10: "pending",      // 상품준비중
+    N00: "pending",      // 입금전 — 유일한 pending 대상
+    N10: "ordered",      // 상품준비중 (결제완료)
     N20: "ordered",      // 배송준비중
     N21: "ordered",      // 배송대기
     N22: "shipping",     // 배송보류
     N30: "shipping",     // 배송중
     N40: "delivered",    // 배송완료
-    C00: "cancelled",    // 취소
-    C10: "cancelled",    // 취소처리중
-    C34: "cancelled",    // 취소완료
-    R00: "cancelled",    // 반품
   };
   return map[status] || "pending";
 }
@@ -133,14 +134,16 @@ async function fetchOrdersFromStore(
     const data = await res.json();
     const page = data.orders || [];
     if (page.length === 0) break;
-    // 입금 전(N00) 주문 제외 — 결제 완료된 것만 수집
+    // 입금전(N00)만 제외 — 결제 전 주문은 admin에 저장하지 않음.
+    // 취소(C00/C10/C34)·반품(R00)은 포함해서 수집 → 기존 admin 주문의 상태를 'cancelled'로 동기화.
+    // (신규 주문이 C* 상태로 들어온 경우는 saveOrdersToDb에서 기존 row 없으면 insert 생략)
+    const EXCLUDE_STATUS = new Set(["N00"]);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const paid = page.filter((o: any) => {
+    const valid = page.filter((o: any) => {
       const items = o.items || [o];
-      // 모든 아이템이 N00이면 입금전 → 제외. 하나라도 N00이 아니면 포함.
-      return items.some((it: { order_status?: string }) => (it.order_status || o.order_status || "") !== "N00");
+      return items.some((it: { order_status?: string }) => !EXCLUDE_STATUS.has(it.order_status || o.order_status || ""));
     });
-    all.push(...paid);
+    all.push(...valid);
     if (page.length < pageLimit) break;
     offset += pageLimit;
     if (offset > 5000) break; // 안전장치
@@ -211,7 +214,10 @@ async function saveOrdersToDb(
         shipping_company: item.shipping_company_name || "",
         tracking_number: item.tracking_no || "",
         shipped_at: item.tracking_no ? (item.shipped_date || new Date().toISOString()) : null,
-        shipping_status: mapCafe24Status(item.order_status || order.order_status || ""),
+        // cancel_date가 있으면 order_status와 무관하게 cancelled 강제 (C* 외 코드 커버)
+        shipping_status: (item.cancel_date || order.cancel_date)
+          ? "cancelled"
+          : mapCafe24Status(item.order_status || order.order_status || ""),
       });
     }
   }
@@ -239,25 +245,40 @@ async function saveOrdersToDb(
 
   // 보호 로직:
   //  1) tracking_number: 카페24가 빈 값이면 기존 값 유지
-  //  2) shipping_status: 이미 shipping/delivered 면 pending 등으로 다운그레이드 금지
-  const NON_DOWNGRADE = new Set(["shipping", "delivered"]);
+  //  2) shipping_status: ordered/shipping/delivered → pending 다운그레이드 금지
+  //     단, cancelled는 항상 override (카페24에서 취소 확정된 경우 admin에도 반영)
+  //  3) 신규 insert인데 cancelled면 skip — 취소된 주문을 새로 DB에 넣지 않음
+  const NON_DOWNGRADE = new Set(["ordered", "shipping", "delivered"]);
+  const filteredRows: typeof rows = [];
   for (const r of rows) {
     const key = `${r.cafe24_order_id}::${r.cafe24_order_item_code || ""}`;
     const existing = existingMap.get(key);
-    if (!existing) continue; // 신규 insert
+    if (!existing) {
+      // 신규인데 cancelled면 insert 스킵
+      if (r.shipping_status === "cancelled") continue;
+      filteredRows.push(r);
+      continue;
+    }
     if (!r.tracking_number && existing.tracking_number) {
       r.tracking_number = existing.tracking_number;
       if (!r.shipping_company && existing.shipping_company) r.shipping_company = existing.shipping_company;
       if (!r.shipped_at && existing.shipped_at) r.shipped_at = existing.shipped_at;
     }
-    if (existing.shipping_status && NON_DOWNGRADE.has(existing.shipping_status) && !NON_DOWNGRADE.has(r.shipping_status)) {
+    // cancelled는 항상 override (기존 ordered/shipping/delivered여도 cancelled로 바꿈)
+    if (r.shipping_status !== "cancelled"
+        && existing.shipping_status
+        && NON_DOWNGRADE.has(existing.shipping_status)
+        && !NON_DOWNGRADE.has(r.shipping_status)) {
       r.shipping_status = existing.shipping_status;
     }
+    filteredRows.push(r);
   }
+
+  if (filteredRows.length === 0) return { saved: 0 };
 
   const { data, error } = await sb
     .from("orders")
-    .upsert(rows, {
+    .upsert(filteredRows, {
       onConflict: "store_id,cafe24_order_id,cafe24_order_item_code",
       ignoreDuplicates: false,
     })

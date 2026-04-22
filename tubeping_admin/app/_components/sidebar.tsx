@@ -267,6 +267,21 @@ const MENU_GROUPS: MenuGroup[] = [
       },
     ],
   },
+  {
+    title: "리뷰양이",
+    items: [
+      {
+        key: "reviewyangi-kpi",
+        label: "KPI 대시보드",
+        href: "/reviewyangi/kpi",
+        icon: (
+          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3 3v18h18M7 14l3-3 4 4 5-5" />
+          </svg>
+        ),
+      },
+    ],
+  },
 ];
 
 type SidebarProps = {

@@ -32,19 +32,60 @@ interface Order {
   is_sample: boolean;
   stores: { name: string; mall_id: string } | null;
   suppliers: { name: string; email: string } | null;
+  purchase_orders: { id: string; po_number: string; status: string; sent_at: string | null; viewed_at: string | null; completed_at: string | null } | null;
 }
 
 const STATUS_LABEL: Record<string, string> = {
-  pending: "대기", ordered: "발주완료", shipping: "배송중", delivered: "배송완료", cancelled: "취소",
+  pending: "입금전",
+  ordered: "상품준비중",
+  shipping: "배송중",
+  delivered: "배송완료",
+  cancelled: "취소",
+  refunded: "환불완료",
+  returned: "반품완료",
+  exchanged: "교환완료",
 };
 const STATUS_STYLE: Record<string, string> = {
-  pending: "bg-gray-100 text-gray-600", ordered: "bg-blue-100 text-blue-700",
-  shipping: "bg-yellow-100 text-yellow-700", delivered: "bg-green-100 text-green-700",
+  pending: "bg-gray-100 text-gray-600",
+  ordered: "bg-blue-100 text-blue-700",
+  shipping: "bg-yellow-100 text-yellow-700",
+  delivered: "bg-green-100 text-green-700",
   cancelled: "bg-red-100 text-red-600",
+  refunded: "bg-red-50 text-red-600",
+  returned: "bg-orange-50 text-orange-600",
+  exchanged: "bg-purple-50 text-purple-600",
 };
 
-function formatDate(d: string) { return d?.slice(0, 10) || ""; }
-function formatDateTime(d: string) { return d?.slice(0, 16).replace("T", " ") || ""; }
+// 발주 상태 derive
+function derivePOStatus(o: Order): { label: string; style: string } {
+  if (o.shipping_status === "cancelled") return { label: "", style: "" };
+  if (o.tracking_number) return { label: "송장등록", style: "text-green-600" };
+  if (o.purchase_order_id && o.purchase_orders) {
+    const po = o.purchase_orders;
+    if (po.completed_at) return { label: "송장완료", style: "text-green-600" };
+    if (po.viewed_at) return { label: "메일열람", style: "text-indigo-600" };
+    if (po.sent_at || po.status === "sent") return { label: "메일발송", style: "text-blue-600" };
+    // draft 상태: PO 생성됐으나 메일 미발송
+    return { label: "메일미발송", style: "text-red-500" };
+  }
+  if (o.supplier_id) return { label: "미발주", style: "text-orange-500" };
+  return { label: "공급사미배정", style: "text-red-400" };
+}
+
+function toKST(d: string): Date {
+  const dt = new Date(d);
+  return new Date(dt.getTime() + 9 * 60 * 60 * 1000);
+}
+function formatDate(d: string) {
+  if (!d) return "";
+  const kst = toKST(d);
+  return kst.toISOString().slice(0, 10);
+}
+function formatDateTime(d: string) {
+  if (!d) return "";
+  const kst = toKST(d);
+  return kst.toISOString().slice(0, 16).replace("T", " ");
+}
 function today() { return new Date().toISOString().slice(0, 10); }
 function daysAgo(n: number) { return new Date(Date.now() - n * 86400000).toISOString().slice(0, 10); }
 
@@ -94,7 +135,15 @@ export default function OrdersPage() {
     // 클라이언트 필터
     if (filterNoTracking) list = list.filter((o) => !o.tracking_number && o.shipping_status !== "cancelled" && o.shipping_status !== "delivered");
     if (filterNoSupplier || filterSupplier === "__none__") list = list.filter((o) => !o.supplier_id);
-    if (poTab === "no_po") list = list.filter((o) => !o.purchase_order_id && o.shipping_status === "pending" && !o.is_sample);
+    if (poTab === "no_po") list = list.filter((o) =>
+      !o.purchase_order_id
+      && !o.tracking_number
+      && !!o.supplier_id
+      && o.shipping_status !== "cancelled"
+      && o.shipping_status !== "delivered"
+      && o.shipping_status !== "pending"
+      && !o.is_sample
+    );
     if (poTab === "has_po") list = list.filter((o) => o.purchase_order_id);
     if (poTab === "sample") list = list.filter((o) => o.is_sample);
     // 샘플 탭이 아닐 땐 기본적으로 샘플은 숨김 (별도 정산 대상이므로)
@@ -228,7 +277,16 @@ export default function OrdersPage() {
     pending: orders.filter((o) => o.shipping_status === "pending").length,
     noTracking: orders.filter((o) => !o.tracking_number && o.shipping_status !== "cancelled" && o.shipping_status !== "delivered").length,
     noSupplier: orders.filter((o) => !o.supplier_id && o.shipping_status !== "cancelled" && o.shipping_status !== "delivered").length,
-    noPO: orders.filter((o) => !o.purchase_order_id && o.shipping_status === "pending" && !o.is_sample).length,
+    // 미발주: 공급사 배정됐으나 PO 아직 없음, 송장 없음, 취소/배송완료 아님
+    noPO: orders.filter((o) =>
+      !o.purchase_order_id
+      && !o.tracking_number
+      && !!o.supplier_id
+      && o.shipping_status !== "cancelled"
+      && o.shipping_status !== "delivered"
+      && o.shipping_status !== "pending"
+      && !o.is_sample
+    ).length,
     unsynced: orders.filter((o) => o.tracking_number && !o.cafe24_shipping_synced).length,
     totalQty: orders.reduce((s, o) => s + o.quantity, 0),
     totalAmount: orders.reduce((s, o) => s + o.order_amount, 0),
@@ -551,6 +609,7 @@ export default function OrdersPage() {
                 <th className="text-left px-2 py-2.5 font-medium">공급사</th>
                 <th className="text-right px-2 py-2.5 font-medium">수량</th>
                 <th className="text-right px-2 py-2.5 font-medium">금액</th>
+                <th className="text-center px-2 py-2.5 font-medium">입금</th>
                 <th className="text-left px-2 py-2.5 font-medium">택배사/송장</th>
                 <th className="text-center px-2 py-2.5 font-medium">발주</th>
                 <th className="text-center px-2 py-2.5 font-medium">상태</th>
@@ -603,6 +662,37 @@ export default function OrdersPage() {
                     </td>
                     <td className="px-2 py-2.5 text-right text-gray-700">{o.quantity}</td>
                     <td className="px-2 py-2.5 text-right text-gray-700 whitespace-nowrap">₩{o.order_amount.toLocaleString()}</td>
+                    <td className="px-2 py-2.5 text-center">
+                      {(() => {
+                        const isPaid = o.shipping_status !== "pending" && o.shipping_status !== "cancelled";
+                        const isCancelled = o.shipping_status === "cancelled";
+                        if (isCancelled) return <span className="text-[10px] text-gray-300">-</span>;
+                        return (
+                          <button
+                            onClick={async (e) => {
+                              e.stopPropagation();
+                              const newStatus = isPaid ? "pending" : "ordered";
+                              const label = isPaid ? "입금전으로 되돌림" : "입금확인 처리";
+                              if (!confirm(`${label}하시겠습니까?`)) return;
+                              await fetch("/admin/api/orders", {
+                                method: "PATCH",
+                                headers: { "Content-Type": "application/json" },
+                                body: JSON.stringify({ ids: [o.id], updates: { shipping_status: newStatus } }),
+                              });
+                              fetchOrders();
+                            }}
+                            className={`text-[11px] font-medium px-2 py-0.5 rounded-full border cursor-pointer transition-colors ${
+                              isPaid
+                                ? "bg-green-100 text-green-700 border-green-300 hover:bg-green-200"
+                                : "bg-red-50 text-red-600 border-red-300 hover:bg-red-100"
+                            }`}
+                            title={isPaid ? "클릭하면 입금전으로 되돌림" : "클릭하면 입금확인 처리"}
+                          >
+                            {isPaid ? "✓ 완료" : "✗ 입금전"}
+                          </button>
+                        );
+                      })()}
+                    </td>
                     <td className="px-2 py-2.5 whitespace-nowrap">
                       {o.tracking_number ? (
                         <div>
@@ -617,13 +707,14 @@ export default function OrdersPage() {
                       )}
                     </td>
                     <td className="px-2 py-2.5 text-center">
-                      {o.purchase_order_id ? (
-                        <span className="text-[11px] text-blue-600 font-medium">완료</span>
-                      ) : noPO ? (
-                        <span className="text-[11px] text-orange-500 font-medium">미발주</span>
-                      ) : (
-                        <span className="text-gray-300">-</span>
-                      )}
+                      {(() => {
+                        const ps = derivePOStatus(o);
+                        return ps.label ? (
+                          <span className={`text-[11px] font-medium ${ps.style}`}>{ps.label}</span>
+                        ) : (
+                          <span className="text-gray-300">-</span>
+                        );
+                      })()}
                     </td>
                     <td className="px-2 py-2.5 text-center">
                       <span className={`text-[11px] font-medium px-1.5 py-0.5 rounded-full ${STATUS_STYLE[o.shipping_status] || STATUS_STYLE.pending}`}>

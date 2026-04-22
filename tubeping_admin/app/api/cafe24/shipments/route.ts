@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServiceClient } from "@/lib/supabase";
-import { getActiveStores, cafe24Fetch } from "@/lib/cafe24";
+import { getActiveStores, cafe24Fetch, isCafe24Mall } from "@/lib/cafe24";
 
 /**
  * POST /api/cafe24/shipments — 송장번호를 카페24에 연동
@@ -114,6 +114,25 @@ export async function POST(request: NextRequest) {
         cafe24_order_id: order.cafe24_order_id,
         success: false,
         error: "스토어 정보 없음",
+      });
+      continue;
+    }
+
+    // 카페24 주문이 아닌 건 skip:
+    // 1) 비카페24 스토어 (manual_/excel_)
+    // 2) 주문번호가 카페24 형식(YYYYMMDD-NNNNNNN)이 아닌 건 (전화주문/수기주문)
+    const isCafe24Order = /^\d{8}-\d{7}$/.test(order.cafe24_order_id || "");
+    if (!isCafe24Mall(store.mall_id) || !isCafe24Order) {
+      // 카페24 연동 불필요 → synced 처리해서 다시 안 뜨게
+      await sb
+        .from("orders")
+        .update({ cafe24_shipping_synced: true, cafe24_shipping_synced_at: new Date().toISOString() })
+        .eq("id", order.id);
+      results.push({
+        order_id: order.id,
+        cafe24_order_id: order.cafe24_order_id,
+        success: true,
+        error: undefined,
       });
       continue;
     }

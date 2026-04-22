@@ -94,19 +94,20 @@ export async function POST(request: NextRequest) {
     order_id: ["주문번호", "주문코드", "order_id"],
     order_date: ["결제완료일", "주문일자", "주문일시", "주문일", "결제일", "날짜", "date"],
     product_name: ["상품명", "품명", "제품명", "상품", "product"],
-    option_text: ["옵션명", "옵션", "option"],
+    option_text: ["상품옵션", "옵션정보", "옵션명", "옵션", "option"],
     quantity: ["주문수량", "구매수량", "수량", "qty", "quantity"],
     price: ["판매단가", "공급단가", "판매가", "단가", "상품단가", "price"],
     amount: ["총결제금액", "결제금액", "주문금액", "총금액", "금액", "amount"],
     // buyer/receiver는 반드시 receiver_* 가 먼저 매칭되어야 함 (substring 충돌 방지)
-    receiver_phone: ["수령인연락처", "수령인휴대폰", "수령인전화", "수취인연락처", "수취인휴대폰", "수령자연락처", "받는분연락처", "배송연락처", "휴대폰번호", "핸드폰번호", "수취인전화"],
+    receiver_phone: ["수령인연락처", "수령인휴대폰", "수령인전화", "수취인연락처", "수취인휴대폰", "수령자연락처", "받는분연락처", "배송연락처", "휴대폰번호", "핸드폰번호", "수취인전화", "연락처", "전화번호", "phone"],
     receiver_name: ["수령인명", "수령인", "수취인명", "수취인", "수령자명", "수령자", "받는분", "받으시는분", "수신인", "고객명", "receiver"],
     receiver_address: ["배송지주소", "배송주소", "수령지주소", "수령인주소", "수취인주소", "받는주소", "배송지", "주소", "address"],
     receiver_zipcode: ["배송우편번호", "수령인우편번호", "우편번호", "zipcode", "zip"],
     buyer_phone: ["구매자연락처", "주문자연락처", "구매자휴대폰", "주문자휴대폰", "buyer_phone"],
     buyer_name: ["구매자명", "구매자", "주문자명", "주문자", "buyer"],
-    memo: ["배송메시지", "배송메세지", "배송요청사항", "요청사항", "배송시요청사항", "메모"],
+    memo: ["배송메시지", "배송메세지", "배송요청사항", "배송요청사항", "요청사항", "배송시요청사항", "메모"],
     supplier: ["공급사명", "공급사", "supplier"],
+    order_status: ["상태", "주문상태", "order_status", "status"],
   };
 
   // 1차: 정확 일치 (수령인연락처 → receiver_phone처럼 더 긴 단어가 우선)
@@ -147,6 +148,21 @@ export async function POST(request: NextRequest) {
   const supMap: Record<string, string> = {};
   for (const s of suppliers || []) supMap[s.name] = s.id;
 
+  // 상품명 → products.price fallback 맵 (엑셀에 가격 없는 경우 대비)
+  const uniqueProductNames = [...new Set(
+    rows.slice(1).map((r) => r[col.product_name] || "").filter(Boolean)
+  )];
+  const nameToPrice: Record<string, number> = {};
+  if (uniqueProductNames.length > 0) {
+    const { data: productsForPrice } = await sb
+      .from("products")
+      .select("product_name, price")
+      .in("product_name", uniqueProductNames);
+    for (const p of productsForPrice || []) {
+      if (p.product_name && p.price) nameToPrice[p.product_name.trim()] = p.price;
+    }
+  }
+
   // 기존 등록된 (cafe24_order_id, cafe24_order_item_code) 조합을 미리 조회해 중복 판정
   const { data: existing } = await sb
     .from("orders")
@@ -182,7 +198,12 @@ export async function POST(request: NextRequest) {
       continue;
     }
     const quantity = parseInt(cols[col.quantity] || "1", 10) || 1;
-    const price = parseInt((cols[col.price] || "0").replace(/,/g, ""), 10) || 0;
+    // 엑셀에 가격이 없거나 0이면 products.price로 fallback
+    let price = parseInt((cols[col.price] || "0").replace(/,/g, ""), 10) || 0;
+    if (price === 0) {
+      const fallbackPrice = nameToPrice[productName.trim()];
+      if (fallbackPrice) price = fallbackPrice;
+    }
     const amount = parseInt((cols[col.amount] || "0").replace(/,/g, ""), 10) || price * quantity;
     const supplierName = cols[col.supplier] || "";
     const supplierId = supMap[supplierName] || null;
@@ -205,17 +226,52 @@ export async function POST(request: NextRequest) {
       receiver_zipcode: cols[col.receiver_zipcode] || "",
       memo: cols[col.memo] || "",
       supplier_id: supplierId,
-      shipping_status: "pending",
+      shipping_status: (() => {
+        const rawStatus = (cols[col.order_status] || "").trim();
+        // 엑셀 상태값 → 내부 상태 매핑
+        if (rawStatus.includes("취소") || rawStatus.includes("환불")) return "cancelled";
+        if (rawStatus.includes("배송완료") || rawStatus.includes("배송 완료")) return "delivered";
+        if (rawStatus.includes("배송중") || rawStatus.includes("출고완료")) return "shipping";
+        if (rawStatus.includes("결제완료") || rawStatus.includes("출고") || rawStatus.includes("주문") || rawStatus.includes("준비")) return "ordered";
+        if (rawStatus.includes("입금") || rawStatus.includes("대기")) return "pending";
+        // 상태 컬럼 없으면: 수기/전화/ACTs 등 외부 플랫폼은 이미 결제완료 상태로 오므로 ordered
+        return "ordered";
+      })(),
       is_sample: isSample,
     };
 
-    const { error } = await sb.from("orders").insert(row);
+    const { data: inserted, error } = await sb.from("orders").insert(row).select("id, order_amount").single();
 
     if (error) {
       errors.push({ row: i + 1, error: error.message });
     } else {
       imported++;
-      existingKeys.add(`${orderId}::${lineKey}`); // 같은 파일 내 중복도 방지
+      existingKeys.add(`${orderId}::${lineKey}`);
+
+      // 고유 입금액 부여 (전화/수기주문만 — 동명이인 구분용)
+      // 같은 금액의 pending 주문이 있으면 끝자리 +1~+9
+      if (inserted) {
+        const baseAmount = inserted.order_amount || 0;
+        const { data: sameAmount } = await sb
+          .from("orders")
+          .select("payment_amount")
+          .eq("shipping_status", "pending")
+          .gte("payment_amount", baseAmount)
+          .lte("payment_amount", baseAmount + 9)
+          .neq("id", inserted.id);
+
+        const usedOffsets = new Set(
+          (sameAmount || []).map((o) => (o.payment_amount || 0) - baseAmount)
+        );
+        let offset = 0;
+        for (let n = 0; n <= 9; n++) {
+          if (!usedOffsets.has(n)) { offset = n; break; }
+        }
+        await sb
+          .from("orders")
+          .update({ payment_amount: baseAmount + offset })
+          .eq("id", inserted.id);
+      }
     }
   }
 

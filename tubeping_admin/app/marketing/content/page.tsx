@@ -3,12 +3,12 @@
 import { useState } from "react";
 import BlogPage from "../blog/page";
 import ContentMachinePage from "../content-machine/page";
-import ReviewOwlPage from "../review-owl/page";
+import ReviewOwlPage from "../reviewyangi/page";
 
 const TABS = [
   { key: "blog", label: "블로그", icon: "📝" },
   { key: "content-machine", label: "콘텐츠 머신", icon: "⚙️" },
-  { key: "review-owl", label: "리뷰엉이", icon: "🦉" },
+  { key: "reviewyangi", label: "리뷰양이", icon: "🦉" },
 ] as const;
 
 type TabKey = (typeof TABS)[number]["key"];
@@ -22,7 +22,7 @@ export default function ContentHubPage() {
       <div className="mb-8">
         <h1 className="text-2xl font-bold text-gray-900">컨텐츠</h1>
         <p className="text-sm text-gray-500 mt-1">
-          블로그 · 콘텐츠 머신 · 리뷰엉이를 한 곳에서 관리합니다.
+          블로그 · 콘텐츠 머신 · 리뷰양이를 한 곳에서 관리합니다.
         </p>
       </div>
 
@@ -48,7 +48,7 @@ export default function ContentHubPage() {
       <div className="-mx-8 -mb-8">
         {activeTab === "blog" && <BlogPage />}
         {activeTab === "content-machine" && <ContentMachinePage />}
-        {activeTab === "review-owl" && <ReviewOwlPage />}
+        {activeTab === "reviewyangi" && <ReviewOwlPage />}
       </div>
     </div>
   );

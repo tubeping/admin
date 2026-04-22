@@ -32,11 +32,13 @@ export async function autoAssignSuppliers(
     return { total: 0, assigned: 0, failed: 0 };
   }
 
-  // 공급사 short_code → id 맵
-  const { data: suppliers } = await sb.from("suppliers").select("id, short_code");
+  // 공급사 short_code → id 맵 + 공급사명 → id 맵
+  const { data: suppliers } = await sb.from("suppliers").select("id, name, short_code");
   const codeToSupplierId: Record<string, string> = {};
+  const nameToSupplierId: Record<string, string> = {};
   for (const s of suppliers || []) {
     if (s.short_code) codeToSupplierId[s.short_code.toUpperCase()] = s.id;
+    if (s.name) nameToSupplierId[s.name.trim()] = s.id;
   }
 
   // 1) (store_id, cafe24_product_no) → product_id (cafe24 동기화 주문)
@@ -82,17 +84,20 @@ export async function autoAssignSuppliers(
     }
   }
 
-  // 3) product_id → tp_code 맵
-  // supplier_id는 tp_code(원 공급사) 기준으로만 결정 — 창고발주는 발주서 생성 단계에서 오버라이드
+  // 3) product_id → (tp_code, supplier) 맵
+  // supplier_id는 우선 products.supplier(공급사명)으로 결정하고, 없으면 tp_code regex로 fallback
+  // 창고발주는 발주서 생성 단계에서 오버라이드
   const productIds = [...new Set([...Object.values(storeProductKeyToProductId), ...Object.values(nameToProductId)])];
   const productIdToTpCode: Record<string, string> = {};
+  const productIdToSupplierName: Record<string, string> = {};
   if (productIds.length > 0) {
     const { data: products } = await sb
       .from("products")
-      .select("id, tp_code")
+      .select("id, tp_code, supplier")
       .in("id", productIds);
     for (const p of products || []) {
       if (p.tp_code) productIdToTpCode[p.id] = p.tp_code;
+      if (p.supplier) productIdToSupplierName[p.id] = p.supplier.trim();
     }
   }
 
@@ -106,6 +111,17 @@ export async function autoAssignSuppliers(
     if (!m) return null;
     const code = m[2];
     return codeToSupplierId[code] || null;
+  };
+
+  // product_id → supplier_id (products.supplier 우선, tp_code regex fallback)
+  const supplierIdFromProductId = (productId: string | undefined): string | null => {
+    if (!productId) return null;
+    const supplierName = productIdToSupplierName[productId];
+    if (supplierName && nameToSupplierId[supplierName]) {
+      return nameToSupplierId[supplierName];
+    }
+    const tpCode = productIdToTpCode[productId];
+    return tpCode ? supplierIdFromTpCode(tpCode) : null;
   };
 
   // 경로 C: 학습 캐시 — 같은 상품명의 다른 주문이 이미 supplier_id를 가지고 있으면 그대로 사용
@@ -132,22 +148,16 @@ export async function autoAssignSuppliers(
   for (const order of orders) {
     let supplierId: string | null = null;
 
-    // 경로 A: (store_id, cafe24_product_no) → tp_code → supplier
+    // 경로 A: (store_id, cafe24_product_no) → products → supplier (products.supplier 우선, tp_code fallback)
     if (order.cafe24_product_no > 0 && order.store_id) {
       const productId = storeProductKeyToProductId[`${order.store_id}::${order.cafe24_product_no}`];
-      if (productId) {
-        const tpCode = productIdToTpCode[productId];
-        if (tpCode) supplierId = supplierIdFromTpCode(tpCode);
-      }
+      supplierId = supplierIdFromProductId(productId);
     }
 
-    // 경로 B: 상품명 정확 일치 → tp_code → supplier
+    // 경로 B: 상품명 정확 일치 → products → supplier
     if (!supplierId && order.product_name) {
       const productId = nameToProductId[order.product_name.trim()];
-      if (productId) {
-        const tpCode = productIdToTpCode[productId];
-        if (tpCode) supplierId = supplierIdFromTpCode(tpCode);
-      }
+      supplierId = supplierIdFromProductId(productId);
     }
 
     // 경로 C: 학습 캐시 (같은 상품명의 이전 주문에 supplier 있으면 사용)

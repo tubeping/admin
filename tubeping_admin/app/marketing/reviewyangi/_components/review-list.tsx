@@ -53,7 +53,7 @@ export default function ReviewList({ reviews, onEdit, onCreate, onDelete }: Prop
         <div className="flex items-center gap-3">
           <span className="text-3xl">🦉</span>
           <div>
-            <h1 className="text-2xl font-bold text-gray-900">리뷰엉이</h1>
+            <h1 className="text-2xl font-bold text-gray-900">리뷰양이</h1>
             <p className="text-sm text-gray-500 mt-1">상품 리뷰를 작성하고 관리합니다.</p>
           </div>
         </div>

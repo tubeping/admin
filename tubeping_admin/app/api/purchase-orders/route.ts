@@ -174,7 +174,7 @@ export async function POST(request: NextRequest) {
  * DELETE /api/purchase-orders — 발주서 삭제
  * body: { id: string }
  *
- * 1. 연결된 주문의 purchase_order_id 해제 + shipping_status를 pending으로 되돌림
+ * 1. 연결된 주문의 purchase_order_id 해제 (shipping_status는 ordered 유지 — 결제완료 상태 보존)
  * 2. 발주서 row 삭제
  */
 export async function DELETE(request: NextRequest) {
@@ -187,10 +187,10 @@ export async function DELETE(request: NextRequest) {
 
   const sb = getServiceClient();
 
-  // 연결된 주문 해제
+  // 연결된 주문 해제 — shipping_status는 건드리지 않음 (이미 결제완료된 주문을 '입금전'으로 되돌리면 안 됨)
   await sb
     .from("orders")
-    .update({ purchase_order_id: null, shipping_status: "pending" })
+    .update({ purchase_order_id: null })
     .eq("purchase_order_id", id);
 
   // 발주서 삭제
