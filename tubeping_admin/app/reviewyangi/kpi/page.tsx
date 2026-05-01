@@ -357,6 +357,71 @@ export default async function ReviewYangiKpiPage() {
         </div>
       </section>
 
+      {/* External dashboards */}
+      <section>
+        <h2 className="mb-3 text-sm font-semibold text-gray-700">
+          외부 데이터 소스 (클릭·수익·검색 노출)
+        </h2>
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
+          <a
+            href="https://partners.coupang.com/#affiliate/reports/days"
+            target="_blank"
+            rel="noopener"
+            className="rounded-xl border border-red-200 bg-red-50 p-4 hover:bg-red-100 transition-colors"
+          >
+            <p className="text-xs text-red-600 font-semibold">쿠팡 파트너스</p>
+            <p className="mt-1 text-sm font-bold text-gray-900">
+              일별 클릭·수익
+            </p>
+            <p className="mt-1 text-xs text-gray-500">
+              subId: reviewyangi (분석 가능)
+            </p>
+          </a>
+          <a
+            href="https://search.google.com/search-console"
+            target="_blank"
+            rel="noopener"
+            className="rounded-xl border border-blue-200 bg-blue-50 p-4 hover:bg-blue-100 transition-colors"
+          >
+            <p className="text-xs text-blue-600 font-semibold">Google Search Console</p>
+            <p className="mt-1 text-sm font-bold text-gray-900">
+              색인·검색 노출
+            </p>
+            <p className="mt-1 text-xs text-gray-500">
+              reviewyangi.com
+            </p>
+          </a>
+          <a
+            href="https://searchadvisor.naver.com"
+            target="_blank"
+            rel="noopener"
+            className="rounded-xl border border-green-200 bg-green-50 p-4 hover:bg-green-100 transition-colors"
+          >
+            <p className="text-xs text-green-600 font-semibold">네이버 서치어드바이저</p>
+            <p className="mt-1 text-sm font-bold text-gray-900">
+              사이트 진단·수집 요청
+            </p>
+            <p className="mt-1 text-xs text-gray-500">
+              RSS·sitemap 제출
+            </p>
+          </a>
+          <a
+            href="https://vercel.com/choijun-2600s-projects/reviewyangi/analytics"
+            target="_blank"
+            rel="noopener"
+            className="rounded-xl border border-purple-200 bg-purple-50 p-4 hover:bg-purple-100 transition-colors"
+          >
+            <p className="text-xs text-purple-600 font-semibold">Vercel Analytics</p>
+            <p className="mt-1 text-sm font-bold text-gray-900">
+              방문자·페이지뷰
+            </p>
+            <p className="mt-1 text-xs text-gray-500">
+              실시간 트래픽
+            </p>
+          </a>
+        </div>
+      </section>
+
       {/* Phase note */}
       <section className="rounded-xl border border-blue-100 bg-blue-50 p-4 text-sm text-blue-900">
         <p className="font-semibold">Phase {kpi.phase} 기준</p>
