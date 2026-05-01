@@ -1,5 +1,17 @@
 import Link from "next/link";
 
+type QualityStat = {
+  count: number;
+  avg: number;
+  min: number;
+  max: number;
+  above_90_count: number;
+  below_70_count: number;
+  below_70: { slug: string; score: number }[];
+};
+
+type HistoryDay = { date: string; reviews: number; guides: number };
+
 type Kpi = {
   generatedAt: string;
   phase: number;
@@ -18,6 +30,8 @@ type Kpi = {
     latest_created: string | null;
     stale_hours: number | null;
   };
+  quality?: { reviews: QualityStat; guides: QualityStat };
+  history?: HistoryDay[];
   recent: {
     kind: string;
     slug: string;
@@ -213,6 +227,91 @@ export default async function ReviewYangiKpiPage() {
           />
         </div>
       </section>
+
+      {/* Quality */}
+      {kpi.quality && (
+        <section>
+          <h2 className="mb-3 text-sm font-semibold text-gray-700">콘텐츠 품질 점수 (100점 만점)</h2>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            <StatCard
+              label="리뷰 평균"
+              value={kpi.quality.reviews?.avg ?? "-"}
+              suffix="점"
+              highlight={
+                (kpi.quality.reviews?.avg ?? 0) >= 85 ? "good" : "warn"
+              }
+            />
+            <StatCard
+              label="가이드 평균"
+              value={kpi.quality.guides?.avg ?? "-"}
+              suffix="점"
+              highlight={
+                (kpi.quality.guides?.avg ?? 0) >= 85 ? "good" : "warn"
+              }
+            />
+            <StatCard
+              label="90+ 리뷰"
+              value={`${kpi.quality.reviews?.above_90_count ?? 0} / ${kpi.quality.reviews?.count ?? 0}`}
+            />
+            <StatCard
+              label="70 미만 (보강 필요)"
+              value={
+                (kpi.quality.reviews?.below_70_count ?? 0) +
+                (kpi.quality.guides?.below_70_count ?? 0)
+              }
+              highlight={
+                (kpi.quality.reviews?.below_70_count ?? 0) > 0 ? "warn" : "good"
+              }
+            />
+          </div>
+
+          {kpi.quality.reviews?.below_70?.length > 0 && (
+            <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm">
+              <p className="font-semibold text-amber-900 mb-2">⚠ 보강 필요 리뷰</p>
+              <ul className="space-y-1 text-amber-800">
+                {kpi.quality.reviews.below_70.slice(0, 8).map((r) => (
+                  <li key={r.slug}>
+                    <code className="text-xs">{r.slug}</code> — {r.score}점
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </section>
+      )}
+
+      {/* History */}
+      {kpi.history && kpi.history.length > 0 && (
+        <section>
+          <h2 className="mb-3 text-sm font-semibold text-gray-700">
+            작성 추이 (최근 30일)
+          </h2>
+          <div className="rounded-xl border border-gray-200 bg-white overflow-hidden">
+            <table className="w-full text-sm">
+              <thead className="bg-gray-50 text-gray-500 text-xs">
+                <tr>
+                  <th className="text-left p-3">날짜</th>
+                  <th className="text-right p-3">리뷰</th>
+                  <th className="text-right p-3">가이드</th>
+                  <th className="text-right p-3">합계</th>
+                </tr>
+              </thead>
+              <tbody>
+                {kpi.history.slice(0, 14).map((h) => (
+                  <tr key={h.date} className="border-t border-gray-100">
+                    <td className="p-3 text-gray-700">{h.date}</td>
+                    <td className="p-3 text-right">{h.reviews}</td>
+                    <td className="p-3 text-right">{h.guides}</td>
+                    <td className="p-3 text-right font-semibold">
+                      {h.reviews + h.guides}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      )}
 
       {/* Recent feed */}
       <section>
