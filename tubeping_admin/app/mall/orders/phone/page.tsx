@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 
 interface Product {
   id: string;
@@ -34,6 +34,29 @@ interface PhoneOrder {
   purchase_orders: { id: string; po_number: string; status: string } | null;
 }
 
+interface InputRow {
+  product_name: string;
+  tp_code: string;
+  unit_price: number;
+  option_text: string;
+  quantity: number;
+  receiver_name: string;
+  buyer_name: string;
+  receiver_phone: string;
+  receiver_zipcode: string;
+  receiver_address: string;
+  memo: string;
+  status: "idle" | "saving" | "ok" | "error";
+  result?: { order_id: string; payment_amount: number };
+  error?: string;
+}
+
+interface SavedRow {
+  order_id: string;
+  receiver_name: string;
+  payment_amount: number;
+}
+
 type TabKey = "all" | "pending" | "ready_po" | "in_po";
 
 const TAB_LABEL: Record<TabKey, string> = {
@@ -43,34 +66,44 @@ const TAB_LABEL: Record<TabKey, string> = {
   in_po: "발주완료",
 };
 
+const emptyRow = (defaults?: Partial<InputRow>): InputRow => ({
+  product_name: defaults?.product_name || "",
+  tp_code: defaults?.tp_code || "",
+  unit_price: defaults?.unit_price || 0,
+  option_text: "",
+  quantity: 1,
+  receiver_name: "",
+  buyer_name: "",
+  receiver_phone: "",
+  receiver_zipcode: "",
+  receiver_address: "",
+  memo: "",
+  status: "idle",
+});
+
 export default function PhoneOrderPage() {
-  const [form, setForm] = useState({
-    product_name: "",
-    tp_code: "",
-    option_text: "",
-    quantity: 1,
-    unit_price: 0,
-    buyer_name: "",
-    buyer_phone: "",
-    receiver_name: "",
-    receiver_phone: "",
-    receiver_address: "",
-    receiver_zipcode: "",
-    memo: "",
-  });
+  // 입력 스프레드시트 상태
+  const [rows, setRows] = useState<InputRow[]>(() => Array.from({ length: 5 }, () => emptyRow()));
+  const [productSearch, setProductSearch] = useState("");
   const [products, setProducts] = useState<Product[]>([]);
-  const [showDropdown, setShowDropdown] = useState(false);
-  const [submitting, setSubmitting] = useState(false);
-  const [lastResult, setLastResult] = useState<{ order_id: string; payment_amount: number } | null>(null);
-  const [orders, setOrders] = useState<PhoneOrder[]>([]);
+  const [productOpen, setProductOpen] = useState(false);
+  const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
   const [buyerSameAsReceiver, setBuyerSameAsReceiver] = useState(true);
+  const [savingAll, setSavingAll] = useState(false);
+  const [savedResults, setSavedResults] = useState<SavedRow[]>([]);
+  const [formOpen, setFormOpen] = useState(true);
+
+  // 목록 상태
+  const [orders, setOrders] = useState<PhoneOrder[]>([]);
   const [tab, setTab] = useState<TabKey>("all");
   const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [formOpen, setFormOpen] = useState(true);
   const [bulkBusy, setBulkBusy] = useState(false);
   const [search, setSearch] = useState("");
   const [syncing, setSyncing] = useState(false);
 
+  const tableRef = useRef<HTMLDivElement>(null);
+
+  // 상품 검색
   const searchProducts = useCallback(async (kw: string) => {
     if (!kw || kw.length < 1) { setProducts([]); return; }
     const res = await fetch(`/admin/api/products?keyword=${encodeURIComponent(kw)}&limit=10`);
@@ -79,10 +112,11 @@ export default function PhoneOrderPage() {
   }, []);
 
   useEffect(() => {
-    const t = setTimeout(() => searchProducts(form.product_name), 200);
+    const t = setTimeout(() => searchProducts(productSearch), 200);
     return () => clearTimeout(t);
-  }, [form.product_name, searchProducts]);
+  }, [productSearch, searchProducts]);
 
+  // 목록 조회
   const fetchOrders = useCallback(async () => {
     const res = await fetch("/admin/api/orders?limit=500");
     const data = await res.json();
@@ -113,52 +147,143 @@ export default function PhoneOrderPage() {
 
   useEffect(() => { fetchOrders(); }, [fetchOrders]);
 
-  const selectProduct = (p: Product) => {
-    setForm((f) => ({
-      ...f,
-      product_name: p.product_name,
-      tp_code: p.tp_code,
-      unit_price: p.price,
-    }));
-    setShowDropdown(false);
+  // 상품 선택 — 모든 빈 행에 적용
+  const applyProduct = (p: Product) => {
+    setSelectedProduct(p);
+    setProductSearch(p.product_name);
+    setProductOpen(false);
+    setRows((rs) => rs.map((r) =>
+      (!r.product_name && r.status !== "ok")
+        ? { ...r, product_name: p.product_name, tp_code: p.tp_code, unit_price: p.price }
+        : r
+    ));
+  };
+  const applyProductToAll = () => {
+    if (!selectedProduct) { alert("상품을 먼저 선택하세요."); return; }
+    setRows((rs) => rs.map((r) =>
+      r.status === "ok"
+        ? r
+        : { ...r, product_name: selectedProduct.product_name, tp_code: selectedProduct.tp_code, unit_price: selectedProduct.price }
+    ));
   };
 
-  const handleSubmit = async () => {
-    if (!form.product_name) { alert("상품을 선택하세요."); return; }
-    if (!form.receiver_name || !form.receiver_phone || !form.receiver_address) {
-      alert("수령인, 연락처, 주소는 필수입니다."); return;
-    }
-    if (form.quantity < 1 || form.unit_price < 0) { alert("수량/단가 확인"); return; }
+  // 행 편집
+  const updateRow = (idx: number, patch: Partial<InputRow>) => {
+    setRows((rs) => rs.map((r, i) => i === idx ? { ...r, ...patch } : r));
+  };
+  const addRows = (n: number) => {
+    const base = selectedProduct
+      ? { product_name: selectedProduct.product_name, tp_code: selectedProduct.tp_code, unit_price: selectedProduct.price }
+      : undefined;
+    setRows((rs) => [...rs, ...Array.from({ length: n }, () => emptyRow(base))]);
+  };
+  const removeRow = (idx: number) => {
+    setRows((rs) => rs.filter((_, i) => i !== idx));
+  };
+  const clearAllRows = () => {
+    if (!confirm("입력행을 모두 비우시겠습니까? (저장된 결과는 유지됩니다)")) return;
+    setRows(Array.from({ length: 5 }, () => emptyRow()));
+  };
 
-    setSubmitting(true);
+  // 엑셀 붙여넣기 핸들러 (수령인 / 입금자명 / 연락처 / 우편번호 / 주소 / 배송메시지 / 수량 순)
+  const handlePaste = (e: React.ClipboardEvent, startIdx: number) => {
+    const text = e.clipboardData.getData("text");
+    if (!text.includes("\t") && !text.includes("\n")) return; // 단일 셀 붙여넣기는 기본 동작
+    e.preventDefault();
+    const lines = text.split(/\r?\n/).filter((l) => l.trim());
+    if (lines.length === 0) return;
+
+    const parsed = lines.map((line) => line.split("\t"));
+    setRows((rs) => {
+      const next = [...rs];
+      // 필요한 만큼 행 추가
+      const needed = startIdx + parsed.length - next.length;
+      if (needed > 0) {
+        const base = selectedProduct
+          ? { product_name: selectedProduct.product_name, tp_code: selectedProduct.tp_code, unit_price: selectedProduct.price }
+          : undefined;
+        for (let i = 0; i < needed; i++) next.push(emptyRow(base));
+      }
+      parsed.forEach((cols, i) => {
+        const r = next[startIdx + i];
+        if (!r) return;
+        // 컬럼 순서: 수령인 / 입금자명 / 연락처 / 우편번호 / 주소 / 메시지 / 수량(선택)
+        const [recv, buyer, phone, zip, addr, memo, qtyStr] = cols;
+        const qty = parseInt((qtyStr || "").replace(/[^0-9]/g, ""), 10);
+        next[startIdx + i] = {
+          ...r,
+          receiver_name: recv?.trim() || r.receiver_name,
+          buyer_name: buyer?.trim() || r.buyer_name,
+          receiver_phone: phone?.trim() || r.receiver_phone,
+          receiver_zipcode: zip?.trim() || r.receiver_zipcode,
+          receiver_address: addr?.trim() || r.receiver_address,
+          memo: memo?.trim() || r.memo,
+          quantity: qty && qty > 0 ? qty : r.quantity,
+        };
+      });
+      return next;
+    });
+  };
+
+  // 행 유효성
+  const isRowValid = (r: InputRow) => !!r.product_name && !!r.receiver_name && !!r.receiver_phone && !!r.receiver_address && r.quantity >= 1 && r.unit_price >= 0;
+  const validRows = useMemo(() => rows.filter((r) => r.status !== "ok" && isRowValid(r)), [rows]);
+  const totalAmount = useMemo(() => validRows.reduce((s, r) => s + r.unit_price * r.quantity, 0), [validRows]);
+
+  // 일괄 저장 — 각 행을 순차 호출 (고유 입금액 충돌 방지)
+  const saveAll = async () => {
+    if (validRows.length === 0) { alert("저장 가능한 행이 없습니다. 상품/수령인/연락처/주소/수량을 채워주세요."); return; }
+    if (!confirm(`${validRows.length}건을 저장합니다. 계속할까요?`)) return;
+
+    setSavingAll(true);
+    const newResults: SavedRow[] = [];
     try {
-      const payload = {
-        ...form,
-        buyer_name: buyerSameAsReceiver ? form.receiver_name : form.buyer_name,
-        buyer_phone: buyerSameAsReceiver ? form.receiver_phone : form.buyer_phone,
-      };
-      const res = await fetch("/admin/api/orders/phone-order", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
-      const data = await res.json();
-      if (!res.ok) { alert(`실패: ${data.error}`); return; }
-      setLastResult({ order_id: data.order_id, payment_amount: data.payment_amount });
-      setForm({
-        product_name: "", tp_code: "", option_text: "",
-        quantity: 1, unit_price: 0,
-        buyer_name: "", buyer_phone: "",
-        receiver_name: "", receiver_phone: "", receiver_address: "", receiver_zipcode: "",
-        memo: "",
-      });
-      setBuyerSameAsReceiver(true);
-      fetchOrders();
+      for (let i = 0; i < rows.length; i++) {
+        const r = rows[i];
+        if (r.status === "ok") continue;
+        if (!isRowValid(r)) continue;
+        setRows((rs) => rs.map((x, j) => j === i ? { ...x, status: "saving" } : x));
+        const payload = {
+          product_name: r.product_name,
+          tp_code: r.tp_code,
+          option_text: r.option_text,
+          quantity: r.quantity,
+          unit_price: r.unit_price,
+          buyer_name: buyerSameAsReceiver ? r.receiver_name : r.buyer_name,
+          buyer_phone: r.receiver_phone,
+          receiver_name: r.receiver_name,
+          receiver_phone: r.receiver_phone,
+          receiver_address: r.receiver_address,
+          receiver_zipcode: r.receiver_zipcode,
+          memo: r.memo,
+        };
+        try {
+          const res = await fetch("/admin/api/orders/phone-order", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload),
+          });
+          const data = await res.json();
+          if (!res.ok) {
+            setRows((rs) => rs.map((x, j) => j === i ? { ...x, status: "error", error: data.error || `${res.status}` } : x));
+          } else {
+            setRows((rs) => rs.map((x, j) => j === i ? { ...x, status: "ok", result: { order_id: data.order_id, payment_amount: data.payment_amount } } : x));
+            newResults.push({ order_id: data.order_id, receiver_name: r.receiver_name, payment_amount: data.payment_amount });
+          }
+        } catch (e) {
+          setRows((rs) => rs.map((x, j) => j === i ? { ...x, status: "error", error: e instanceof Error ? e.message : "unknown" } : x));
+        }
+      }
+      if (newResults.length > 0) {
+        setSavedResults((prev) => [...newResults, ...prev]);
+        fetchOrders();
+      }
     } finally {
-      setSubmitting(false);
+      setSavingAll(false);
     }
   };
 
+  // 목록 액션 — 발주 전환
   const togglePayment = async (orderId: string, currentStatus: string) => {
     const newStatus = currentStatus === "pending" ? "ordered" : "pending";
     const label = newStatus === "ordered" ? "입금확인" : "입금전";
@@ -247,8 +372,7 @@ export default function PhoneOrderPage() {
     navigator.clipboard.writeText(text).then(() => alert("복사됨"));
   };
 
-  const amount = form.unit_price * form.quantity;
-
+  // 필터링
   const filtered = useMemo(() => {
     return orders.filter((o) => {
       if (tab === "pending" && o.shipping_status !== "pending") return false;
@@ -292,13 +416,21 @@ export default function PhoneOrderPage() {
     return <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-green-100 text-green-700">발주대기</span>;
   };
 
+  const rowStatusBadge = (r: InputRow) => {
+    if (r.status === "ok") return <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-green-100 text-green-700">✓ 저장됨</span>;
+    if (r.status === "saving") return <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-700">저장중</span>;
+    if (r.status === "error") return <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-red-100 text-red-700" title={r.error}>오류</span>;
+    if (isRowValid(r)) return <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-yellow-100 text-yellow-700">대기</span>;
+    return <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-gray-100 text-gray-500">미완성</span>;
+  };
+
   return (
     <div className="p-6">
       <div className="flex items-center justify-between mb-5">
         <div>
           <h1 className="text-xl font-bold text-gray-900">전화주문 관리</h1>
           <p className="text-xs text-gray-500 mt-1">
-            전화로 받은 주문을 직접 입력하고, 입금확인 후 원하는 시점에 발주서로 전환합니다.
+            스프레드시트처럼 여러 주문을 한 번에 입력하고, 입금확인 후 원하는 시점에 발주서로 전환합니다.
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -313,38 +445,39 @@ export default function PhoneOrderPage() {
             onClick={() => setFormOpen((v) => !v)}
             className="px-3 py-2 text-xs font-medium bg-[#C41E1E] text-white rounded-lg hover:bg-[#A01818]"
           >
-            {formOpen ? "입력폼 닫기" : "+ 신규 전화주문"}
+            {formOpen ? "입력시트 닫기" : "+ 신규 입력시트"}
           </button>
         </div>
       </div>
 
-      {lastResult && (
+      {/* 직전 저장 결과 안내 */}
+      {savedResults.length > 0 && (
         <div className="mb-5 bg-gradient-to-r from-green-50 to-emerald-50 border-2 border-green-300 rounded-xl p-4">
-          <div className="flex items-center justify-between gap-4">
-            <div>
-              <p className="text-xs text-green-600 font-semibold">✓ 주문 등록됨 · {lastResult.order_id}</p>
-              <p className="text-xs text-gray-700 mt-1">고객에게 안내할 입금액:</p>
-              <p className="text-2xl font-bold text-green-700 mt-0.5">₩{lastResult.payment_amount.toLocaleString()}</p>
-              <p className="text-[11px] text-gray-500 mt-1">신한 140-014-420770 · 주식회사 신산애널리틱스</p>
-            </div>
-            <div className="flex items-center gap-2">
+          <div className="flex items-center justify-between gap-4 mb-2">
+            <p className="text-xs text-green-700 font-semibold">✓ 직전 저장 결과 {savedResults.length}건 — 고객에게 안내할 고유 입금액</p>
+            <div className="flex gap-2">
               <button
-                onClick={() => copyToClipboard(`${lastResult.payment_amount.toLocaleString()}원\n신한 140-014-420770\n(주)신산애널리틱스`)}
-                className="px-3 py-2 bg-green-600 text-white text-sm rounded-lg hover:bg-green-700"
+                onClick={() => copyToClipboard(savedResults.map((r) => `${r.receiver_name}: ₩${r.payment_amount.toLocaleString()} (${r.order_id})`).join("\n"))}
+                className="px-3 py-1.5 bg-green-600 text-white text-xs rounded hover:bg-green-700"
               >
-                입금안내 복사
+                전체 복사
               </button>
-              <button
-                onClick={() => setLastResult(null)}
-                className="text-gray-400 hover:text-gray-600 text-sm"
-              >
-                닫기
-              </button>
+              <button onClick={() => setSavedResults([])} className="text-gray-400 hover:text-gray-600 text-xs">닫기</button>
             </div>
           </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2 text-xs">
+            {savedResults.slice(0, 30).map((r) => (
+              <div key={r.order_id} className="bg-white rounded px-2.5 py-1.5 flex items-center justify-between gap-2 border border-green-200">
+                <span className="font-medium text-gray-800 truncate">{r.receiver_name}</span>
+                <span className="font-mono text-green-700 font-bold whitespace-nowrap">₩{r.payment_amount.toLocaleString()}</span>
+              </div>
+            ))}
+          </div>
+          <p className="text-[10px] text-gray-500 mt-2">신한 140-014-420770 · 주식회사 신산애널리틱스</p>
         </div>
       )}
 
+      {/* 통계 카드 */}
       <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 mb-4">
         {[
           { label: "전체 전화주문", value: `${stats.total}건` },
@@ -360,30 +493,28 @@ export default function PhoneOrderPage() {
         ))}
       </div>
 
+      {/* 스프레드시트 입력 영역 */}
       {formOpen && (
-        <div className="bg-white rounded-xl border p-5 mb-5">
-          <p className="text-sm font-semibold text-gray-800 mb-4">신규 전화주문 입력</p>
-          <div className="space-y-4">
-            <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1">상품 (TP코드/이름 검색)</label>
+        <div className="bg-white rounded-xl border p-4 mb-5">
+          {/* 상단: 상품 선택 + 도구 */}
+          <div className="flex items-end gap-3 mb-3 flex-wrap">
+            <div className="flex-1 min-w-[280px]">
+              <label className="block text-[11px] font-medium text-gray-600 mb-1">상품 선택 (TP코드/이름) — 빈 행에 자동 적용</label>
               <div className="relative">
                 <input
                   type="text"
-                  value={form.product_name}
-                  onChange={(e) => {
-                    setForm({ ...form, product_name: e.target.value });
-                    setShowDropdown(true);
-                  }}
-                  onFocus={() => setShowDropdown(true)}
+                  value={productSearch}
+                  onChange={(e) => { setProductSearch(e.target.value); setProductOpen(true); }}
+                  onFocus={() => setProductOpen(true)}
                   placeholder="상품명 입력..."
                   className="w-full border rounded-lg px-3 py-2 text-sm"
                 />
-                {showDropdown && products.length > 0 && (
+                {productOpen && products.length > 0 && (
                   <div className="absolute top-full mt-1 left-0 right-0 bg-white border rounded-lg shadow-lg max-h-60 overflow-y-auto z-10">
                     {products.map((p) => (
                       <button
                         key={p.id}
-                        onClick={() => selectProduct(p)}
+                        onClick={() => applyProduct(p)}
                         className="w-full text-left px-3 py-2 text-sm hover:bg-gray-50 border-b last:border-0 flex items-center gap-2"
                       >
                         <span className="font-mono text-[10px] font-bold text-[#C41E1E] bg-[#FFF0F5] px-1.5 py-0.5 rounded">{p.tp_code}</span>
@@ -394,144 +525,159 @@ export default function PhoneOrderPage() {
                   </div>
                 )}
               </div>
-              {form.tp_code && <p className="text-[10px] text-gray-400 mt-1">선택: <span className="font-mono">{form.tp_code}</span></p>}
-            </div>
-
-            <div className="grid grid-cols-3 gap-3">
-              <div>
-                <label className="block text-xs font-medium text-gray-600 mb-1">옵션</label>
-                <input
-                  type="text"
-                  value={form.option_text}
-                  onChange={(e) => setForm({ ...form, option_text: e.target.value })}
-                  placeholder="없으면 비워두기"
-                  className="w-full border rounded-lg px-3 py-2 text-sm"
-                />
-              </div>
-              <div>
-                <label className="block text-xs font-medium text-gray-600 mb-1">수량</label>
-                <input
-                  type="number" min={1}
-                  value={form.quantity}
-                  onChange={(e) => setForm({ ...form, quantity: Number(e.target.value) || 1 })}
-                  className="w-full border rounded-lg px-3 py-2 text-sm"
-                />
-              </div>
-              <div>
-                <label className="block text-xs font-medium text-gray-600 mb-1">단가 (원)</label>
-                <input
-                  type="number" min={0}
-                  value={form.unit_price}
-                  onChange={(e) => setForm({ ...form, unit_price: Number(e.target.value) || 0 })}
-                  className="w-full border rounded-lg px-3 py-2 text-sm"
-                />
-              </div>
-            </div>
-
-            {amount > 0 && (
-              <div className="bg-gray-50 rounded-lg p-3 flex items-center justify-between">
-                <span className="text-xs text-gray-600">주문 금액 (예상)</span>
-                <span className="text-lg font-bold">₩{amount.toLocaleString()}</span>
-              </div>
-            )}
-
-            <div className="border-t pt-4">
-              <p className="text-sm font-semibold text-gray-700 mb-3">수령인 정보</p>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-1">수령인</label>
-                  <input
-                    type="text"
-                    value={form.receiver_name}
-                    onChange={(e) => setForm({ ...form, receiver_name: e.target.value })}
-                    className="w-full border rounded-lg px-3 py-2 text-sm"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-1">연락처</label>
-                  <input
-                    type="tel"
-                    value={form.receiver_phone}
-                    onChange={(e) => setForm({ ...form, receiver_phone: e.target.value })}
-                    placeholder="010-0000-0000"
-                    className="w-full border rounded-lg px-3 py-2 text-sm"
-                  />
-                </div>
-              </div>
-              <div className="mt-3 grid grid-cols-[120px_1fr] gap-3">
-                <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-1">우편번호</label>
-                  <input
-                    type="text"
-                    value={form.receiver_zipcode}
-                    onChange={(e) => setForm({ ...form, receiver_zipcode: e.target.value })}
-                    className="w-full border rounded-lg px-3 py-2 text-sm"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-1">배송지</label>
-                  <input
-                    type="text"
-                    value={form.receiver_address}
-                    onChange={(e) => setForm({ ...form, receiver_address: e.target.value })}
-                    placeholder="도로명 주소 + 상세주소"
-                    className="w-full border rounded-lg px-3 py-2 text-sm"
-                  />
-                </div>
-              </div>
-            </div>
-
-            <div className="border-t pt-4">
-              <label className="flex items-center gap-2 mb-3">
-                <input type="checkbox" checked={buyerSameAsReceiver} onChange={(e) => setBuyerSameAsReceiver(e.target.checked)} />
-                <span className="text-sm text-gray-700">주문자 = 수령인</span>
-              </label>
-              {!buyerSameAsReceiver && (
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="block text-xs font-medium text-gray-600 mb-1">주문자명</label>
-                    <input
-                      type="text"
-                      value={form.buyer_name}
-                      onChange={(e) => setForm({ ...form, buyer_name: e.target.value })}
-                      className="w-full border rounded-lg px-3 py-2 text-sm"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-medium text-gray-600 mb-1">주문자 연락처</label>
-                    <input
-                      type="tel"
-                      value={form.buyer_phone}
-                      onChange={(e) => setForm({ ...form, buyer_phone: e.target.value })}
-                      className="w-full border rounded-lg px-3 py-2 text-sm"
-                    />
-                  </div>
-                </div>
+              {selectedProduct && (
+                <p className="text-[10px] text-gray-500 mt-1">
+                  선택: <span className="font-mono text-[#C41E1E] font-semibold">{selectedProduct.tp_code}</span> · {selectedProduct.product_name} · ₩{selectedProduct.price.toLocaleString()}
+                </p>
               )}
             </div>
-
-            <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1">배송메시지 (선택)</label>
-              <textarea
-                value={form.memo}
-                onChange={(e) => setForm({ ...form, memo: e.target.value })}
-                rows={2}
-                placeholder="부재 시 문 앞, 경비실 맡겨주세요 등"
-                className="w-full border rounded-lg px-3 py-2 text-sm"
-              />
-            </div>
-
             <button
-              onClick={handleSubmit}
-              disabled={submitting}
-              className="w-full py-3 bg-[#C41E1E] text-white rounded-lg font-semibold hover:bg-[#A01818] disabled:opacity-50"
+              onClick={applyProductToAll}
+              disabled={!selectedProduct}
+              className="px-3 py-2 text-xs font-medium border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-40"
             >
-              {submitting ? "저장 중..." : "주문 저장 + 입금액 발급"}
+              전체 행에 적용
             </button>
+            <label className="flex items-center gap-1.5 text-xs text-gray-600 cursor-pointer select-none px-2 py-2">
+              <input type="checkbox" checked={buyerSameAsReceiver} onChange={(e) => setBuyerSameAsReceiver(e.target.checked)} />
+              주문자=수령인 (입금자명 비우면 수령인으로)
+            </label>
+          </div>
+
+          <details className="mb-3 text-xs text-gray-500">
+            <summary className="cursor-pointer hover:text-gray-700">💡 엑셀/구글시트에서 복사 → 첫 셀에 붙여넣기 (수령인 / 입금자명 / 연락처 / 우편번호 / 주소 / 메시지 / 수량)</summary>
+            <div className="mt-2 bg-gray-50 rounded p-2 font-mono text-[10px] leading-relaxed">
+              예시 (탭 구분):<br />
+              김대일{"\t"}김대일{"\t"}010-6341-5015{"\t"}{"\t"}경기도고양시일산동구일산로11 506동303호{"\t"}{"\t"}1<br />
+              윤인숙{"\t"}윤인숙{"\t"}010-5897-4737{"\t"}{"\t"}서울특별시 양천구 신정로14길 1 203동 909호{"\t"}{"\t"}1
+            </div>
+          </details>
+
+          {/* 스프레드시트 테이블 */}
+          <div ref={tableRef} className="overflow-x-auto border border-gray-200 rounded-lg">
+            <table className="w-full text-xs">
+              <thead className="bg-gray-50 text-gray-600">
+                <tr>
+                  <th className="px-2 py-2 w-8 text-center font-medium">#</th>
+                  <th className="px-2 py-2 text-left font-medium min-w-[200px]">상품</th>
+                  <th className="px-2 py-2 text-left font-medium min-w-[100px]">옵션</th>
+                  <th className="px-2 py-2 w-16 text-center font-medium">수량</th>
+                  <th className="px-2 py-2 w-24 text-right font-medium">단가</th>
+                  <th className="px-2 py-2 text-left font-medium min-w-[90px]">수령인</th>
+                  <th className="px-2 py-2 text-left font-medium min-w-[90px]">입금자명</th>
+                  <th className="px-2 py-2 text-left font-medium min-w-[130px]">연락처</th>
+                  <th className="px-2 py-2 w-20 text-left font-medium">우편번호</th>
+                  <th className="px-2 py-2 text-left font-medium min-w-[280px]">주소(전체)</th>
+                  <th className="px-2 py-2 text-left font-medium min-w-[140px]">배송메시지</th>
+                  <th className="px-2 py-2 w-20 text-center font-medium">상태</th>
+                  <th className="px-2 py-2 w-10 text-center font-medium"></th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((r, idx) => {
+                  const done = r.status === "ok";
+                  const cellBase = "w-full border-0 bg-transparent px-1.5 py-1.5 text-xs focus:bg-blue-50 focus:outline-none focus:ring-1 focus:ring-blue-400";
+                  return (
+                    <tr key={idx} className={`border-t border-gray-100 ${done ? "bg-green-50/40" : "hover:bg-gray-50/40"}`}>
+                      <td className="px-2 py-1 text-center text-gray-400 text-[10px]">{idx + 1}</td>
+                      <td className="px-1 py-0">
+                        <input
+                          type="text"
+                          value={r.product_name}
+                          onChange={(e) => updateRow(idx, { product_name: e.target.value })}
+                          disabled={done}
+                          placeholder="상품명"
+                          className={cellBase}
+                        />
+                        {r.tp_code && <div className="px-1.5 text-[9px] text-[#C41E1E] font-mono">{r.tp_code}</div>}
+                      </td>
+                      <td className="px-1 py-0">
+                        <input type="text" value={r.option_text} onChange={(e) => updateRow(idx, { option_text: e.target.value })} disabled={done} className={cellBase} />
+                      </td>
+                      <td className="px-1 py-0">
+                        <input type="number" min={1} value={r.quantity} onChange={(e) => updateRow(idx, { quantity: Number(e.target.value) || 1 })} disabled={done} className={`${cellBase} text-center`} />
+                      </td>
+                      <td className="px-1 py-0">
+                        <input type="number" min={0} value={r.unit_price} onChange={(e) => updateRow(idx, { unit_price: Number(e.target.value) || 0 })} disabled={done} className={`${cellBase} text-right`} />
+                      </td>
+                      <td className="px-1 py-0">
+                        <input
+                          type="text"
+                          value={r.receiver_name}
+                          onChange={(e) => updateRow(idx, { receiver_name: e.target.value })}
+                          onPaste={(e) => handlePaste(e, idx)}
+                          disabled={done}
+                          className={cellBase}
+                        />
+                      </td>
+                      <td className="px-1 py-0">
+                        <input
+                          type="text"
+                          value={r.buyer_name}
+                          onChange={(e) => updateRow(idx, { buyer_name: e.target.value })}
+                          disabled={done}
+                          placeholder={buyerSameAsReceiver ? "(수령인 동일)" : ""}
+                          className={cellBase}
+                        />
+                      </td>
+                      <td className="px-1 py-0">
+                        <input type="tel" value={r.receiver_phone} onChange={(e) => updateRow(idx, { receiver_phone: e.target.value })} disabled={done} placeholder="010-0000-0000" className={cellBase} />
+                      </td>
+                      <td className="px-1 py-0">
+                        <input type="text" value={r.receiver_zipcode} onChange={(e) => updateRow(idx, { receiver_zipcode: e.target.value })} disabled={done} className={cellBase} />
+                      </td>
+                      <td className="px-1 py-0">
+                        <input type="text" value={r.receiver_address} onChange={(e) => updateRow(idx, { receiver_address: e.target.value })} disabled={done} placeholder="도로명 + 상세주소" className={cellBase} />
+                      </td>
+                      <td className="px-1 py-0">
+                        <input type="text" value={r.memo} onChange={(e) => updateRow(idx, { memo: e.target.value })} disabled={done} className={cellBase} />
+                      </td>
+                      <td className="px-2 py-1 text-center">
+                        {rowStatusBadge(r)}
+                        {r.result && <div className="text-[9px] font-mono text-green-700 mt-0.5">₩{r.result.payment_amount.toLocaleString()}</div>}
+                      </td>
+                      <td className="px-1 py-1 text-center">
+                        <button
+                          onClick={() => removeRow(idx)}
+                          disabled={done}
+                          className="text-gray-400 hover:text-red-500 disabled:opacity-30 text-sm"
+                          title="행 삭제"
+                        >
+                          ×
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+
+          {/* 하단 액션 */}
+          <div className="flex items-center gap-2 mt-3 flex-wrap">
+            <button onClick={() => addRows(1)} className="px-3 py-1.5 text-xs border border-gray-300 rounded-lg hover:bg-gray-50">+ 1행</button>
+            <button onClick={() => addRows(10)} className="px-3 py-1.5 text-xs border border-gray-300 rounded-lg hover:bg-gray-50">+ 10행</button>
+            <button onClick={() => addRows(50)} className="px-3 py-1.5 text-xs border border-gray-300 rounded-lg hover:bg-gray-50">+ 50행</button>
+            <button onClick={clearAllRows} className="px-3 py-1.5 text-xs border border-gray-300 text-gray-600 rounded-lg hover:bg-gray-50">전체 비우기</button>
+
+            <div className="ml-auto flex items-center gap-3">
+              <div className="text-xs text-gray-600">
+                저장 가능 <span className="font-bold text-gray-900">{validRows.length}건</span>
+                {totalAmount > 0 && <> · 합계 <span className="font-bold text-gray-900">₩{totalAmount.toLocaleString()}</span></>}
+              </div>
+              <button
+                onClick={saveAll}
+                disabled={savingAll || validRows.length === 0}
+                className="px-5 py-2 bg-[#C41E1E] text-white text-sm font-semibold rounded-lg hover:bg-[#A01818] disabled:opacity-50"
+              >
+                {savingAll ? "저장 중..." : `${validRows.length}건 일괄 저장`}
+              </button>
+            </div>
           </div>
         </div>
       )}
 
+      {/* 목록 액션 바 */}
       <div className="flex items-center gap-2 mb-3 flex-wrap">
         <div className="flex border border-gray-300 rounded-lg overflow-hidden">
           {(Object.keys(TAB_LABEL) as TabKey[]).map((key) => {
@@ -587,6 +733,7 @@ export default function PhoneOrderPage() {
         </div>
       </div>
 
+      {/* 목록 테이블 */}
       <div className="bg-white rounded-xl border border-gray-200 overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
