@@ -114,7 +114,7 @@ export default function OrdersPage() {
   const [searchKeyword, setSearchKeyword] = useState("");
 
   // 발주 상태 탭
-  const [poTab, setPoTab] = useState<"all" | "no_po" | "has_po" | "sample">("no_po");
+  const [poTab, setPoTab] = useState<"all" | "no_po" | "has_po" | "sample">("all");
 
   const fetchOrders = useCallback(async () => {
     setLoading(true);
@@ -443,16 +443,31 @@ export default function OrdersPage() {
           <label className="flex items-center gap-1 text-xs text-gray-600 cursor-pointer select-none">
             <input id="import-is-phone" type="checkbox" className="w-3.5 h-3.5 cursor-pointer" onChange={(e) => {
               const sel = document.getElementById("import-store") as HTMLSelectElement;
-              if (e.target.checked) sel.value = "name:전화주문";
-              else sel.value = "";
+              if (e.target.checked) {
+                sel.value = "name:전화주문";
+                const groupEl = document.getElementById("import-is-group") as HTMLInputElement;
+                if (groupEl) groupEl.checked = false;
+              } else sel.value = "";
             }} />
             <span className="px-1.5 py-0.5 rounded bg-purple-100 text-purple-700 font-medium">전화주문</span>
+          </label>
+          <label className="flex items-center gap-1 text-xs text-gray-600 cursor-pointer select-none">
+            <input id="import-is-group" type="checkbox" className="w-3.5 h-3.5 cursor-pointer" onChange={(e) => {
+              const sel = document.getElementById("import-store") as HTMLSelectElement;
+              if (e.target.checked) {
+                sel.value = "name:공구주문";
+                const phoneEl = document.getElementById("import-is-phone") as HTMLInputElement;
+                if (phoneEl) phoneEl.checked = false;
+              } else sel.value = "";
+            }} />
+            <span className="px-1.5 py-0.5 rounded bg-purple-100 text-purple-700 font-medium">공구주문</span>
           </label>
         </div>
         <div className="relative">
           <select id="import-store" className="text-xs border border-gray-300 rounded-lg px-2 py-1.5 pr-16 appearance-none bg-white" defaultValue="">
             <option value="" disabled>판매사 선택</option>
             <option value="name:전화주문">전화주문</option>
+            <option value="name:공구주문">공구주문</option>
             <option value="name:수기주문">수기주문</option>
             {stores.map((s) => (<option key={s.id} value={`id:${s.id}`}>{s.name}</option>))}
           </select>
