@@ -132,3 +132,5 @@ Supabase Dashboard → SQL Editor에서 순서대로 실행
 - cron 누락: Vercel Dashboard → Crons 탭에서 실행 기록 확인
 - DB 권한 오류: `SUPABASE_SERVICE_ROLE_KEY` 재확인 (anon key 아님)
 - 카페24 401: `/admin/api/cron/refresh-tokens` 수동 호출로 토큰 갱신
+
+<!-- vercel auto-deploy test: 2026-05-12_14:49 -->
