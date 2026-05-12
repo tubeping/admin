@@ -77,6 +77,18 @@ const MENU_GROUPS: MenuGroup[] = [
           { key: "outreach-suppliers", label: "공급사", href: "/sales/outreach/suppliers" },
         ],
       },
+      {
+        key: "instagram-groupbuy",
+        label: "인스타 공동구매",
+        href: "/marketing/instagram-groupbuy",
+        icon: (
+          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <rect x="3" y="3" width="18" height="18" rx="5" strokeWidth={1.5} />
+            <circle cx="12" cy="12" r="4" strokeWidth={1.5} />
+            <circle cx="17.5" cy="6.5" r="1.1" fill="currentColor" stroke="none" />
+          </svg>
+        ),
+      },
     ],
   },
   {
@@ -108,7 +120,7 @@ const MENU_GROUPS: MenuGroup[] = [
         children: [
           { key: "orders-manage", label: "주문집계", href: "/mall/orders" },
           { key: "orders-lookup", label: "주문조회", href: "/mall/orders/lookup" },
-          { key: "orders-phone", label: "전화주문 입력", href: "/mall/orders/phone" },
+          { key: "orders-phone", label: "전화주문 관리", href: "/mall/orders/phone" },
           { key: "orders-payment", label: "입금확인", href: "/mall/orders/payment" },
           { key: "orders-verification", label: "매핑 검증", href: "/mall/orders/verification" },
           { key: "supplier-holidays", label: "공급사 휴무", href: "/mall/supplier-holidays" },
