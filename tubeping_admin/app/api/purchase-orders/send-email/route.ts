@@ -86,10 +86,10 @@ export async function POST(request: NextRequest) {
 
   const sb = getServiceClient();
 
-  // 발주서 조회
+  // 발주서 조회 — 발주이메일 우선, 없으면 대표이메일
   const { data: po } = await sb
     .from("purchase_orders")
-    .select("*, suppliers:supplier_id(name, email)")
+    .select("*, suppliers:supplier_id(name, email, order_email)")
     .eq("id", purchase_order_id)
     .single();
 
@@ -97,7 +97,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "발주서를 찾을 수 없습니다" }, { status: 404 });
   }
 
-  const supplierEmail = po.suppliers?.email;
+  const supplierEmail = po.suppliers?.order_email || po.suppliers?.email;
   if (!supplierEmail) {
     return NextResponse.json({ error: "공급사 이메일이 없습니다" }, { status: 400 });
   }

@@ -3,7 +3,8 @@ import { getServiceClient } from "@/lib/supabase";
 
 /**
  * GET /api/products — 자체 상품 목록
- * params: limit, offset, keyword, category, selling
+ * params: limit, offset, keyword, category, selling, with_count
+ *   with_count=1 만 exact count 계산 (첫 페이지에서만 사용 권장 — 매 페이지 호출 시 750ms+ 부담)
  */
 export async function GET(request: NextRequest) {
   const { searchParams } = request.nextUrl;
@@ -13,13 +14,18 @@ export async function GET(request: NextRequest) {
   const category = searchParams.get("category") || "";
   const selling = searchParams.get("selling") || "";
   const display = searchParams.get("display") || "";
+  const withCount = searchParams.get("with_count") === "1";
 
   const sb = getServiceClient();
 
   // 리스트 뷰는 가벼운 컬럼만 (모달 열릴 때 detail API로 fullload)
+  // count는 with_count=1 일 때만 exact (전체 row 카운트는 비싼 작업)
   let query = sb
     .from("products")
-    .select("id, tp_code, product_name, price, supply_price, retail_price, image_url, selling, display, approval_status, category, supplier, total_stock, fulfillment_warehouse_supplier_id, created_at, updated_at, product_cafe24_mappings(store_id), product_variants(id)", { count: "exact" })
+    .select(
+      "id, tp_code, product_name, price, supply_price, retail_price, image_url, selling, display, approval_status, category, supplier, total_stock, fulfillment_warehouse_supplier_id, created_at, updated_at, product_cafe24_mappings(store_id), product_variants(id)",
+      withCount ? { count: "exact" } : undefined
+    )
     .order("created_at", { ascending: false })
     .range(offset, offset + limit - 1);
 

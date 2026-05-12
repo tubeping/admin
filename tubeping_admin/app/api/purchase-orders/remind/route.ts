@@ -15,10 +15,10 @@ export async function POST(request: NextRequest) {
 
   const sb = getServiceClient();
 
-  // 미응답 발주서 조회
+  // 미응답 발주서 조회 — 발주이메일 우선, 없으면 대표이메일
   let query = sb
     .from("purchase_orders")
-    .select("*, suppliers:supplier_id(name, email)")
+    .select("*, suppliers:supplier_id(name, email, order_email)")
     .in("status", ["sent", "viewed"]);
 
   if (poId) {
@@ -39,7 +39,7 @@ export async function POST(request: NextRequest) {
   const results: { po_number: string; supplier: string; email: string; success: boolean }[] = [];
 
   for (const po of pos) {
-    const supplierEmail = po.suppliers?.email;
+    const supplierEmail = po.suppliers?.order_email || po.suppliers?.email;
     const supplierName = po.suppliers?.name || "";
 
     if (!supplierEmail || supplierEmail.includes("@tubeping.supplier") || supplierEmail.includes("@cafe24.supplier")) {

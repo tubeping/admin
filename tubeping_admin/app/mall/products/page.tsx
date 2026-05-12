@@ -206,20 +206,32 @@ export default function ProductsPage() {
     if (displayFilter === "hidden") baseParams.set("display", "F");
 
     try {
-      const pageSize = 200;
+      const pageSize = 500;
 
-      // 첫 페이지로 total 파악
+      // 첫 페이지 + count head 병렬 호출
+      // count head: limit=0 + with_count=1 으로 데이터 없이 total만 받음 (~50ms)
+      // 첫 페이지: 데이터 500개 (~250ms)
       const firstParams = new URLSearchParams(baseParams);
       firstParams.set("limit", String(pageSize));
       firstParams.set("offset", "0");
-      const firstRes = await fetch(`/admin/api/products?${firstParams}`);
+
+      const countParams = new URLSearchParams(baseParams);
+      countParams.set("with_count", "1");
+      countParams.set("limit", "0");
+
+      const [firstRes, countRes] = await Promise.all([
+        fetch(`/admin/api/products?${firstParams}`),
+        fetch(`/admin/api/products?${countParams}`),
+      ]);
       if (!firstRes.ok) throw new Error(`API 오류 (${firstRes.status})`);
+      if (!countRes.ok) throw new Error(`API 오류 (${countRes.status})`);
       const firstData = await firstRes.json();
-      const totalCount: number = firstData.total || 0;
+      const countData = await countRes.json();
+      const totalCount: number = countData.total || 0;
       setTotal(totalCount);
       const firstBatch: Product[] = firstData.products || [];
 
-      // 나머지 페이지 동시 fetch
+      // 나머지 페이지 동시 fetch (count 생략)
       const remainingPages: number[] = [];
       for (let off = pageSize; off < totalCount; off += pageSize) {
         remainingPages.push(off);

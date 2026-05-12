@@ -1,4 +1,5 @@
 {
+  "regions": ["icn1"],
   "crons": [
     {
       "path": "/admin/api/cron/refresh-tokens",

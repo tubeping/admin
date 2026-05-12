@@ -130,7 +130,7 @@ export async function POST(request: NextRequest) {
   const targetIds = Object.keys(byTarget);
   const { data: targetSuppliers } = await sb
     .from("suppliers")
-    .select("id, name, email")
+    .select("id, name, email, order_email")
     .in("id", targetIds);
   const supplierMap = Object.fromEntries((targetSuppliers || []).map((s) => [s.id, s]));
 
@@ -139,7 +139,8 @@ export async function POST(request: NextRequest) {
   for (const [targetId, grpOrders] of Object.entries(byTarget)) {
     const supplier = supplierMap[targetId];
     const supplierName = supplier?.name || "?";
-    const supplierEmail = supplier?.email || "";
+    // 발주이메일 우선, 없으면 대표이메일
+    const supplierEmail = supplier?.order_email || supplier?.email || "";
     // 창고 발주 여부: 이 그룹의 주문 중 원 supplier_id가 target과 다른 게 하나라도 있으면 창고 발주
     const isWarehouse = grpOrders.some((o) => o.supplier_id && o.supplier_id !== targetId);
 
