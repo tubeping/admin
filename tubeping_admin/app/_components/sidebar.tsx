@@ -399,7 +399,8 @@ export default function Sidebar({ collapsed, onToggle }: SidebarProps) {
               </p>
             )}
             {group.items.map((item) => {
-              const active = isActive(item.href);
+              // 부모 또는 자식 중 하나라도 활성이면 부모를 활성으로 — 자식 경로가 부모 href의 prefix가 아닌 경우(예: /mall/stock-alerts under 상품관리 /mall/products)에도 메뉴 펼친 상태 유지
+              const active = isActive(item.href) || (item.children?.some((c) => isActive(c.href)) ?? false);
               const badge = item.key === "cs" ? csOpen : 0;
               return (
                 <div key={item.key}>
