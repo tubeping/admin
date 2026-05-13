@@ -39,6 +39,25 @@ type HotdealItem = {
   status?: string;
 };
 
+type GscRow = {
+  query?: string;
+  page?: string;
+  clicks: number;
+  impressions: number;
+  ctr: number;
+  position: number;
+};
+
+type Gsc = {
+  period?: { start: string; end: string };
+  totals?: { clicks: number; impressions: number; ctr: number; position: number };
+  daily?: (GscRow & { date: string })[];
+  queries?: GscRow[];
+  pages?: GscRow[];
+  fetchedAt?: string;
+  error?: string;
+};
+
 type Kpi = {
   generatedAt: string;
   content: { reviews: number; guides: number; hotdeals: number };
@@ -52,11 +71,12 @@ type Kpi = {
   };
   history?: { date: string; reviews: number; guides: number }[];
   contentList?: { reviews: ReviewItem[]; guides: GuideItem[]; hotdeals: HotdealItem[] };
+  gsc?: Gsc;
 };
 
 const KPI_URL = "https://reviewyangi.com/api/kpi.json";
 
-type Tab = "overview" | "reviews" | "guides" | "hotdeals";
+type Tab = "overview" | "reviews" | "guides" | "hotdeals" | "search";
 
 export default function ReviewYangiAdminPage() {
   const [kpi, setKpi] = useState<Kpi | null>(null);
@@ -180,6 +200,7 @@ export default function ReviewYangiAdminPage() {
       <div className="flex gap-1 mb-4 bg-gray-100 rounded-lg p-1 w-fit">
         {([
           { k: "overview", l: `📊 개요` },
+          { k: "search", l: `🔍 검색 노출` },
           { k: "reviews", l: `📝 리뷰 (${kpi.content.reviews})` },
           { k: "guides", l: `📖 가이드 (${kpi.content.guides})` },
           { k: "hotdeals", l: `🔥 핫딜 (${kpi.content.hotdeals})` },
@@ -310,6 +331,93 @@ export default function ReviewYangiAdminPage() {
               ))}
             </tbody>
           </table>
+        </div>
+      )}
+
+      {/* Search (GSC) tab */}
+      {tab === "search" && (
+        <div className="space-y-4">
+          {kpi.gsc?.error || !kpi.gsc?.totals ? (
+            <div className="rounded-xl border border-amber-200 bg-amber-50 p-6 text-sm text-amber-900">
+              <p className="font-semibold mb-1">Google Search Console 데이터 없음</p>
+              <p className="text-xs">{kpi.gsc?.error || "다음 자동 사이클에서 수집됨"}</p>
+            </div>
+          ) : (
+            <>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                <Stat label="총 클릭" value={kpi.gsc.totals.clicks} accent="text-blue-600" />
+                <Stat label="총 노출" value={fmt(kpi.gsc.totals.impressions)} accent="text-blue-600" />
+                <Stat label="CTR" value={`${kpi.gsc.totals.ctr}%`} />
+                <Stat label="평균 순위" value={kpi.gsc.totals.position} subtitle="낮을수록 좋음" />
+              </div>
+              <p className="text-xs text-gray-500">
+                기간: {kpi.gsc.period?.start} ~ {kpi.gsc.period?.end} · 갱신:{" "}
+                {fmtDate(kpi.gsc.fetchedAt)}
+              </p>
+
+              {/* Top queries */}
+              <div className="rounded-xl border border-gray-200 bg-white overflow-hidden">
+                <div className="px-4 py-3 border-b border-gray-100 font-semibold text-sm text-gray-700">
+                  TOP 검색어 ({kpi.gsc.queries?.length ?? 0})
+                </div>
+                <table className="w-full text-sm">
+                  <thead className="bg-gray-50 text-xs text-gray-500">
+                    <tr>
+                      <th className="text-left p-2 pl-4">검색어</th>
+                      <th className="text-right p-2">클릭</th>
+                      <th className="text-right p-2">노출</th>
+                      <th className="text-right p-2">CTR</th>
+                      <th className="text-right p-2 pr-4">평균 순위</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(kpi.gsc.queries ?? []).map((q, i) => (
+                      <tr key={i} className="border-t border-gray-100">
+                        <td className="p-2 pl-4 text-gray-700">{q.query}</td>
+                        <td className="p-2 text-right font-semibold">{q.clicks}</td>
+                        <td className="p-2 text-right text-gray-600">{fmt(q.impressions)}</td>
+                        <td className="p-2 text-right text-gray-500">{q.ctr}%</td>
+                        <td className="p-2 pr-4 text-right text-gray-500">{q.position}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* Top pages */}
+              <div className="rounded-xl border border-gray-200 bg-white overflow-hidden">
+                <div className="px-4 py-3 border-b border-gray-100 font-semibold text-sm text-gray-700">
+                  TOP 페이지 ({kpi.gsc.pages?.length ?? 0})
+                </div>
+                <table className="w-full text-sm">
+                  <thead className="bg-gray-50 text-xs text-gray-500">
+                    <tr>
+                      <th className="text-left p-2 pl-4">URL</th>
+                      <th className="text-right p-2">클릭</th>
+                      <th className="text-right p-2">노출</th>
+                      <th className="text-right p-2">CTR</th>
+                      <th className="text-right p-2 pr-4">평균 순위</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(kpi.gsc.pages ?? []).map((p, i) => (
+                      <tr key={i} className="border-t border-gray-100">
+                        <td className="p-2 pl-4 text-blue-600 text-xs break-all">
+                          <a href={p.page} target="_blank" rel="noopener" className="hover:underline">
+                            {(p.page || "").replace("https://reviewyangi.com", "")}
+                          </a>
+                        </td>
+                        <td className="p-2 text-right font-semibold">{p.clicks}</td>
+                        <td className="p-2 text-right text-gray-600">{fmt(p.impressions)}</td>
+                        <td className="p-2 text-right text-gray-500">{p.ctr}%</td>
+                        <td className="p-2 pr-4 text-right text-gray-500">{p.position}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </>
+          )}
         </div>
       )}
 
