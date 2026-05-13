@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServiceClient } from "@/lib/supabase";
+import { env } from "@/lib/env.server";
 
-const CLIENT_ID = (process.env.CAFE24_CLIENT_ID || "").trim();
-const CLIENT_SECRET = (process.env.CAFE24_CLIENT_SECRET || "").trim();
-const CRON_SECRET = process.env.CRON_SECRET || "";
+const CLIENT_ID = env.CAFE24_CLIENT_ID;
+const CLIENT_SECRET = env.CAFE24_CLIENT_SECRET;
+const CRON_SECRET = env.CRON_SECRET;
 
 /**
  * GET /api/cron/refresh-tokens — 전체 스토어 토큰 자동 갱신

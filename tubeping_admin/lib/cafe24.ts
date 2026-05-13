@@ -4,10 +4,11 @@
  */
 
 import { getServiceClient } from "./supabase";
+import { env } from "./env.server";
 
 // 단일 카페24 앱(z87...)으로 통일
-const CLIENT_ID = (process.env.CAFE24_CLIENT_ID || "").trim();
-const CLIENT_SECRET = (process.env.CAFE24_CLIENT_SECRET || "").trim();
+const CLIENT_ID = env.CAFE24_CLIENT_ID;
+const CLIENT_SECRET = env.CAFE24_CLIENT_SECRET;
 
 const API_VERSION = "2026-03-01";
 

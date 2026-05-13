@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServiceClient } from "@/lib/supabase";
 import { sendMail } from "@/lib/mail";
+import { publicEnv } from "@/lib/env.public";
 
 /**
  * POST /api/purchase-orders/remind — 미응답 공급사에 리마인더 발송
@@ -34,7 +35,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ message: "리마인더 대상이 없습니다", sent: 0 });
   }
 
-  const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || "https://tubepingadmin.vercel.app";
+  const baseUrl = publicEnv.NEXT_PUBLIC_BASE_URL;
   const portalUrl = `${baseUrl}/admin/supplier`;
   const results: { po_number: string; supplier: string; email: string; success: boolean }[] = [];
 

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServiceClient } from "@/lib/supabase";
 import { sendMail } from "@/lib/mail";
 import { generateOrderCsv, enrichWithTpCode, POConfig } from "@/lib/purchaseOrderCsv";
+import { publicEnv } from "@/lib/env.public";
 
 function generateEmailHtml(po: {
   po_number: string;
@@ -123,7 +124,7 @@ export async function POST(request: NextRequest) {
   } catch { /* po_config 컬럼 미존재 시 무시 */ }
 
   // 포털 URL 생성
-  const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || "https://tubepingadmin.vercel.app";
+  const baseUrl = publicEnv.NEXT_PUBLIC_BASE_URL;
   const portalUrl = `${baseUrl}/admin/supplier`;
 
   const html = generateEmailHtml(

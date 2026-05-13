@@ -8,6 +8,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { getServiceClient } from "@/lib/supabase";
+import { publicEnv } from "@/lib/env.public";
 
 export async function GET(req: NextRequest) {
   const sb = getServiceClient();
@@ -40,7 +41,7 @@ export async function POST(req: NextRequest) {
   }
 
   // 웹훅 URL 자동 생성
-  const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || "https://tubepingadmin.vercel.app/admin";
+  const baseUrl = publicEnv.NEXT_PUBLIC_BASE_URL;
 
   const { data, error } = await sb
     .from("cs_channels")
@@ -60,9 +61,9 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
-  // 웹훅 URL 업데이트 (채널 타입별 경로)
+  // 웹훅 URL 업데이트 (채널 타입별 경로) — basePath /admin 포함
   const webhookPath = channel_type === "kakao" ? "kakaotalk" : "navertalk";
-  const webhookUrl = `${baseUrl}/api/${webhookPath}/webhook?channel_id=${data.id}`;
+  const webhookUrl = `${baseUrl}/admin/api/${webhookPath}/webhook?channel_id=${data.id}`;
   await sb.from("cs_channels").update({ webhook_url: webhookUrl }).eq("id", data.id);
   data.webhook_url = webhookUrl;
 

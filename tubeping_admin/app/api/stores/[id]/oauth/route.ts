@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServiceClient } from "@/lib/supabase";
+import { env } from "@/lib/env.server";
 
 // 정식 등록된 앱(z87...)으로 강제 사용 — V2는 테스트앱이라 설치한도 걸림
-const CLIENT_ID = (process.env.CAFE24_CLIENT_ID || "").trim();
+const CLIENT_ID = env.CAFE24_CLIENT_ID;
 
 /**
  * GET /api/stores/[id]/oauth — OAuth 인증 URL 생성

@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
+import { env } from "@/lib/env.server";
 
-const MALL_ID = process.env.CAFE24_MALL_ID || "";
-const CLIENT_ID = process.env.CAFE24_CLIENT_ID || "";
-const CLIENT_SECRET = process.env.CAFE24_CLIENT_SECRET || "";
+const MALL_ID = env.CAFE24_MALL_ID;
+const CLIENT_ID = env.CAFE24_CLIENT_ID;
+const CLIENT_SECRET = env.CAFE24_CLIENT_SECRET;
 
 export async function GET(request: NextRequest) {
   const code = request.nextUrl.searchParams.get("code");

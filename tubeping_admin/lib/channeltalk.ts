@@ -4,8 +4,10 @@
  * 문서: https://developers.channel.io/docs/
  */
 
-const ACCESS_KEY = process.env.CHANNELTALK_ACCESS_KEY || "";
-const ACCESS_SECRET = process.env.CHANNELTALK_ACCESS_SECRET || "";
+import { env } from "./env.server";
+
+const ACCESS_KEY = env.CHANNELTALK_ACCESS_KEY;
+const ACCESS_SECRET = env.CHANNELTALK_ACCESS_SECRET;
 const BASE_URL = "https://api.channel.io/open";
 
 function headers(): Record<string, string> {

@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServiceClient } from "@/lib/supabase";
 import { getActiveStores, cafe24Fetch } from "@/lib/cafe24";
+import { env } from "@/lib/env.server";
 
-const CRON_SECRET = process.env.CRON_SECRET || "";
+const CRON_SECRET = env.CRON_SECRET;
 
 /**
  * GET /api/cron/collect-orders — 전체 스토어 주문 자동 수집

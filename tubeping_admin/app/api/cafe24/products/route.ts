@@ -1,13 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
+import { env } from "@/lib/env.server";
 
-const MALL_ID = process.env.CAFE24_MALL_ID || "";
-const CLIENT_ID = process.env.CAFE24_CLIENT_ID || "";
-const CLIENT_SECRET = process.env.CAFE24_CLIENT_SECRET || "";
+const MALL_ID = env.CAFE24_MALL_ID;
+const CLIENT_ID = env.CAFE24_CLIENT_ID;
+const CLIENT_SECRET = env.CAFE24_CLIENT_SECRET;
 const API_VERSION = "2026-03-01";
 
 let cachedToken = {
-  access: process.env.CAFE24_ACCESS_TOKEN || "",
-  refresh: process.env.CAFE24_REFRESH_TOKEN || "",
+  access: env.CAFE24_ACCESS_TOKEN,
+  refresh: env.CAFE24_REFRESH_TOKEN,
   expiresAt: Date.now() + 2 * 60 * 60 * 1000,
 };
 

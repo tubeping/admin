@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServiceClient } from "@/lib/supabase";
+import { publicEnv } from "@/lib/env.public";
 
 /**
  * POST /api/purchase-orders/bulk-create — 주문을 fulfillment target으로 자동 그룹핑해 발주서 생성 + 메일 발송
@@ -134,7 +135,7 @@ export async function POST(request: NextRequest) {
     .in("id", targetIds);
   const supplierMap = Object.fromEntries((targetSuppliers || []).map((s) => [s.id, s]));
 
-  const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || "https://tubepingadmin.vercel.app";
+  const baseUrl = publicEnv.NEXT_PUBLIC_BASE_URL;
 
   for (const [targetId, grpOrders] of Object.entries(byTarget)) {
     const supplier = supplierMap[targetId];

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
+import { publicEnv } from "@/lib/env.public";
 
 type Store = {
   id: string;
@@ -175,7 +176,7 @@ export default function StoresPage() {
         </div>
         <div className="bg-white rounded-xl border border-gray-200 p-4">
           <p className="text-xs text-gray-500">공유 앱</p>
-          <p className="text-sm font-bold text-gray-900 mt-1 font-mono">{process.env.NEXT_PUBLIC_SUPABASE_URL ? "연결됨" : "-"}</p>
+          <p className="text-sm font-bold text-gray-900 mt-1 font-mono">{publicEnv.NEXT_PUBLIC_SUPABASE_URL ? "연결됨" : "-"}</p>
         </div>
       </div>
 

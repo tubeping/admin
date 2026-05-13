@@ -1,11 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServiceClient } from "@/lib/supabase";
+import { env } from "@/lib/env.server";
 
 const MALL_ID = "tubeping";
 const API_VERSION = "2026-03-01";
 
-const CLIENT_ID = (process.env.CAFE24_CLIENT_ID || "").trim();
-const CLIENT_SECRET = (process.env.CAFE24_CLIENT_SECRET || "").trim();
+const CLIENT_ID = env.CAFE24_CLIENT_ID;
+const CLIENT_SECRET = env.CAFE24_CLIENT_SECRET;
 
 /* ── DB 기반 토큰 관리 ── */
 async function getTokenFromDB(): Promise<string | null> {
