@@ -57,9 +57,10 @@ interface SavedRow {
   payment_amount: number;
 }
 
-type TabKey = "all" | "pending" | "ready_po" | "in_po";
+type TabKey = "draft" | "all" | "pending" | "ready_po" | "in_po";
 
 const TAB_LABEL: Record<TabKey, string> = {
+  draft: "초안 (미등록)",
   all: "전체",
   pending: "입금대기",
   ready_po: "발주대기",
@@ -84,6 +85,8 @@ const emptyRow = (defaults?: Partial<InputRow>): InputRow => ({
 export default function PhoneOrderPage() {
   // 입력 스프레드시트 상태
   const [rows, setRows] = useState<InputRow[]>(() => Array.from({ length: 5 }, () => emptyRow()));
+  // 기본 탭은 "초안" — 저장 직후 사용자가 검토하는 영역
+  const initialTab: TabKey = "draft";
   const [productSearch, setProductSearch] = useState("");
   const [products, setProducts] = useState<Product[]>([]);
   const [productOpen, setProductOpen] = useState(false);
@@ -95,7 +98,7 @@ export default function PhoneOrderPage() {
 
   // 목록 상태
   const [orders, setOrders] = useState<PhoneOrder[]>([]);
-  const [tab, setTab] = useState<TabKey>("all");
+  const [tab, setTab] = useState<TabKey>(initialTab);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [bulkBusy, setBulkBusy] = useState(false);
   const [search, setSearch] = useState("");
@@ -116,9 +119,9 @@ export default function PhoneOrderPage() {
     return () => clearTimeout(t);
   }, [productSearch, searchProducts]);
 
-  // 목록 조회
+  // 목록 조회 — 초안(draft) 포함해서 가져옴
   const fetchOrders = useCallback(async () => {
-    const res = await fetch("/admin/api/orders?limit=500");
+    const res = await fetch("/admin/api/orders?limit=500&include_draft=true");
     const data = await res.json();
     const phoneOrders = (data.orders || []).filter((o: PhoneOrder) =>
       (o.cafe24_order_id || "").startsWith("PT-")
@@ -302,13 +305,41 @@ export default function PhoneOrderPage() {
       return o && o.shipping_status === "pending";
     });
     if (ids.length === 0) { alert("입금대기 상태인 주문이 선택되지 않았습니다."); return; }
-    if (!confirm(`${ids.length}건을 입금확인 처리하시겠습니까?`)) return;
+    if (!confirm(`${ids.length}건을 입금확인 처리하시겠습니까?\n계좌이체 입금이 확인된 주문만 진행해주세요.`)) return;
     await fetch("/admin/api/orders", {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ ids, updates: { shipping_status: "ordered" } }),
     });
     setSelected(new Set());
+    fetchOrders();
+  };
+
+  // 주문집계 등록 — 초안(draft) → 입금대기(pending) 승격, 주문집계 페이지에서 보이게 됨
+  const bulkPromoteToAggregate = async () => {
+    const ids = Array.from(selected).filter((id) => {
+      const o = orders.find((x) => x.id === id);
+      return o && o.shipping_status === "draft";
+    });
+    if (ids.length === 0) { alert("초안 상태인 주문이 선택되지 않았습니다."); return; }
+    if (!confirm(`${ids.length}건을 주문집계에 등록합니다.\n이후 주문집계 페이지에서도 보이며, 계좌이체 입금이 확인되면 '입금확인' 처리하세요.\n\n계속할까요?`)) return;
+    await fetch("/admin/api/orders", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ids, updates: { shipping_status: "pending" } }),
+    });
+    setSelected(new Set());
+    fetchOrders();
+  };
+
+  // 단건 주문집계 등록 (행 액션)
+  const promoteOne = async (orderId: string) => {
+    if (!confirm("이 주문을 주문집계에 등록하시겠습니까?")) return;
+    await fetch("/admin/api/orders", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ids: [orderId], updates: { shipping_status: "pending" } }),
+    });
     fetchOrders();
   };
 
@@ -375,6 +406,12 @@ export default function PhoneOrderPage() {
   // 필터링
   const filtered = useMemo(() => {
     return orders.filter((o) => {
+      // 초안 탭은 draft만, 그 외 탭은 draft 제외
+      if (tab === "draft") {
+        if (o.shipping_status !== "draft") return false;
+      } else {
+        if (o.shipping_status === "draft") return false;
+      }
       if (tab === "pending" && o.shipping_status !== "pending") return false;
       if (tab === "ready_po" && (o.shipping_status === "pending" || o.purchase_order_id)) return false;
       if (tab === "in_po" && !o.purchase_order_id) return false;
@@ -388,11 +425,12 @@ export default function PhoneOrderPage() {
   }, [orders, tab, search]);
 
   const stats = useMemo(() => ({
-    total: orders.length,
+    draft: orders.filter((o) => o.shipping_status === "draft").length,
+    total: orders.filter((o) => o.shipping_status !== "draft").length,
     pending: orders.filter((o) => o.shipping_status === "pending").length,
-    readyPO: orders.filter((o) => o.shipping_status !== "pending" && !o.purchase_order_id && o.shipping_status !== "cancelled").length,
+    readyPO: orders.filter((o) => o.shipping_status !== "pending" && o.shipping_status !== "draft" && !o.purchase_order_id && o.shipping_status !== "cancelled").length,
     inPO: orders.filter((o) => !!o.purchase_order_id).length,
-    totalAmount: orders.reduce((s, o) => s + (o.order_amount || 0), 0),
+    totalAmount: orders.filter((o) => o.shipping_status !== "draft").reduce((s, o) => s + (o.order_amount || 0), 0),
   }), [orders]);
 
   const toggleSelect = (id: string) => {
@@ -406,6 +444,9 @@ export default function PhoneOrderPage() {
   const statusBadge = (o: PhoneOrder) => {
     if (o.purchase_order_id && o.purchase_orders) {
       return <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-700" title={o.purchase_orders.po_number}>발주 {o.purchase_orders.po_number}</span>;
+    }
+    if (o.shipping_status === "draft") {
+      return <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-gray-100 text-gray-600">초안 (미등록)</span>;
     }
     if (o.shipping_status === "pending") {
       return <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-yellow-100 text-yellow-700">입금대기</span>;
@@ -430,7 +471,7 @@ export default function PhoneOrderPage() {
         <div>
           <h1 className="text-xl font-bold text-gray-900">전화주문 관리</h1>
           <p className="text-xs text-gray-500 mt-1">
-            스프레드시트처럼 여러 주문을 한 번에 입력하고, 입금확인 후 원하는 시점에 발주서로 전환합니다.
+            ① 스프레드시트로 입력·저장(초안) → ② 검토 후 <strong>주문집계 등록</strong> → ③ 계좌이체 <strong>입금확인</strong> → ④ 발주서 생성
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -478,8 +519,9 @@ export default function PhoneOrderPage() {
       )}
 
       {/* 통계 카드 */}
-      <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 mb-4">
+      <div className="grid grid-cols-2 sm:grid-cols-6 gap-3 mb-4">
         {[
+          { label: "초안 (미등록)", value: `${stats.draft}건`, hl: stats.draft > 0, hlColor: "text-gray-700" },
           { label: "전체 전화주문", value: `${stats.total}건` },
           { label: "입금대기", value: `${stats.pending}건`, hl: stats.pending > 0 },
           { label: "발주대기", value: `${stats.readyPO}건`, hl: stats.readyPO > 0 },
@@ -488,7 +530,7 @@ export default function PhoneOrderPage() {
         ].map((s) => (
           <div key={s.label} className="bg-white rounded-lg border border-gray-200 px-3 py-2.5">
             <p className="text-[11px] text-gray-400">{s.label}</p>
-            <p className={`text-sm font-bold mt-0.5 ${s.hl ? "text-[#C41E1E]" : "text-gray-900"}`}>{s.value}</p>
+            <p className={`text-sm font-bold mt-0.5 ${s.hl ? (s.hlColor || "text-[#C41E1E]") : "text-gray-900"}`}>{s.value}</p>
           </div>
         ))}
       </div>
@@ -682,15 +724,21 @@ export default function PhoneOrderPage() {
         <div className="flex border border-gray-300 rounded-lg overflow-hidden">
           {(Object.keys(TAB_LABEL) as TabKey[]).map((key) => {
             const count =
+              key === "draft" ? stats.draft :
               key === "all" ? stats.total :
               key === "pending" ? stats.pending :
               key === "ready_po" ? stats.readyPO :
               stats.inPO;
+            const isDraftTab = key === "draft";
             return (
               <button
                 key={key}
                 onClick={() => { setTab(key); setSelected(new Set()); }}
-                className={`px-3 py-1.5 text-xs font-medium cursor-pointer ${tab === key ? "bg-[#C41E1E] text-white" : "bg-white text-gray-600 hover:bg-gray-50"}`}
+                className={`px-3 py-1.5 text-xs font-medium cursor-pointer ${
+                  tab === key
+                    ? (isDraftTab ? "bg-gray-700 text-white" : "bg-[#C41E1E] text-white")
+                    : (isDraftTab && count > 0 ? "bg-yellow-50 text-yellow-800 hover:bg-yellow-100" : "bg-white text-gray-600 hover:bg-gray-50")
+                }`}
               >
                 {TAB_LABEL[key]} ({count})
               </button>
@@ -709,19 +757,33 @@ export default function PhoneOrderPage() {
           {selected.size > 0 && (
             <>
               <span className="text-xs text-gray-500">선택 {selected.size}건</span>
-              <button
-                onClick={bulkConfirmPayment}
-                className="px-3 py-1.5 bg-gray-900 text-white text-xs font-medium rounded-lg hover:bg-gray-700 cursor-pointer"
-              >
-                입금확인 처리
-              </button>
-              <button
-                onClick={bulkCreatePO}
-                disabled={bulkBusy}
-                className="px-3 py-1.5 bg-blue-600 text-white text-xs font-medium rounded-lg hover:bg-blue-700 cursor-pointer disabled:opacity-50"
-              >
-                {bulkBusy ? "발주 중..." : `선택 발주 (${selected.size})`}
-              </button>
+              {/* 초안 탭에서만 — 주문집계 등록 (draft → pending 승격) */}
+              {tab === "draft" && (
+                <button
+                  onClick={bulkPromoteToAggregate}
+                  className="px-3 py-1.5 bg-[#C41E1E] text-white text-xs font-bold rounded-lg hover:bg-[#A01818] cursor-pointer shadow-sm"
+                >
+                  → 주문집계 등록 ({selected.size})
+                </button>
+              )}
+              {/* 초안 아닌 탭에서만 — 입금확인 / 선택 발주 / 삭제 */}
+              {tab !== "draft" && (
+                <button
+                  onClick={bulkConfirmPayment}
+                  className="px-3 py-1.5 bg-emerald-600 text-white text-xs font-bold rounded-lg hover:bg-emerald-700 cursor-pointer shadow-sm"
+                >
+                  💰 입금확인 처리 ({selected.size})
+                </button>
+              )}
+              {tab !== "draft" && (
+                <button
+                  onClick={bulkCreatePO}
+                  disabled={bulkBusy}
+                  className="px-3 py-1.5 bg-blue-600 text-white text-xs font-medium rounded-lg hover:bg-blue-700 cursor-pointer disabled:opacity-50"
+                >
+                  {bulkBusy ? "발주 중..." : `선택 발주 (${selected.size})`}
+                </button>
+              )}
               <button
                 onClick={bulkDelete}
                 className="px-3 py-1.5 border border-red-300 text-red-600 text-xs font-medium rounded-lg hover:bg-red-50 cursor-pointer"
@@ -793,12 +855,28 @@ export default function PhoneOrderPage() {
                 </td>
                 <td className="px-3 py-2.5 text-center">{statusBadge(o)}</td>
                 <td className="px-3 py-2.5 text-center">
-                  <button
-                    onClick={() => togglePayment(o.id, o.shipping_status)}
-                    className="text-[11px] text-gray-600 hover:text-[#C41E1E] underline"
-                  >
-                    {o.shipping_status === "pending" ? "입금확인" : "입금취소"}
-                  </button>
+                  {o.shipping_status === "draft" ? (
+                    <button
+                      onClick={() => promoteOne(o.id)}
+                      className="text-[11px] px-2 py-1 rounded bg-[#C41E1E] text-white font-medium hover:bg-[#A01818] cursor-pointer whitespace-nowrap"
+                    >
+                      → 주문집계 등록
+                    </button>
+                  ) : o.shipping_status === "pending" ? (
+                    <button
+                      onClick={() => togglePayment(o.id, o.shipping_status)}
+                      className="text-[11px] px-2 py-1 rounded bg-emerald-600 text-white font-medium hover:bg-emerald-700 cursor-pointer whitespace-nowrap"
+                    >
+                      💰 입금확인
+                    </button>
+                  ) : (
+                    <button
+                      onClick={() => togglePayment(o.id, o.shipping_status)}
+                      className="text-[11px] text-gray-500 hover:text-[#C41E1E] underline whitespace-nowrap"
+                    >
+                      입금취소
+                    </button>
+                  )}
                 </td>
               </tr>
             ))}

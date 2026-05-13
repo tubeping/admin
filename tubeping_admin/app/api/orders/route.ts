@@ -16,6 +16,7 @@ export async function GET(request: NextRequest) {
   const limit = parseInt(searchParams.get("limit") || "50", 10);
   const offset = parseInt(searchParams.get("offset") || "0", 10);
   const poId = searchParams.get("purchase_order_id");
+  const includeDraft = searchParams.get("include_draft") === "true";
 
   const sb = getServiceClient();
   let query = sb
@@ -28,6 +29,7 @@ export async function GET(request: NextRequest) {
     .range(offset, offset + limit - 1);
 
   if (status) query = query.eq("shipping_status", status);
+  else if (!includeDraft) query = query.neq("shipping_status", "draft");
   if (storeId) query = query.eq("store_id", storeId);
   if (supplierId) query = query.eq("supplier_id", supplierId);
   if (poId) query = query.eq("purchase_order_id", poId);

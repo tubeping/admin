@@ -122,7 +122,7 @@ export async function POST(request: NextRequest) {
       receiver_address,
       receiver_zipcode: receiver_zipcode || "",
       memo: memo || "",
-      shipping_status: "pending",
+      shipping_status: "draft",
     })
     .select("id")
     .single();
