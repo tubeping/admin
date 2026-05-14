@@ -465,7 +465,7 @@ export default function OrdersPage() {
         </div>
         <div className="relative">
           <select id="import-store" className="text-xs border border-gray-300 rounded-lg px-2 py-1.5 pr-16 appearance-none bg-white" defaultValue="">
-            <option value="" disabled>판매사 선택</option>
+            <option value="" disabled>발주서 업로드용 판매사</option>
             <option value="name:전화주문">전화주문</option>
             <option value="name:공구주문">공구주문</option>
             <option value="name:수기주문">수기주문</option>
@@ -511,7 +511,7 @@ export default function OrdersPage() {
         {/* 송장 다운로드 */}
         <div className="relative">
           <select id="export-store" className="text-xs border border-gray-300 rounded-lg px-2 py-1.5 pr-24 appearance-none bg-white" defaultValue="">
-            <option value="" disabled>판매사 선택</option>
+            <option value="" disabled>운송장 다운로드용 판매사</option>
             <option value="__all__">전체</option>
             {stores.map((s) => (<option key={s.id} value={s.id} data-name={s.name}>{s.name}</option>))}
           </select>
