@@ -620,6 +620,7 @@ export default function OrdersPage() {
                 <th className="text-left px-2 py-2.5 font-medium">주문번호</th>
                 <th className="text-left px-2 py-2.5 font-medium">상품정보</th>
                 <th className="text-left px-2 py-2.5 font-medium">주문자/수령인</th>
+                <th className="text-left px-2 py-2.5 font-medium">판매방식</th>
                 <th className="text-left px-2 py-2.5 font-medium">판매사</th>
                 <th className="text-left px-2 py-2.5 font-medium">공급사</th>
                 <th className="text-right px-2 py-2.5 font-medium">수량</th>
@@ -661,12 +662,30 @@ export default function OrdersPage() {
                         <div className="text-[11px] text-gray-400">→ {o.receiver_name}</div>
                       )}
                     </td>
+                    {/* 판매방식 — 전화주문/공구주문 같은 특수 채널만 표시 */}
                     <td className="px-2 py-2.5 text-xs whitespace-nowrap">
-                      {o.stores?.name ? (
-                        o.stores.mall_id?.startsWith("manual_") || o.stores.mall_id?.startsWith("excel_")
-                          ? <span className="px-1.5 py-0.5 rounded bg-purple-100 text-purple-700 font-medium">{o.stores.name}</span>
-                          : <span className="text-gray-500">{o.stores.name}</span>
-                      ) : "-"}
+                      {(() => {
+                        const name = o.stores?.name || "";
+                        const isMethod = name === "전화주문" || name === "공구주문";
+                        if (isMethod) {
+                          const color = name === "공구주문" ? "bg-pink-100 text-pink-700" : "bg-purple-100 text-purple-700";
+                          return <span className={`px-1.5 py-0.5 rounded font-medium ${color}`}>{name}</span>;
+                        }
+                        return <span className="text-gray-300">-</span>;
+                      })()}
+                    </td>
+                    {/* 판매사 — 전화주문/공구주문이 아닌 실제 스토어만 표시 */}
+                    <td className="px-2 py-2.5 text-xs whitespace-nowrap">
+                      {(() => {
+                        const name = o.stores?.name || "";
+                        const isMethod = name === "전화주문" || name === "공구주문";
+                        if (!name) return <span className="text-gray-300">-</span>;
+                        if (isMethod) return <span className="text-gray-300">-</span>;
+                        const isManual = o.stores?.mall_id?.startsWith("manual_") || o.stores?.mall_id?.startsWith("excel_");
+                        return isManual
+                          ? <span className="px-1.5 py-0.5 rounded bg-amber-50 text-amber-700 font-medium">{name}</span>
+                          : <span className="text-gray-500">{name}</span>;
+                      })()}
                     </td>
                     <td className="px-2 py-2.5 whitespace-nowrap">
                       {o.suppliers?.name ? (
