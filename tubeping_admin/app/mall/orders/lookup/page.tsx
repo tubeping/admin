@@ -134,6 +134,8 @@ export default function OrdersLookupPage() {
   const [colFilterProduct, setColFilterProduct] = useState("");
   const [colFilterBuyer, setColFilterBuyer] = useState("");
   const [colFilterReceiver, setColFilterReceiver] = useState("");
+  const [colFilterPhone, setColFilterPhone] = useState("");
+  const [colFilterAddress, setColFilterAddress] = useState("");
   const [colFilterTracking, setColFilterTracking] = useState("");
 
   // 송장 인라인 편집 상태
@@ -229,20 +231,24 @@ export default function OrdersLookupPage() {
     }
     if (colFilterBuyer) {
       const k = colFilterBuyer.toLowerCase();
-      const kDigits = normPhone(colFilterBuyer);
-      list = list.filter((o) =>
-        o.buyer_name?.toLowerCase().includes(k) ||
-        (kDigits.length >= 4 && normPhone(o.buyer_phone).includes(kDigits))
-      );
+      list = list.filter((o) => o.buyer_name?.toLowerCase().includes(k));
     }
     if (colFilterReceiver) {
       const k = colFilterReceiver.toLowerCase();
-      const kDigits = normPhone(colFilterReceiver);
-      list = list.filter((o) =>
-        o.receiver_name?.toLowerCase().includes(k) ||
-        o.receiver_address?.toLowerCase().includes(k) ||
-        (kDigits.length >= 4 && normPhone(o.receiver_phone).includes(kDigits))
-      );
+      list = list.filter((o) => o.receiver_name?.toLowerCase().includes(k));
+    }
+    if (colFilterPhone) {
+      const kDigits = normPhone(colFilterPhone);
+      if (kDigits.length >= 4) {
+        list = list.filter((o) =>
+          normPhone(o.buyer_phone).includes(kDigits) ||
+          normPhone(o.receiver_phone).includes(kDigits)
+        );
+      }
+    }
+    if (colFilterAddress) {
+      const k = colFilterAddress.toLowerCase();
+      list = list.filter((o) => o.receiver_address?.toLowerCase().includes(k));
     }
     if (colFilterTracking) {
       const k = colFilterTracking.toLowerCase();
@@ -251,7 +257,7 @@ export default function OrdersLookupPage() {
 
     setOrders(list);
     setLoading(false);
-  }, [filterStatus, filterStore, filterSupplier, dateFrom, dateTo, appliedKeyword, colFilterOrderNo, colFilterProduct, colFilterBuyer, colFilterReceiver, colFilterTracking]);
+  }, [filterStatus, filterStore, filterSupplier, dateFrom, dateTo, appliedKeyword, colFilterOrderNo, colFilterProduct, colFilterBuyer, colFilterReceiver, colFilterPhone, colFilterAddress, colFilterTracking]);
 
   useEffect(() => { fetchOrders(); }, [fetchOrders]);
   useEffect(() => {
@@ -392,7 +398,9 @@ export default function OrdersLookupPage() {
                   <th className="px-3 py-2 text-left font-medium">상품 / 옵션</th>
                   <th className="px-3 py-2 text-right font-medium">수량</th>
                   <th className="px-3 py-2 text-left font-medium">구매자</th>
-                  <th className="px-3 py-2 text-left font-medium">수령인 / 배송지</th>
+                  <th className="px-3 py-2 text-left font-medium">수취인</th>
+                  <th className="px-3 py-2 text-left font-medium">연락처</th>
+                  <th className="px-3 py-2 text-left font-medium">배송주소</th>
                   <th className="px-3 py-2 text-left font-medium">상태</th>
                   <th className="px-3 py-2 text-left font-medium">공급사</th>
                   <th className="px-3 py-2 text-left font-medium">송장</th>
@@ -401,10 +409,12 @@ export default function OrdersLookupPage() {
                 {/* 컬럼별 필터 행 */}
                 <tr className="bg-white border-b border-gray-200">
                   <th className="px-2 py-1.5">
-                    {(colFilterOrderNo || colFilterProduct || colFilterBuyer || colFilterReceiver || colFilterTracking || filterStore || filterSupplier || filterStatus) && (
+                    {(colFilterOrderNo || colFilterProduct || colFilterBuyer || colFilterReceiver || colFilterPhone || colFilterAddress || colFilterTracking || filterStore || filterSupplier || filterStatus) && (
                       <button
                         onClick={() => {
-                          setColFilterOrderNo(""); setColFilterProduct(""); setColFilterBuyer(""); setColFilterReceiver(""); setColFilterTracking("");
+                          setColFilterOrderNo(""); setColFilterProduct("");
+                          setColFilterBuyer(""); setColFilterReceiver(""); setColFilterPhone(""); setColFilterAddress("");
+                          setColFilterTracking("");
                           setFilterStore(""); setFilterSupplier(""); setFilterStatus("");
                         }}
                         title="필터 초기화"
@@ -432,11 +442,19 @@ export default function OrdersLookupPage() {
                   <th></th>
                   <th className="px-1 py-1">
                     <input type="text" value={colFilterBuyer} onChange={(e) => setColFilterBuyer(e.target.value)}
-                      placeholder="이름/전화" className="w-full text-[11px] border border-gray-200 rounded px-1.5 py-0.5 bg-white" />
+                      placeholder="구매자명" className="w-full text-[11px] border border-gray-200 rounded px-1.5 py-0.5 bg-white" />
                   </th>
                   <th className="px-1 py-1">
                     <input type="text" value={colFilterReceiver} onChange={(e) => setColFilterReceiver(e.target.value)}
-                      placeholder="이름/전화/주소" className="w-full text-[11px] border border-gray-200 rounded px-1.5 py-0.5 bg-white" />
+                      placeholder="수취인명" className="w-full text-[11px] border border-gray-200 rounded px-1.5 py-0.5 bg-white" />
+                  </th>
+                  <th className="px-1 py-1">
+                    <input type="text" value={colFilterPhone} onChange={(e) => setColFilterPhone(e.target.value)}
+                      placeholder="연락처" className="w-full text-[11px] border border-gray-200 rounded px-1.5 py-0.5 bg-white" />
+                  </th>
+                  <th className="px-1 py-1">
+                    <input type="text" value={colFilterAddress} onChange={(e) => setColFilterAddress(e.target.value)}
+                      placeholder="주소" className="w-full text-[11px] border border-gray-200 rounded px-1.5 py-0.5 bg-white" />
                   </th>
                   <th className="px-1 py-1">
                     <select value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)}
@@ -480,16 +498,22 @@ export default function OrdersLookupPage() {
                       {o.option_text && <div className="text-xs text-gray-500 mt-0.5">{o.option_text}</div>}
                     </td>
                     <td className="px-3 py-2 text-right text-gray-700">{o.quantity}</td>
-                    <td className="px-3 py-2 max-w-[150px]">
+                    <td className="px-3 py-2 whitespace-nowrap">
                       <div className="text-gray-900">{o.buyer_name || <span className="text-gray-300">-</span>}</div>
-                      <div className="text-xs font-mono text-gray-500">{o.buyer_phone || "-"}</div>
                     </td>
-                    <td className="px-3 py-2 max-w-[260px]">
-                      <div className="text-gray-700">
-                        {o.receiver_name || <span className="text-gray-300">-</span>}
-                        {o.receiver_phone && <span className="text-xs text-gray-400 font-mono ml-1">{o.receiver_phone}</span>}
+                    <td className="px-3 py-2 whitespace-nowrap">
+                      <div className="text-gray-900">{o.receiver_name || <span className="text-gray-300">-</span>}</div>
+                    </td>
+                    <td className="px-3 py-2 whitespace-nowrap">
+                      <div className="text-xs font-mono text-gray-700">
+                        {o.receiver_phone || o.buyer_phone || <span className="text-gray-300">-</span>}
                       </div>
-                      <div className="text-xs text-gray-500 line-clamp-2">{o.receiver_address || "-"}</div>
+                      {o.buyer_phone && o.receiver_phone && o.buyer_phone !== o.receiver_phone && (
+                        <div className="text-[10px] font-mono text-gray-400">구매: {o.buyer_phone}</div>
+                      )}
+                    </td>
+                    <td className="px-3 py-2 max-w-[280px]">
+                      <div className="text-xs text-gray-700 line-clamp-2">{o.receiver_address || <span className="text-gray-300">-</span>}</div>
                     </td>
                     <td className="px-3 py-2 whitespace-nowrap">
                       {(() => {
