@@ -295,6 +295,45 @@ export default function OrdersPage() {
     }
   };
 
+  // 일괄 편집 — 선택된 여러 주문의 판매방식 또는 판매사 한 번에 변경
+  const bulkUpdateChannel = async (value: string) => {
+    if (selected.size === 0) return;
+    const channelLabel = value === "" ? "자사몰" : value === "phone" ? "전화주문" : "공구주문";
+    if (!confirm(`선택한 ${selected.size}건의 판매방식을 '${channelLabel}'(으)로 일괄 변경합니다. 계속할까요?`)) return;
+    const res = await fetch("/admin/api/orders", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ids: Array.from(selected), updates: { sales_channel: value === "" ? null : value } }),
+    });
+    const data = await res.json();
+    if (res.ok) {
+      alert(`${data.updated || selected.size}건 변경 완료`);
+      setSelected(new Set());
+      fetchOrders();
+    } else {
+      alert(`변경 실패: ${data.error || res.status}`);
+    }
+  };
+
+  const bulkUpdateStore = async (storeId: string) => {
+    if (selected.size === 0) return;
+    const storeName = stores.find((s) => s.id === storeId)?.name || "?";
+    if (!confirm(`선택한 ${selected.size}건의 판매사를 '${storeName}'(으)로 일괄 변경합니다. 계속할까요?`)) return;
+    const res = await fetch("/admin/api/orders", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ids: Array.from(selected), updates: { store_id: storeId } }),
+    });
+    const data = await res.json();
+    if (res.ok) {
+      alert(`${data.updated || selected.size}건 변경 완료`);
+      setSelected(new Set());
+      fetchOrders();
+    } else {
+      alert(`변경 실패: ${data.error || res.status}`);
+    }
+  };
+
   // 통계
   const stats = {
     total, displayed: orders.length,
@@ -565,6 +604,24 @@ export default function OrdersPage() {
           <>
             <div className="w-px h-5 bg-gray-300" />
             <span className="text-xs font-bold text-blue-600">{selected.size}건</span>
+            {/* 판매방식 일괄변경 */}
+            <select onChange={(e) => { const v = e.target.value; e.target.value = ""; if (v !== "") bulkUpdateChannel(v === "__none__" ? "" : v); }}
+              defaultValue=""
+              className="text-xs border border-gray-300 rounded-lg px-2 py-1.5">
+              <option value="" disabled>판매방식 일괄변경</option>
+              <option value="__none__">자사몰</option>
+              <option value="phone">전화주문</option>
+              <option value="group">공구주문</option>
+            </select>
+            {/* 판매사 일괄변경 */}
+            <select onChange={(e) => { const v = e.target.value; e.target.value = ""; if (v) bulkUpdateStore(v); }}
+              defaultValue=""
+              className="text-xs border border-gray-300 rounded-lg px-2 py-1.5">
+              <option value="" disabled>판매사 일괄변경</option>
+              {stores
+                .filter((s) => !["전화주문", "공구주문", "엑셀등록", "수기주문"].includes(s.name))
+                .map((s) => (<option key={s.id} value={s.id}>{s.name}</option>))}
+            </select>
             <select onChange={(e) => { if (e.target.value) handleAssignSupplier(e.target.value); e.target.value = ""; }}
               className="text-xs border border-gray-300 rounded-lg px-2 py-1.5">
               <option value="">공급사 배정</option>
