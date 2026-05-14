@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 
 interface Store { id: string; name: string; mall_id: string; status: string; }
 interface Supplier { id: string; name: string; email: string; }
@@ -91,7 +91,7 @@ function today() { return new Date().toISOString().slice(0, 10); }
 function daysAgo(n: number) { return new Date(Date.now() - n * 86400000).toISOString().slice(0, 10); }
 
 export default function OrdersPage() {
-  const [orders, setOrders] = useState<Order[]>([]);
+  const [rawOrders, setRawOrders] = useState<Order[]>([]);
   const [stores, setStores] = useState<Store[]>([]);
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [total, setTotal] = useState(0);
@@ -125,6 +125,7 @@ export default function OrdersPage() {
   // 발주 상태 탭
   const [poTab, setPoTab] = useState<"all" | "no_po" | "has_po" | "sample">("all");
 
+  // 서버 fetch — 서버측 필터만 deps (status/store/supplier/date). 키 입력마다 재요청 방지
   const fetchOrders = useCallback(async () => {
     setLoading(true);
     const params = new URLSearchParams();
@@ -138,10 +139,19 @@ export default function OrdersPage() {
     const res = await fetch(`/admin/api/orders?${params}`);
     if (!res.ok) { setLoading(false); return; }
     const data = await res.json();
-    let list: Order[] = data.orders || [];
-    setSampleCount(list.filter((o) => o.is_sample).length);
+    setRawOrders(data.orders || []);
+    setTotal(data.total || 0);
+    setLoading(false);
+  }, [filterStatus, filterStore, filterSupplier, dateFrom, dateTo]);
 
-    // 클라이언트 필터
+  // 샘플 카운트 — rawOrders 변경 시만 재계산
+  useEffect(() => {
+    setSampleCount(rawOrders.filter((o) => o.is_sample).length);
+  }, [rawOrders]);
+
+  // 클라이언트 필터 — useMemo로 즉시 반영, API 재요청 없음
+  const orders = useMemo(() => {
+    let list = rawOrders;
     if (filterNoTracking) list = list.filter((o) => !o.tracking_number && o.shipping_status !== "cancelled" && o.shipping_status !== "delivered");
     if (filterNoSupplier || filterSupplier === "__none__") list = list.filter((o) => !o.supplier_id);
     if (poTab === "no_po") list = list.filter((o) =>
@@ -155,7 +165,6 @@ export default function OrdersPage() {
     );
     if (poTab === "has_po") list = list.filter((o) => o.purchase_order_id);
     if (poTab === "sample") list = list.filter((o) => o.is_sample);
-    // 샘플 탭이 아닐 땐 기본적으로 샘플은 숨김 (별도 정산 대상이므로)
     if (poTab !== "sample") list = list.filter((o) => !o.is_sample);
     if (searchKeyword) {
       const kw = searchKeyword.toLowerCase();
@@ -166,8 +175,6 @@ export default function OrdersPage() {
         o.receiver_name?.toLowerCase().includes(kw)
       );
     }
-
-    // 컬럼별 인라인 필터
     if (colFilterOrderNo) {
       const k = colFilterOrderNo.toLowerCase();
       list = list.filter((o) => o.cafe24_order_id?.toLowerCase().includes(k));
@@ -189,11 +196,8 @@ export default function OrdersPage() {
       if (colFilterPayment === "paid") list = list.filter((o) => o.shipping_status !== "pending" && o.shipping_status !== "cancelled");
       else if (colFilterPayment === "unpaid") list = list.filter((o) => o.shipping_status === "pending");
     }
-
-    setOrders(list);
-    setTotal(data.total || 0);
-    setLoading(false);
-  }, [filterStatus, filterStore, filterSupplier, filterNoTracking, filterNoSupplier, dateFrom, dateTo, poTab, searchKeyword, colFilterOrderNo, colFilterProduct, colFilterCustomer, colFilterChannel, colFilterPayment]);
+    return list;
+  }, [rawOrders, filterSupplier, filterNoTracking, filterNoSupplier, poTab, searchKeyword, colFilterOrderNo, colFilterProduct, colFilterCustomer, colFilterChannel, colFilterPayment]);
 
   const fetchStores = async () => { const r = await fetch("/admin/api/stores"); const d = await r.json(); setStores(d.stores || []); };
   const sb_patch = async (orderId: string, status: string) => {

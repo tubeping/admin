@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import * as XLSX from "xlsx";
 
 interface Store { id: string; name: string; mall_id: string; status: string; }
@@ -114,7 +114,7 @@ function daysAgo(n: number) { return new Date(Date.now() - n * 86400000).toISOSt
 function normPhone(s: string) { return (s || "").replace(/[^0-9]/g, ""); }
 
 export default function OrdersLookupPage() {
-  const [orders, setOrders] = useState<Order[]>([]);
+  const [rawOrders, setRawOrders] = useState<Order[]>([]);
   const [stores, setStores] = useState<Store[]>([]);
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [loading, setLoading] = useState(true);
@@ -184,6 +184,7 @@ export default function OrdersLookupPage() {
     fetchOrders();
   };
 
+  // 서버 fetch — 서버측 필터만 deps (store/supplier/date). 키 입력마다 재요청 방지
   const fetchOrders = useCallback(async () => {
     setLoading(true);
     const params = new URLSearchParams();
@@ -196,13 +197,14 @@ export default function OrdersLookupPage() {
     const res = await fetch(`/admin/api/orders?${params}`);
     if (!res.ok) { setLoading(false); return; }
     const data = await res.json();
-    let list: Order[] = data.orders || [];
+    setRawOrders(data.orders || []);
+    setLoading(false);
+  }, [filterStore, filterSupplier, dateFrom, dateTo]);
 
-    // 상태 필터는 derived status 기준 (client-side)
-    if (filterStatus) {
-      list = list.filter((o) => deriveOrderStatus(o) === filterStatus);
-    }
-
+  // 클라이언트 필터 — 입력 즉시 useMemo로 반영. API 재요청 안 함
+  const orders = useMemo(() => {
+    let list = rawOrders;
+    if (filterStatus) list = list.filter((o) => deriveOrderStatus(o) === filterStatus);
     if (appliedKeyword) {
       const kw = appliedKeyword.toLowerCase().trim();
       const kwDigits = normPhone(appliedKeyword);
@@ -219,8 +221,6 @@ export default function OrdersLookupPage() {
           o.tracking_number?.toLowerCase().includes(kw);
       });
     }
-
-    // 컬럼별 인라인 필터
     if (colFilterOrderNo) {
       const k = colFilterOrderNo.toLowerCase();
       list = list.filter((o) => o.cafe24_order_id?.toLowerCase().includes(k));
@@ -254,10 +254,8 @@ export default function OrdersLookupPage() {
       const k = colFilterTracking.toLowerCase();
       list = list.filter((o) => o.tracking_number?.toLowerCase().includes(k));
     }
-
-    setOrders(list);
-    setLoading(false);
-  }, [filterStatus, filterStore, filterSupplier, dateFrom, dateTo, appliedKeyword, colFilterOrderNo, colFilterProduct, colFilterBuyer, colFilterReceiver, colFilterPhone, colFilterAddress, colFilterTracking]);
+    return list;
+  }, [rawOrders, filterStatus, appliedKeyword, colFilterOrderNo, colFilterProduct, colFilterBuyer, colFilterReceiver, colFilterPhone, colFilterAddress, colFilterTracking]);
 
   useEffect(() => { fetchOrders(); }, [fetchOrders]);
   useEffect(() => {
