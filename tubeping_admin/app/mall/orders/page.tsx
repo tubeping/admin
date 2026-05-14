@@ -108,6 +108,12 @@ export default function OrdersPage() {
   const [filterSupplier, setFilterSupplier] = useState("");
   const [filterNoTracking, setFilterNoTracking] = useState(false);
   const [filterNoSupplier, setFilterNoSupplier] = useState(false);
+  // 컬럼별 인라인 필터
+  const [colFilterOrderNo, setColFilterOrderNo] = useState("");
+  const [colFilterProduct, setColFilterProduct] = useState("");
+  const [colFilterCustomer, setColFilterCustomer] = useState("");
+  const [colFilterChannel, setColFilterChannel] = useState(""); // "" | "phone" | "group" | "domestic"
+  const [colFilterPayment, setColFilterPayment] = useState(""); // "" | "paid" | "unpaid"
   // 기본값: 이번 달 1일 ~ 오늘
   const [dateFrom, setDateFrom] = useState(() => {
     const d = new Date();
@@ -161,10 +167,33 @@ export default function OrdersPage() {
       );
     }
 
+    // 컬럼별 인라인 필터
+    if (colFilterOrderNo) {
+      const k = colFilterOrderNo.toLowerCase();
+      list = list.filter((o) => o.cafe24_order_id?.toLowerCase().includes(k));
+    }
+    if (colFilterProduct) {
+      const k = colFilterProduct.toLowerCase();
+      list = list.filter((o) => o.product_name?.toLowerCase().includes(k) || o.option_text?.toLowerCase().includes(k));
+    }
+    if (colFilterCustomer) {
+      const k = colFilterCustomer.toLowerCase();
+      list = list.filter((o) => o.buyer_name?.toLowerCase().includes(k) || o.receiver_name?.toLowerCase().includes(k));
+    }
+    if (colFilterChannel) {
+      if (colFilterChannel === "phone") list = list.filter((o) => o.sales_channel === "phone");
+      else if (colFilterChannel === "group") list = list.filter((o) => o.sales_channel === "group");
+      else if (colFilterChannel === "domestic") list = list.filter((o) => !o.sales_channel && !!o.stores?.name);
+    }
+    if (colFilterPayment) {
+      if (colFilterPayment === "paid") list = list.filter((o) => o.shipping_status !== "pending" && o.shipping_status !== "cancelled");
+      else if (colFilterPayment === "unpaid") list = list.filter((o) => o.shipping_status === "pending");
+    }
+
     setOrders(list);
     setTotal(data.total || 0);
     setLoading(false);
-  }, [filterStatus, filterStore, filterSupplier, filterNoTracking, filterNoSupplier, dateFrom, dateTo, poTab, searchKeyword]);
+  }, [filterStatus, filterStore, filterSupplier, filterNoTracking, filterNoSupplier, dateFrom, dateTo, poTab, searchKeyword, colFilterOrderNo, colFilterProduct, colFilterCustomer, colFilterChannel, colFilterPayment]);
 
   const fetchStores = async () => { const r = await fetch("/admin/api/stores"); const d = await r.json(); setStores(d.stores || []); };
   const sb_patch = async (orderId: string, status: string) => {
@@ -749,6 +778,91 @@ export default function OrdersPage() {
                 <th className="text-center px-2 py-2.5 font-medium">발주</th>
                 <th className="text-center px-2 py-2.5 font-medium">상태</th>
                 <th className="text-right px-3 py-2.5 font-medium">주문일</th>
+              </tr>
+              {/* 컬럼별 필터 행 */}
+              <tr className="text-xs border-b border-gray-200 bg-white">
+                <th className="px-2 py-1.5">
+                  {(colFilterOrderNo || colFilterProduct || colFilterCustomer || colFilterChannel || colFilterPayment || filterStore || filterSupplier || filterStatus) && (
+                    <button
+                      onClick={() => {
+                        setColFilterOrderNo(""); setColFilterProduct(""); setColFilterCustomer("");
+                        setColFilterChannel(""); setColFilterPayment("");
+                        setFilterStore(""); setFilterSupplier(""); setFilterStatus("");
+                      }}
+                      title="필터 초기화"
+                      className="text-[10px] text-red-500 hover:text-red-700 cursor-pointer"
+                    >✕</button>
+                  )}
+                </th>
+                <th></th>
+                <th className="px-1 py-1">
+                  <input type="text" value={colFilterOrderNo} onChange={(e) => setColFilterOrderNo(e.target.value)}
+                    placeholder="주문번호" className="w-full text-[11px] border border-gray-200 rounded px-1.5 py-0.5 bg-white" />
+                </th>
+                <th className="px-1 py-1">
+                  <input type="text" value={colFilterProduct} onChange={(e) => setColFilterProduct(e.target.value)}
+                    placeholder="상품/옵션" className="w-full text-[11px] border border-gray-200 rounded px-1.5 py-0.5 bg-white" />
+                </th>
+                <th className="px-1 py-1">
+                  <input type="text" value={colFilterCustomer} onChange={(e) => setColFilterCustomer(e.target.value)}
+                    placeholder="이름" className="w-full text-[11px] border border-gray-200 rounded px-1.5 py-0.5 bg-white" />
+                </th>
+                <th className="px-1 py-1">
+                  <select value={colFilterChannel} onChange={(e) => setColFilterChannel(e.target.value)}
+                    className="w-full text-[11px] border border-gray-200 rounded px-1 py-0.5 bg-white">
+                    <option value="">전체</option>
+                    <option value="phone">전화주문</option>
+                    <option value="group">공구주문</option>
+                    <option value="domestic">자사몰</option>
+                  </select>
+                </th>
+                <th className="px-1 py-1">
+                  <select value={filterStore} onChange={(e) => setFilterStore(e.target.value)}
+                    className="w-full text-[11px] border border-gray-200 rounded px-1 py-0.5 bg-white">
+                    <option value="">전체</option>
+                    {stores
+                      .filter((s) => !["전화주문", "공구주문", "엑셀등록", "수기주문"].includes(s.name))
+                      .map((s) => (<option key={s.id} value={s.id}>{s.name}</option>))}
+                  </select>
+                </th>
+                <th className="px-1 py-1">
+                  <select value={filterSupplier} onChange={(e) => setFilterSupplier(e.target.value)}
+                    className="w-full text-[11px] border border-gray-200 rounded px-1 py-0.5 bg-white">
+                    <option value="">전체</option>
+                    <option value="__none__">미배정</option>
+                    {suppliers.map((s) => (<option key={s.id} value={s.id}>{s.name}</option>))}
+                  </select>
+                </th>
+                <th></th>
+                <th></th>
+                <th className="px-1 py-1 text-center">
+                  <select value={colFilterPayment} onChange={(e) => setColFilterPayment(e.target.value)}
+                    className="w-full text-[11px] border border-gray-200 rounded px-1 py-0.5 bg-white">
+                    <option value="">전체</option>
+                    <option value="paid">완료</option>
+                    <option value="unpaid">미입력</option>
+                  </select>
+                </th>
+                <th className="px-1 py-1">
+                  <select value={filterNoTracking ? "missing" : ""} onChange={(e) => setFilterNoTracking(e.target.value === "missing")}
+                    className="w-full text-[11px] border border-gray-200 rounded px-1 py-0.5 bg-white">
+                    <option value="">전체</option>
+                    <option value="missing">송장 미입력</option>
+                  </select>
+                </th>
+                <th></th>
+                <th className="px-1 py-1 text-center">
+                  <select value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)}
+                    className="w-full text-[11px] border border-gray-200 rounded px-1 py-0.5 bg-white">
+                    <option value="">전체</option>
+                    <option value="pending">입금전</option>
+                    <option value="ordered">상품준비중</option>
+                    <option value="shipping">배송중</option>
+                    <option value="delivered">배송완료</option>
+                    <option value="cancelled">취소</option>
+                  </select>
+                </th>
+                <th></th>
               </tr>
             </thead>
             <tbody>
