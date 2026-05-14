@@ -669,17 +669,20 @@ export default function OrdersPage() {
                         <div className="text-[11px] text-gray-400">→ {o.receiver_name}</div>
                       )}
                     </td>
-                    {/* 판매방식 — sales_channel 컬럼(phone/group) 우선, fallback으로 store 이름 매칭 */}
+                    {/* 판매방식 — sales_channel + store 특성 조합 */}
                     <td className="px-2 py-2.5 text-xs whitespace-nowrap">
                       {(() => {
                         const channel = o.sales_channel;
                         const storeName = o.stores?.name || "";
-                        const ch = channel === "phone" || storeName === "전화주문" ? "phone"
-                                 : channel === "group" || storeName === "공구주문" ? "group"
-                                 : null;
-                        if (ch === "phone") return <span className="px-1.5 py-0.5 rounded bg-purple-100 text-purple-700 font-medium">전화주문</span>;
-                        if (ch === "group") return <span className="px-1.5 py-0.5 rounded bg-pink-100 text-pink-700 font-medium">공구주문</span>;
-                        return <span className="text-gray-300">-</span>;
+                        const mallId = o.stores?.mall_id || "";
+                        // 1순위: sales_channel
+                        if (channel === "phone" || storeName === "전화주문") return <span className="px-1.5 py-0.5 rounded bg-purple-100 text-purple-700 font-medium">전화주문</span>;
+                        if (channel === "group" || storeName === "공구주문") return <span className="px-1.5 py-0.5 rounded bg-pink-100 text-pink-700 font-medium">공구주문</span>;
+                        // 2순위: store 특성으로 판별
+                        if (!storeName) return <span className="text-gray-300">-</span>;
+                        if (storeName === "TubePing (마스터)" || mallId === "tubeping") return <span className="px-1.5 py-0.5 rounded bg-blue-100 text-blue-700 font-medium">자사몰</span>;
+                        if (mallId.startsWith("manual_") || mallId.startsWith("excel_")) return <span className="px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 font-medium">수기등록</span>;
+                        return <span className="px-1.5 py-0.5 rounded bg-gray-100 text-gray-700 font-medium">카페24몰</span>;
                       })()}
                     </td>
                     {/* 판매사 — 실제 스토어. pseudo-store(전화주문/공구주문) 이름은 '-'로 */}
