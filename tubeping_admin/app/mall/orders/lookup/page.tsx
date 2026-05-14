@@ -129,6 +129,12 @@ export default function OrdersLookupPage() {
   const [dateTo, setDateTo] = useState(today());
   const [searchKeyword, setSearchKeyword] = useState("");
   const [appliedKeyword, setAppliedKeyword] = useState("");
+  // 컬럼별 인라인 필터
+  const [colFilterOrderNo, setColFilterOrderNo] = useState("");
+  const [colFilterProduct, setColFilterProduct] = useState("");
+  const [colFilterBuyer, setColFilterBuyer] = useState("");
+  const [colFilterReceiver, setColFilterReceiver] = useState("");
+  const [colFilterTracking, setColFilterTracking] = useState("");
 
   // 송장 인라인 편집 상태
   const [trackingEdit, setTrackingEdit] = useState<Record<string, { company: string; number: string }>>({});
@@ -212,9 +218,40 @@ export default function OrdersLookupPage() {
       });
     }
 
+    // 컬럼별 인라인 필터
+    if (colFilterOrderNo) {
+      const k = colFilterOrderNo.toLowerCase();
+      list = list.filter((o) => o.cafe24_order_id?.toLowerCase().includes(k));
+    }
+    if (colFilterProduct) {
+      const k = colFilterProduct.toLowerCase();
+      list = list.filter((o) => o.product_name?.toLowerCase().includes(k) || o.option_text?.toLowerCase().includes(k));
+    }
+    if (colFilterBuyer) {
+      const k = colFilterBuyer.toLowerCase();
+      const kDigits = normPhone(colFilterBuyer);
+      list = list.filter((o) =>
+        o.buyer_name?.toLowerCase().includes(k) ||
+        (kDigits.length >= 4 && normPhone(o.buyer_phone).includes(kDigits))
+      );
+    }
+    if (colFilterReceiver) {
+      const k = colFilterReceiver.toLowerCase();
+      const kDigits = normPhone(colFilterReceiver);
+      list = list.filter((o) =>
+        o.receiver_name?.toLowerCase().includes(k) ||
+        o.receiver_address?.toLowerCase().includes(k) ||
+        (kDigits.length >= 4 && normPhone(o.receiver_phone).includes(kDigits))
+      );
+    }
+    if (colFilterTracking) {
+      const k = colFilterTracking.toLowerCase();
+      list = list.filter((o) => o.tracking_number?.toLowerCase().includes(k));
+    }
+
     setOrders(list);
     setLoading(false);
-  }, [filterStatus, filterStore, filterSupplier, dateFrom, dateTo, appliedKeyword]);
+  }, [filterStatus, filterStore, filterSupplier, dateFrom, dateTo, appliedKeyword, colFilterOrderNo, colFilterProduct, colFilterBuyer, colFilterReceiver, colFilterTracking]);
 
   useEffect(() => { fetchOrders(); }, [fetchOrders]);
   useEffect(() => {
@@ -360,6 +397,73 @@ export default function OrdersLookupPage() {
                   <th className="px-3 py-2 text-left font-medium">공급사</th>
                   <th className="px-3 py-2 text-left font-medium">송장</th>
                   <th className="px-3 py-2 text-center font-medium">CS</th>
+                </tr>
+                {/* 컬럼별 필터 행 */}
+                <tr className="bg-white border-b border-gray-200">
+                  <th className="px-2 py-1.5">
+                    {(colFilterOrderNo || colFilterProduct || colFilterBuyer || colFilterReceiver || colFilterTracking || filterStore || filterSupplier || filterStatus) && (
+                      <button
+                        onClick={() => {
+                          setColFilterOrderNo(""); setColFilterProduct(""); setColFilterBuyer(""); setColFilterReceiver(""); setColFilterTracking("");
+                          setFilterStore(""); setFilterSupplier(""); setFilterStatus("");
+                        }}
+                        title="필터 초기화"
+                        className="text-[10px] text-red-500 hover:text-red-700 cursor-pointer"
+                      >✕</button>
+                    )}
+                  </th>
+                  <th className="px-1 py-1">
+                    <select value={filterStore} onChange={(e) => setFilterStore(e.target.value)}
+                      className="w-full text-[11px] border border-gray-200 rounded px-1 py-0.5 bg-white">
+                      <option value="">전체</option>
+                      {stores
+                        .filter((s) => !["전화주문", "공구주문", "엑셀등록", "수기주문"].includes(s.name))
+                        .map((s) => (<option key={s.id} value={s.id}>{s.name}</option>))}
+                    </select>
+                  </th>
+                  <th className="px-1 py-1">
+                    <input type="text" value={colFilterOrderNo} onChange={(e) => setColFilterOrderNo(e.target.value)}
+                      placeholder="주문번호" className="w-full text-[11px] border border-gray-200 rounded px-1.5 py-0.5 bg-white" />
+                  </th>
+                  <th className="px-1 py-1">
+                    <input type="text" value={colFilterProduct} onChange={(e) => setColFilterProduct(e.target.value)}
+                      placeholder="상품/옵션" className="w-full text-[11px] border border-gray-200 rounded px-1.5 py-0.5 bg-white" />
+                  </th>
+                  <th></th>
+                  <th className="px-1 py-1">
+                    <input type="text" value={colFilterBuyer} onChange={(e) => setColFilterBuyer(e.target.value)}
+                      placeholder="이름/전화" className="w-full text-[11px] border border-gray-200 rounded px-1.5 py-0.5 bg-white" />
+                  </th>
+                  <th className="px-1 py-1">
+                    <input type="text" value={colFilterReceiver} onChange={(e) => setColFilterReceiver(e.target.value)}
+                      placeholder="이름/전화/주소" className="w-full text-[11px] border border-gray-200 rounded px-1.5 py-0.5 bg-white" />
+                  </th>
+                  <th className="px-1 py-1">
+                    <select value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)}
+                      className="w-full text-[11px] border border-gray-200 rounded px-1 py-0.5 bg-white">
+                      <option value="">전체</option>
+                      <option value="pending">입금전</option>
+                      <option value="ordered">상품준비중</option>
+                      <option value="shipping">배송중</option>
+                      <option value="delivered">배송완료</option>
+                      <option value="cancelled">취소</option>
+                      <option value="refunded">환불</option>
+                      <option value="returned">반품</option>
+                      <option value="exchanged">교환</option>
+                    </select>
+                  </th>
+                  <th className="px-1 py-1">
+                    <select value={filterSupplier} onChange={(e) => setFilterSupplier(e.target.value)}
+                      className="w-full text-[11px] border border-gray-200 rounded px-1 py-0.5 bg-white">
+                      <option value="">전체</option>
+                      {suppliers.map((s) => (<option key={s.id} value={s.id}>{s.name}</option>))}
+                    </select>
+                  </th>
+                  <th className="px-1 py-1">
+                    <input type="text" value={colFilterTracking} onChange={(e) => setColFilterTracking(e.target.value)}
+                      placeholder="송장번호" className="w-full text-[11px] border border-gray-200 rounded px-1.5 py-0.5 bg-white" />
+                  </th>
+                  <th></th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
