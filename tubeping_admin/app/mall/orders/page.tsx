@@ -288,10 +288,14 @@ export default function OrdersPage() {
       body: JSON.stringify({ ids: [orderId], updates }),
     });
     setEditingCell(null);
-    if (res.ok) fetchOrders();
-    else {
-      const data = await res.json();
-      alert(`수정 실패: ${data.error || res.status}`);
+    if (res.ok) { fetchOrders(); return; }
+    const data = await res.json();
+    const errMsg = data.error || `${res.status}`;
+    const isDup = errMsg.toLowerCase().includes("duplicate") || errMsg.toLowerCase().includes("unique");
+    if (isDup && field === "store") {
+      alert("수정 실패: 대상 판매사에 이미 같은 주문번호가 존재합니다.\n(중복 임포트가 있어 같은 store_id로 합칠 수 없습니다)");
+    } else {
+      alert(`수정 실패: ${errMsg}`);
     }
   };
 
@@ -319,19 +323,47 @@ export default function OrdersPage() {
     if (selected.size === 0) return;
     const storeName = stores.find((s) => s.id === storeId)?.name || "?";
     if (!confirm(`선택한 ${selected.size}건의 판매사를 '${storeName}'(으)로 일괄 변경합니다. 계속할까요?`)) return;
+    const ids = Array.from(selected);
+    // 1차: 일괄 시도
     const res = await fetch("/admin/api/orders", {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ ids: Array.from(selected), updates: { store_id: storeId } }),
+      body: JSON.stringify({ ids, updates: { store_id: storeId } }),
     });
     const data = await res.json();
     if (res.ok) {
-      alert(`${data.updated || selected.size}건 변경 완료`);
+      alert(`${data.updated || ids.length}건 변경 완료`);
       setSelected(new Set());
       fetchOrders();
-    } else {
-      alert(`변경 실패: ${data.error || res.status}`);
+      return;
     }
+    // 2차: unique constraint 충돌이면 개별 처리로 fallback
+    const isDup = (data.error || "").toLowerCase().includes("duplicate") || (data.error || "").toLowerCase().includes("unique");
+    if (!isDup) {
+      alert(`변경 실패: ${data.error || res.status}`);
+      return;
+    }
+    if (!confirm(`일괄 변경 실패: 일부 주문이 대상 판매사에 이미 같은 주문번호로 존재합니다.\n\n충돌 없는 건만 개별 변경할까요?`)) return;
+    let success = 0;
+    const failedList: string[] = [];
+    for (const id of ids) {
+      const r = await fetch("/admin/api/orders", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ids: [id], updates: { store_id: storeId } }),
+      });
+      if (r.ok) success++;
+      else {
+        const o = orders.find((x) => x.id === id);
+        failedList.push(o?.cafe24_order_id || id.slice(0, 8));
+      }
+    }
+    alert(
+      `결과: ${success}건 성공 / ${failedList.length}건 실패 (충돌)\n\n` +
+      (failedList.length > 0 ? `실패 주문번호:\n${failedList.slice(0, 15).join(", ")}${failedList.length > 15 ? " ..." : ""}` : "")
+    );
+    setSelected(new Set());
+    fetchOrders();
   };
 
   // 통계
