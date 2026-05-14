@@ -712,11 +712,10 @@ export default function OrdersPage() {
                           <option value="group">공구주문</option>
                         </select>
                       ) : (() => {
-                        const channel = o.sales_channel;
-                        const storeName = o.stores?.name || "";
-                        if (channel === "phone" || storeName === "전화주문") return <span className="px-1.5 py-0.5 rounded bg-purple-100 text-purple-700 font-medium">전화주문</span>;
-                        if (channel === "group" || storeName === "공구주문") return <span className="px-1.5 py-0.5 rounded bg-pink-100 text-pink-700 font-medium">공구주문</span>;
-                        if (!storeName) return <span className="text-gray-300">-</span>;
+                        // sales_channel 단독 판정 (store name fallback 제거 — 사용자 편집 반영을 가리지 않음)
+                        if (o.sales_channel === "phone") return <span className="px-1.5 py-0.5 rounded bg-purple-100 text-purple-700 font-medium">전화주문</span>;
+                        if (o.sales_channel === "group") return <span className="px-1.5 py-0.5 rounded bg-pink-100 text-pink-700 font-medium">공구주문</span>;
+                        if (!o.stores?.name) return <span className="text-gray-300">-</span>;
                         return <span className="px-1.5 py-0.5 rounded bg-blue-100 text-blue-700 font-medium">자사몰</span>;
                       })()}
                     </td>
