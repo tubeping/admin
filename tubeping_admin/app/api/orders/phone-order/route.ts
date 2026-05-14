@@ -123,6 +123,7 @@ export async function POST(request: NextRequest) {
       receiver_zipcode: receiver_zipcode || "",
       memo: memo || "",
       shipping_status: "draft",
+      sales_channel: "phone",
     })
     .select("id")
     .single();

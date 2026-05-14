@@ -30,6 +30,7 @@ interface Order {
   auto_assign_status: string | null;
   supplier_candidates: { supplier: string; supplierId: string; tpCode: string; productName: string; score: number }[] | null;
   is_sample: boolean;
+  sales_channel: string | null;
   stores: { name: string; mall_id: string } | null;
   suppliers: { name: string; email: string } | null;
   purchase_orders: { id: string; po_number: string; status: string; sent_at: string | null; viewed_at: string | null; completed_at: string | null } | null;
@@ -442,40 +443,26 @@ export default function OrdersPage() {
           </label>
           <label className="flex items-center gap-1 text-xs text-gray-600 cursor-pointer select-none">
             <input id="import-is-phone" type="checkbox" className="w-3.5 h-3.5 cursor-pointer" onChange={(e) => {
-              const sel = document.getElementById("import-store") as HTMLSelectElement;
               if (e.target.checked) {
-                sel.value = "name:전화주문";
-                sel.disabled = true;
                 const groupEl = document.getElementById("import-is-group") as HTMLInputElement;
                 if (groupEl) groupEl.checked = false;
-              } else {
-                sel.value = "";
-                sel.disabled = false;
               }
             }} />
             <span className="px-1.5 py-0.5 rounded bg-purple-100 text-purple-700 font-medium">전화주문</span>
           </label>
           <label className="flex items-center gap-1 text-xs text-gray-600 cursor-pointer select-none">
             <input id="import-is-group" type="checkbox" className="w-3.5 h-3.5 cursor-pointer" onChange={(e) => {
-              const sel = document.getElementById("import-store") as HTMLSelectElement;
               if (e.target.checked) {
-                sel.value = "name:공구주문";
-                sel.disabled = true;
                 const phoneEl = document.getElementById("import-is-phone") as HTMLInputElement;
                 if (phoneEl) phoneEl.checked = false;
-              } else {
-                sel.value = "";
-                sel.disabled = false;
               }
             }} />
-            <span className="px-1.5 py-0.5 rounded bg-purple-100 text-purple-700 font-medium">공구주문</span>
+            <span className="px-1.5 py-0.5 rounded bg-pink-100 text-pink-700 font-medium">공구주문</span>
           </label>
         </div>
         <div className="relative">
-          <select id="import-store" className="text-xs border border-gray-300 rounded-lg px-2 py-1.5 pr-16 appearance-none bg-white disabled:bg-gray-100 disabled:text-gray-500 disabled:cursor-not-allowed" defaultValue="">
+          <select id="import-store" className="text-xs border border-gray-300 rounded-lg px-2 py-1.5 pr-16 appearance-none bg-white" defaultValue="">
             <option value="" disabled>발주서 업로드용 판매사</option>
-            <option value="name:전화주문">전화주문</option>
-            <option value="name:공구주문">공구주문</option>
             <option value="name:수기주문">수기주문</option>
             {stores.map((s) => (<option key={s.id} value={`id:${s.id}`}>{s.name}</option>))}
           </select>
@@ -490,11 +477,15 @@ export default function OrdersPage() {
                 return;
               }
               const sampleEl = document.getElementById("import-is-sample") as HTMLInputElement;
+              const phoneEl = document.getElementById("import-is-phone") as HTMLInputElement;
+              const groupEl = document.getElementById("import-is-group") as HTMLInputElement;
               const fd = new FormData();
               fd.append("file", file);
               if (sel.value.startsWith("id:")) fd.append("store_id", sel.value.slice(3));
               else fd.append("store_name", sel.value.slice(5));
               if (sampleEl?.checked) fd.append("is_sample", "true");
+              if (phoneEl?.checked) fd.append("sales_channel", "phone");
+              else if (groupEl?.checked) fd.append("sales_channel", "group");
               const res = await fetch("/admin/api/orders/import", { method: "POST", body: fd });
               const data = await res.json();
               if (res.ok) {
@@ -510,6 +501,11 @@ export default function OrdersPage() {
                 msg += "\n\n공급사 매칭은 '매핑 검증' 페이지에서 진행하세요.";
                 alert(msg);
                 fetchOrders();
+                // 업로드 완료 후 체크박스/셀렉트 초기화 (다음 업로드 안전)
+                if (phoneEl) phoneEl.checked = false;
+                if (groupEl) groupEl.checked = false;
+                if (sampleEl) sampleEl.checked = false;
+                sel.value = "";
               } else alert(`오류: ${data.error}`);
               e.target.value = "";
             }} />
@@ -670,25 +666,25 @@ export default function OrdersPage() {
                         <div className="text-[11px] text-gray-400">→ {o.receiver_name}</div>
                       )}
                     </td>
-                    {/* 판매방식 — 전화주문/공구주문 같은 특수 채널만 표시 */}
+                    {/* 판매방식 — sales_channel 컬럼(phone/group) 우선, fallback으로 store 이름 매칭 */}
                     <td className="px-2 py-2.5 text-xs whitespace-nowrap">
                       {(() => {
-                        const name = o.stores?.name || "";
-                        const isMethod = name === "전화주문" || name === "공구주문";
-                        if (isMethod) {
-                          const color = name === "공구주문" ? "bg-pink-100 text-pink-700" : "bg-purple-100 text-purple-700";
-                          return <span className={`px-1.5 py-0.5 rounded font-medium ${color}`}>{name}</span>;
-                        }
+                        const channel = o.sales_channel;
+                        const storeName = o.stores?.name || "";
+                        const ch = channel === "phone" || storeName === "전화주문" ? "phone"
+                                 : channel === "group" || storeName === "공구주문" ? "group"
+                                 : null;
+                        if (ch === "phone") return <span className="px-1.5 py-0.5 rounded bg-purple-100 text-purple-700 font-medium">전화주문</span>;
+                        if (ch === "group") return <span className="px-1.5 py-0.5 rounded bg-pink-100 text-pink-700 font-medium">공구주문</span>;
                         return <span className="text-gray-300">-</span>;
                       })()}
                     </td>
-                    {/* 판매사 — 전화주문/공구주문이 아닌 실제 스토어만 표시 */}
+                    {/* 판매사 — 실제 스토어. pseudo-store(전화주문/공구주문) 이름은 '-'로 */}
                     <td className="px-2 py-2.5 text-xs whitespace-nowrap">
                       {(() => {
                         const name = o.stores?.name || "";
-                        const isMethod = name === "전화주문" || name === "공구주문";
-                        if (!name) return <span className="text-gray-300">-</span>;
-                        if (isMethod) return <span className="text-gray-300">-</span>;
+                        const isPseudo = name === "전화주문" || name === "공구주문";
+                        if (!name || isPseudo) return <span className="text-gray-300">-</span>;
                         const isManual = o.stores?.mall_id?.startsWith("manual_") || o.stores?.mall_id?.startsWith("excel_");
                         return isManual
                           ? <span className="px-1.5 py-0.5 rounded bg-amber-50 text-amber-700 font-medium">{name}</span>
