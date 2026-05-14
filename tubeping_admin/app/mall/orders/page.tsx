@@ -463,8 +463,9 @@ export default function OrdersPage() {
         <div className="relative">
           <select id="import-store" className="text-xs border border-gray-300 rounded-lg px-2 py-1.5 pr-16 appearance-none bg-white" defaultValue="">
             <option value="" disabled>발주서 업로드용 판매사</option>
-            <option value="name:수기주문">수기주문</option>
-            {stores.map((s) => (<option key={s.id} value={`id:${s.id}`}>{s.name}</option>))}
+            {stores
+              .filter((s) => !["전화주문", "공구주문", "엑셀등록", "수기주문"].includes(s.name))
+              .map((s) => (<option key={s.id} value={`id:${s.id}`}>{s.name}</option>))}
           </select>
           <label className="absolute right-0 top-0 h-full px-2 flex items-center bg-gray-100 border border-gray-300 rounded-r-lg text-xs font-medium text-gray-700 hover:bg-gray-200 cursor-pointer">
             수기등록
@@ -517,7 +518,9 @@ export default function OrdersPage() {
           <select id="export-store" className="text-xs border border-gray-300 rounded-lg px-2 py-1.5 pr-24 appearance-none bg-white" defaultValue="">
             <option value="" disabled>운송장 다운로드용 판매사</option>
             <option value="__all__">전체</option>
-            {stores.map((s) => (<option key={s.id} value={s.id} data-name={s.name}>{s.name}</option>))}
+            {stores
+              .filter((s) => !["전화주문", "공구주문", "엑셀등록", "수기주문"].includes(s.name))
+              .map((s) => (<option key={s.id} value={s.id} data-name={s.name}>{s.name}</option>))}
           </select>
           <div className="absolute right-0 top-0 h-full flex">
             <button onClick={() => {
