@@ -177,7 +177,7 @@ export async function POST(request: NextRequest) {
 
   // 데이터 파싱 + 저장
   let imported = 0;
-  let skipped = 0;
+  let overwritten = 0;
   const errors: { row: number; error: string }[] = [];
 
   for (let i = 1; i < rows.length; i++) {
@@ -195,11 +195,8 @@ export async function POST(request: NextRequest) {
     const lineKey = itemOrderId || parentOrderId || `EXCEL-${Date.now()}-${i}`;
     const orderId = parentOrderId || itemOrderId || `EXCEL-${Date.now()}-${i}`;
 
-    // 중복 체크: (주문번호 AND 상품주문번호) 둘 다 일치하면 skip (재등록 없음)
-    if (existingKeys.has(`${orderId}::${lineKey}`)) {
-      skipped++;
-      continue;
-    }
+    // 중복 시 덮어쓰기 (운영 상태는 보존)
+    const isExisting = existingKeys.has(`${orderId}::${lineKey}`);
     const quantity = parseInt(cols[col.quantity] || "1", 10) || 1;
     // 엑셀에 가격이 없거나 0이면 products.price로 fallback
     let price = parseInt((cols[col.price] || "0").replace(/,/g, ""), 10) || 0;
@@ -244,17 +241,46 @@ export async function POST(request: NextRequest) {
       sales_channel: salesChannel,
     };
 
-    const { data: inserted, error } = await sb.from("orders").insert(row).select("id, order_amount").single();
+    let inserted: { id: string; order_amount: number } | null = null;
+    let error: { message: string } | null = null;
+    if (isExisting) {
+      // 덮어쓰기: 데이터 필드만 갱신, 운영 상태(supplier_id/PO/tracking/shipping_status/payment_amount/auto_assign_status)는 보존
+      const updateFields = {
+        order_date: row.order_date,
+        product_name: row.product_name,
+        option_text: row.option_text,
+        quantity: row.quantity,
+        product_price: row.product_price,
+        order_amount: row.order_amount,
+        buyer_name: row.buyer_name,
+        buyer_phone: row.buyer_phone,
+        receiver_name: row.receiver_name,
+        receiver_phone: row.receiver_phone,
+        receiver_address: row.receiver_address,
+        receiver_zipcode: row.receiver_zipcode,
+        memo: row.memo,
+        is_sample: row.is_sample,
+        sales_channel: row.sales_channel,
+      };
+      const r = await sb.from("orders").update(updateFields)
+        .eq("store_id", store.id)
+        .eq("cafe24_order_id", orderId)
+        .eq("cafe24_order_item_code", lineKey)
+        .select("id, order_amount").maybeSingle();
+      if (r.error) error = { message: r.error.message };
+      else if (r.data) { inserted = r.data; overwritten++; }
+    } else {
+      const r = await sb.from("orders").insert(row).select("id, order_amount").single();
+      if (r.error) error = { message: r.error.message };
+      else if (r.data) { inserted = r.data; imported++; existingKeys.add(`${orderId}::${lineKey}`); }
+    }
 
     if (error) {
       errors.push({ row: i + 1, error: error.message });
-    } else {
-      imported++;
-      existingKeys.add(`${orderId}::${lineKey}`);
-
-      // 고유 입금액 부여 (전화/수기주문만 — 동명이인 구분용)
+    } else if (inserted && !isExisting) {
+      // 고유 입금액 부여 (신규 등록만 — 덮어쓰기 시엔 기존 payment_amount 보존)
       // 같은 금액의 pending 주문이 있으면 끝자리 +1~+9
-      if (inserted) {
+      {
         const baseAmount = inserted.order_amount || 0;
         const { data: sameAmount } = await sb
           .from("orders")
@@ -290,7 +316,7 @@ export async function POST(request: NextRequest) {
   return NextResponse.json({
     total: rows.length - 1,
     imported,
-    skipped,
+    overwritten,
     matched_columns: matchedColumns,
     unmatched_headers: unmatchedHeaders,
     errors: errors.length > 0 ? errors : undefined,

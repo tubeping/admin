@@ -613,8 +613,8 @@ export default function OrdersPage() {
               const res = await fetch("/admin/api/orders/import", { method: "POST", body: fd });
               const data = await res.json();
               if (res.ok) {
-                const parts = [`${data.imported}건 등록`];
-                if (data.skipped) parts.push(`${data.skipped}건 중복(스킵)`);
+                const parts = [`${data.imported}건 신규등록`];
+                if (data.overwritten) parts.push(`${data.overwritten}건 덮어쓰기 갱신`);
                 let msg = parts.join(" · ");
                 const mc = data.matched_columns || {};
                 const critical = ["receiver_name", "receiver_phone", "receiver_address"];
