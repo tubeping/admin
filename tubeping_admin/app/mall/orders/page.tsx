@@ -99,6 +99,8 @@ export default function OrdersPage() {
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  // 인라인 편집: 판매방식 / 판매사
+  const [editingCell, setEditingCell] = useState<{ orderId: string; field: "channel" | "store" } | null>(null);
 
   // 필터
   const [filterStatus, setFilterStatus] = useState("");
@@ -271,6 +273,27 @@ export default function OrdersPage() {
 
   const toggleSelect = (id: string) => { setSelected((prev) => { const next = new Set(prev); if (next.has(id)) next.delete(id); else next.add(id); return next; }); };
   const toggleAll = () => { if (selected.size === orders.length) setSelected(new Set()); else setSelected(new Set(orders.map((o) => o.id))); };
+
+  // 인라인 편집 저장 — 판매방식(sales_channel) / 판매사(store_id)
+  const saveCellEdit = async (orderId: string, field: "channel" | "store", value: string) => {
+    const updates: Record<string, string | null> = {};
+    if (field === "channel") {
+      updates.sales_channel = value === "" ? null : value;
+    } else {
+      updates.store_id = value;
+    }
+    const res = await fetch("/admin/api/orders", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ids: [orderId], updates }),
+    });
+    setEditingCell(null);
+    if (res.ok) fetchOrders();
+    else {
+      const data = await res.json();
+      alert(`수정 실패: ${data.error || res.status}`);
+    }
+  };
 
   // 통계
   const stats = {
@@ -669,24 +692,58 @@ export default function OrdersPage() {
                         <div className="text-[11px] text-gray-400">→ {o.receiver_name}</div>
                       )}
                     </td>
-                    {/* 판매방식 — 3종: 전화주문 / 공구주문 / 자사몰 */}
-                    <td className="px-2 py-2.5 text-xs whitespace-nowrap">
-                      {(() => {
+                    {/* 판매방식 — 클릭 시 인라인 편집 */}
+                    <td
+                      className="px-2 py-2.5 text-xs whitespace-nowrap cursor-pointer hover:bg-gray-100/60"
+                      onClick={(e) => { e.stopPropagation(); if (!editingCell || editingCell.orderId !== o.id || editingCell.field !== "channel") setEditingCell({ orderId: o.id, field: "channel" }); }}
+                      title="클릭해서 판매방식 수정"
+                    >
+                      {editingCell?.orderId === o.id && editingCell.field === "channel" ? (
+                        <select
+                          autoFocus
+                          defaultValue={o.sales_channel || ""}
+                          onClick={(e) => e.stopPropagation()}
+                          onChange={(e) => saveCellEdit(o.id, "channel", e.target.value)}
+                          onBlur={() => setEditingCell(null)}
+                          className="text-xs border border-gray-400 rounded px-1 py-0.5 bg-white"
+                        >
+                          <option value="">자사몰</option>
+                          <option value="phone">전화주문</option>
+                          <option value="group">공구주문</option>
+                        </select>
+                      ) : (() => {
                         const channel = o.sales_channel;
                         const storeName = o.stores?.name || "";
                         if (channel === "phone" || storeName === "전화주문") return <span className="px-1.5 py-0.5 rounded bg-purple-100 text-purple-700 font-medium">전화주문</span>;
                         if (channel === "group" || storeName === "공구주문") return <span className="px-1.5 py-0.5 rounded bg-pink-100 text-pink-700 font-medium">공구주문</span>;
                         if (!storeName) return <span className="text-gray-300">-</span>;
-                        // 그 외 전부 자사몰
                         return <span className="px-1.5 py-0.5 rounded bg-blue-100 text-blue-700 font-medium">자사몰</span>;
                       })()}
                     </td>
-                    {/* 판매사 — 실제 스토어. pseudo-store(전화주문/공구주문) 이름은 '-'로 */}
-                    <td className="px-2 py-2.5 text-xs whitespace-nowrap">
-                      {(() => {
+                    {/* 판매사 — 클릭 시 인라인 편집 (실제 store 선택) */}
+                    <td
+                      className="px-2 py-2.5 text-xs whitespace-nowrap cursor-pointer hover:bg-gray-100/60"
+                      onClick={(e) => { e.stopPropagation(); if (!editingCell || editingCell.orderId !== o.id || editingCell.field !== "store") setEditingCell({ orderId: o.id, field: "store" }); }}
+                      title="클릭해서 판매사 수정"
+                    >
+                      {editingCell?.orderId === o.id && editingCell.field === "store" ? (
+                        <select
+                          autoFocus
+                          defaultValue={stores.find((s) => s.name === o.stores?.name)?.id || ""}
+                          onClick={(e) => e.stopPropagation()}
+                          onChange={(e) => saveCellEdit(o.id, "store", e.target.value)}
+                          onBlur={() => setEditingCell(null)}
+                          className="text-xs border border-gray-400 rounded px-1 py-0.5 bg-white max-w-[180px]"
+                        >
+                          <option value="" disabled>판매사 선택</option>
+                          {stores
+                            .filter((s) => !["전화주문", "공구주문", "엑셀등록", "수기주문"].includes(s.name))
+                            .map((s) => (<option key={s.id} value={s.id}>{s.name}</option>))}
+                        </select>
+                      ) : (() => {
                         const name = o.stores?.name || "";
                         const isPseudo = name === "전화주문" || name === "공구주문";
-                        if (!name || isPseudo) return <span className="text-gray-300">-</span>;
+                        if (!name || isPseudo) return <span className="text-gray-400 italic">- (클릭해서 지정)</span>;
                         const isManual = o.stores?.mall_id?.startsWith("manual_") || o.stores?.mall_id?.startsWith("excel_");
                         return isManual
                           ? <span className="px-1.5 py-0.5 rounded bg-amber-50 text-amber-700 font-medium">{name}</span>
@@ -706,6 +763,7 @@ export default function OrdersPage() {
                       {(() => {
                         const isPaid = o.shipping_status !== "pending" && o.shipping_status !== "cancelled";
                         const isCancelled = o.shipping_status === "cancelled";
+                        const isPhone = o.sales_channel === "phone" || o.stores?.name === "전화주문";
                         if (isCancelled) return <span className="text-[10px] text-gray-300">-</span>;
                         return (
                           <button
@@ -713,7 +771,8 @@ export default function OrdersPage() {
                               e.stopPropagation();
                               const newStatus = isPaid ? "pending" : "ordered";
                               const label = isPaid ? "입금전으로 되돌림" : "입금확인 처리";
-                              if (!confirm(`${label}하시겠습니까?`)) return;
+                              const extra = isPhone && !isPaid ? "\n\n(전화주문 — 계좌이체 입금 확인 후 진행)" : "";
+                              if (!confirm(`${label}하시겠습니까?${extra}`)) return;
                               await fetch("/admin/api/orders", {
                                 method: "PATCH",
                                 headers: { "Content-Type": "application/json" },
@@ -724,11 +783,15 @@ export default function OrdersPage() {
                             className={`text-[11px] font-medium px-2 py-0.5 rounded-full border cursor-pointer transition-colors ${
                               isPaid
                                 ? "bg-green-100 text-green-700 border-green-300 hover:bg-green-200"
-                                : "bg-red-50 text-red-600 border-red-300 hover:bg-red-100"
+                                : isPhone
+                                  ? "bg-amber-50 text-amber-700 border-amber-300 hover:bg-amber-100"
+                                  : "bg-red-50 text-red-600 border-red-300 hover:bg-red-100"
                             }`}
-                            title={isPaid ? "클릭하면 입금전으로 되돌림" : "클릭하면 입금확인 처리"}
+                            title={isPhone
+                              ? (isPaid ? "전화주문(계좌이체) — 클릭 시 입금전으로 되돌림" : "전화주문(계좌이체) — 입금 확인 후 클릭")
+                              : (isPaid ? "클릭하면 입금전으로 되돌림" : "클릭하면 입금확인 처리")}
                           >
-                            {isPaid ? "✓ 완료" : "✗ 입금전"}
+                            {isPaid ? "✓ 완료" : isPhone ? "💰 계좌이체 대기" : "✗ 입금전"}
                           </button>
                         );
                       })()}

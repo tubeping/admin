@@ -61,6 +61,7 @@ export async function PATCH(request: NextRequest) {
     "is_sample", "auto_assign_status",
     "tracking_number", "shipping_company",
     "buyer_name", "buyer_phone", "receiver_name", "receiver_phone", "receiver_address",
+    "store_id", "sales_channel",
   ];
   const filtered: Record<string, unknown> = {};
   for (const key of allowedFields) {
