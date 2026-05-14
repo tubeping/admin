@@ -445,9 +445,13 @@ export default function OrdersPage() {
               const sel = document.getElementById("import-store") as HTMLSelectElement;
               if (e.target.checked) {
                 sel.value = "name:전화주문";
+                sel.disabled = true;
                 const groupEl = document.getElementById("import-is-group") as HTMLInputElement;
                 if (groupEl) groupEl.checked = false;
-              } else sel.value = "";
+              } else {
+                sel.value = "";
+                sel.disabled = false;
+              }
             }} />
             <span className="px-1.5 py-0.5 rounded bg-purple-100 text-purple-700 font-medium">전화주문</span>
           </label>
@@ -456,15 +460,19 @@ export default function OrdersPage() {
               const sel = document.getElementById("import-store") as HTMLSelectElement;
               if (e.target.checked) {
                 sel.value = "name:공구주문";
+                sel.disabled = true;
                 const phoneEl = document.getElementById("import-is-phone") as HTMLInputElement;
                 if (phoneEl) phoneEl.checked = false;
-              } else sel.value = "";
+              } else {
+                sel.value = "";
+                sel.disabled = false;
+              }
             }} />
             <span className="px-1.5 py-0.5 rounded bg-purple-100 text-purple-700 font-medium">공구주문</span>
           </label>
         </div>
         <div className="relative">
-          <select id="import-store" className="text-xs border border-gray-300 rounded-lg px-2 py-1.5 pr-16 appearance-none bg-white" defaultValue="">
+          <select id="import-store" className="text-xs border border-gray-300 rounded-lg px-2 py-1.5 pr-16 appearance-none bg-white disabled:bg-gray-100 disabled:text-gray-500 disabled:cursor-not-allowed" defaultValue="">
             <option value="" disabled>발주서 업로드용 판매사</option>
             <option value="name:전화주문">전화주문</option>
             <option value="name:공구주문">공구주문</option>
