@@ -31,4 +31,5 @@ export const env = {
   GEMINI_API_KEY: opt("GEMINI_API_KEY"),
   YOUTUBE_API_KEY: opt("YOUTUBE_API_KEY"),
   CRON_SECRET: opt("CRON_SECRET"),
+  WEBHOOK_SECRET: opt("WEBHOOK_SECRET"),
 } as const;

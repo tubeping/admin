@@ -30,7 +30,10 @@ const STATUS_META: Record<VerifyGroup["status"], { text: string; cls: string }> 
 };
 
 function today() { return new Date().toISOString().slice(0, 10); }
-function daysAgo(n: number) { return new Date(Date.now() - n * 86400000).toISOString().slice(0, 10); }
+function monthStart() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-01`;
+}
 
 type ProductOption = { id: string; product_name: string; tp_code: string | null; supplier: string | null };
 type Supplier = { id: string; name: string; short_code: string | null };
@@ -40,7 +43,7 @@ export default function OrderMappingVerificationPage() {
   const [loading, setLoading] = useState(true);
   const [stores, setStores] = useState<Store[]>([]);
   const [filterStore, setFilterStore] = useState("");
-  const [dateFrom, setDateFrom] = useState(daysAgo(60));
+  const [dateFrom, setDateFrom] = useState(monthStart());
   const [dateTo, setDateTo] = useState(today());
   const [includeVerified, setIncludeVerified] = useState(false);
   const [statusFilter, setStatusFilter] = useState<"all" | "problem" | VerifyGroup["status"]>("problem");

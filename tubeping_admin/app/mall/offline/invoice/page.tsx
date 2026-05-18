@@ -27,6 +27,7 @@ interface GroupedInvoice {
   grandTotal: number;
 }
 
+// v2 - purchase_price fix
 export default function InvoicePage() {
   return (
     <Suspense fallback={<div className="p-10 text-center text-gray-400">로딩 중...</div>}>

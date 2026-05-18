@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 
 interface MatchedProduct {
   id: string;
@@ -52,11 +52,116 @@ const STATUS_LABEL: Record<string, string> = {
   ignored: "무시",
 };
 
+/** 수동 상품 검색·추가 위젯 */
+function ManualMatcher({
+  alertId,
+  currentIds,
+  onAdd,
+}: {
+  alertId: string;
+  currentIds: Set<string>;
+  onAdd: (p: MatchedProduct) => void;
+}) {
+  const [q, setQ] = useState("");
+  const [results, setResults] = useState<MatchedProduct[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [open, setOpen] = useState(false);
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    if (timer.current) clearTimeout(timer.current);
+    if (q.trim().length < 2) {
+      setResults([]);
+      return;
+    }
+    timer.current = setTimeout(async () => {
+      setLoading(true);
+      try {
+        const res = await fetch(`/admin/api/products/search?q=${encodeURIComponent(q.trim())}`);
+        const data = await res.json();
+        setResults(data.products || []);
+      } finally {
+        setLoading(false);
+      }
+    }, 300);
+    return () => {
+      if (timer.current) clearTimeout(timer.current);
+    };
+  }, [q]);
+
+  if (!open) {
+    return (
+      <button
+        onClick={() => setOpen(true)}
+        className="text-xs text-[#C41E1E] underline hover:no-underline mt-1"
+      >
+        + 직접 상품 검색해서 매칭
+      </button>
+    );
+  }
+
+  return (
+    <div className="mt-2 border border-gray-200 rounded-lg p-2 bg-gray-50">
+      <div className="flex items-center gap-2">
+        <input
+          type="text"
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+          placeholder="상품명 또는 tp_code 검색 (2자 이상)"
+          className="flex-1 px-2 py-1 text-xs border border-gray-200 rounded"
+          autoFocus
+        />
+        <button
+          onClick={() => {
+            setOpen(false);
+            setQ("");
+            setResults([]);
+          }}
+          className="text-xs text-gray-500 px-2"
+        >
+          닫기
+        </button>
+      </div>
+      {loading && <p className="text-[11px] text-gray-400 mt-1">검색 중...</p>}
+      {!loading && q.length >= 2 && results.length === 0 && (
+        <p className="text-[11px] text-gray-400 mt-1">결과 없음</p>
+      )}
+      {results.length > 0 && (
+        <div className="mt-2 max-h-48 overflow-y-auto space-y-0.5">
+          {results.map((p) => {
+            const already = currentIds.has(p.id);
+            return (
+              <button
+                key={p.id + alertId}
+                onClick={() => !already && onAdd(p)}
+                disabled={already}
+                className={`w-full text-left flex items-center gap-2 text-xs p-1.5 rounded ${already ? "opacity-40 cursor-not-allowed" : "hover:bg-white"}`}
+              >
+                <span className="font-mono text-[10px] font-bold text-[#C41E1E] bg-[#FFF0F5] px-1.5 py-0.5 rounded">
+                  {p.tp_code}
+                </span>
+                <span className="flex-1 text-gray-700">{p.product_name}</span>
+                {already ? (
+                  <span className="text-[10px] text-gray-400">추가됨</span>
+                ) : (
+                  <span className="text-[10px] text-[#C41E1E]">+ 추가</span>
+                )}
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function StockAlertsPage() {
   const [filter, setFilter] = useState("pending");
   const [alerts, setAlerts] = useState<Alert[]>([]);
   const [loading, setLoading] = useState(false);
   const [selectedProducts, setSelectedProducts] = useState<Record<string, Set<string>>>({});
+  const [extraMatches, setExtraMatches] = useState<Record<string, MatchedProduct[]>>({});
+  const [busy, setBusy] = useState<string | null>(null);
 
   const fetchAlerts = useCallback(async () => {
     setLoading(true);
@@ -64,12 +169,12 @@ export default function StockAlertsPage() {
     const res = await fetch(url);
     const data = await res.json();
     setAlerts(data.alerts || []);
-    // 기본: 매칭된 모든 상품 선택
     const sel: Record<string, Set<string>> = {};
     for (const a of data.alerts || []) {
       sel[a.id] = new Set(a.matched_product_ids || []);
     }
     setSelectedProducts(sel);
+    setExtraMatches({});
     setLoading(false);
   }, [filter]);
 
@@ -86,9 +191,52 @@ export default function StockAlertsPage() {
     });
   };
 
+  const handleRematch = async (alertId: string) => {
+    setBusy(alertId);
+    const res = await fetch("/admin/api/product-stock-alerts", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: alertId, action: "rematch" }),
+    });
+    const data = await res.json();
+    setBusy(null);
+    if (res.ok) {
+      window.alert(`재매칭 결과: ${data.matched}개`);
+      fetchAlerts();
+    } else {
+      window.alert(`실패: ${data.error}`);
+    }
+  };
+
+  const handleAddManual = async (alertId: string, product: MatchedProduct) => {
+    setExtraMatches((prev) => {
+      const next = { ...prev };
+      const list = next[alertId] || [];
+      if (!list.find((p) => p.id === product.id)) next[alertId] = [...list, product];
+      return next;
+    });
+    setSelectedProducts((prev) => {
+      const next = { ...prev };
+      const set = new Set(next[alertId] || []);
+      set.add(product.id);
+      next[alertId] = set;
+      return next;
+    });
+    // 즉시 DB 반영
+    const allIds = new Set([
+      ...(alerts.find((a) => a.id === alertId)?.matched_product_ids || []),
+      product.id,
+    ]);
+    await fetch("/admin/api/product-stock-alerts", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: alertId, action: "set_match", product_ids: [...allIds] }),
+    });
+  };
+
   const handleApply = async (alert: Alert) => {
     const ids = [...(selectedProducts[alert.id] || [])];
-    if (ids.length === 0) { alert.alert_type === "restock" ? alert : 0; window.alert("적용할 상품을 선택하세요."); return; }
+    if (ids.length === 0) { window.alert("적용할 상품을 선택하세요."); return; }
     const action = alert.alert_type === "restock" ? "판매중으로 전환" : "판매중지";
     if (!confirm(`${ids.length}개 상품을 ${action}합니다. 계속할까요?`)) return;
 
@@ -158,7 +306,15 @@ export default function StockAlertsPage() {
         <div className="p-12 text-center text-gray-400 bg-white border rounded-xl">알림이 없습니다.</div>
       ) : (
         <div className="space-y-3">
-          {alerts.map((a) => (
+          {alerts.map((a) => {
+            const displayMatched = [
+              ...(a.matched_products || []),
+              ...(extraMatches[a.id] || []).filter(
+                (p) => !(a.matched_products || []).find((q) => q.id === p.id)
+              ),
+            ];
+            const selected = selectedProducts[a.id] || new Set();
+            return (
             <div key={a.id} className="bg-white border rounded-xl p-5">
               <div className="flex items-start justify-between mb-3">
                 <div className="flex items-start gap-3 flex-1">
@@ -173,7 +329,7 @@ export default function StockAlertsPage() {
                       {a.source === "gmail" && <span className="text-[10px] text-blue-500 bg-blue-50 px-1.5 py-0.5 rounded">자동</span>}
                     </div>
                     <p className="text-sm text-gray-800 mt-1">{a.title}</p>
-                    {a.detail && <p className="text-xs text-gray-500 mt-1 whitespace-pre-wrap">{a.detail}</p>}
+                    {a.detail && <p className="text-xs text-gray-500 mt-1 whitespace-pre-wrap line-clamp-3">{a.detail}</p>}
                     {a.effective_from && (
                       <p className="text-[11px] text-gray-400 mt-1">
                         기간: {a.effective_from}{a.effective_to && a.effective_to !== a.effective_from ? ` ~ ${a.effective_to}` : ""}
@@ -187,15 +343,29 @@ export default function StockAlertsPage() {
               </div>
 
               {/* 매칭 상품 */}
-              {a.matched_products && a.matched_products.length > 0 ? (
-                <div className="mt-3 pt-3 border-t border-gray-100">
-                  <p className="text-xs font-semibold text-gray-600 mb-2">매칭된 상품 ({a.matched_products.length}개)</p>
+              <div className="mt-3 pt-3 border-t border-gray-100">
+                <div className="flex items-center justify-between mb-2">
+                  <p className="text-xs font-semibold text-gray-600">
+                    매칭된 상품 ({displayMatched.length}개)
+                  </p>
+                  {a.status === "pending" && (
+                    <button
+                      onClick={() => handleRematch(a.id)}
+                      disabled={busy === a.id}
+                      className="text-[11px] text-gray-500 hover:text-[#C41E1E] underline disabled:opacity-50"
+                    >
+                      {busy === a.id ? "재매칭 중..." : "재매칭"}
+                    </button>
+                  )}
+                </div>
+
+                {displayMatched.length > 0 ? (
                   <div className="space-y-1">
-                    {a.matched_products.map((p) => (
+                    {displayMatched.map((p) => (
                       <label key={p.id} className="flex items-center gap-2 text-xs hover:bg-gray-50 p-1.5 rounded cursor-pointer">
                         <input
                           type="checkbox"
-                          checked={(selectedProducts[a.id] || new Set()).has(p.id)}
+                          checked={selected.has(p.id)}
                           onChange={() => toggleProduct(a.id, p.id)}
                           disabled={a.status !== "pending"}
                           className="rounded"
@@ -208,12 +378,18 @@ export default function StockAlertsPage() {
                       </label>
                     ))}
                   </div>
-                </div>
-              ) : (
-                <div className="mt-3 pt-3 border-t border-gray-100">
+                ) : (
                   <p className="text-xs text-gray-400">매칭된 상품 없음 — 메일 언급 상품명: {(a.product_names || []).join(", ") || "(없음)"}</p>
-                </div>
-              )}
+                )}
+
+                {a.status === "pending" && (
+                  <ManualMatcher
+                    alertId={a.id}
+                    currentIds={new Set(displayMatched.map((p) => p.id))}
+                    onAdd={(p) => handleAddManual(a.id, p)}
+                  />
+                )}
+              </div>
 
               {/* 액션 */}
               {a.status === "pending" && (
@@ -230,18 +406,18 @@ export default function StockAlertsPage() {
                   >
                     삭제
                   </button>
-                  {a.matched_products && a.matched_products.length > 0 && (
-                    <button
-                      onClick={() => handleApply(a)}
-                      className="px-4 py-1.5 text-xs bg-[#C41E1E] text-white rounded hover:bg-[#A01818] font-medium"
-                    >
-                      {a.alert_type === "restock" ? "판매중 전환" : "판매중지 적용"}
-                    </button>
-                  )}
+                  <button
+                    onClick={() => handleApply(a)}
+                    disabled={selected.size === 0}
+                    className="px-4 py-1.5 text-xs bg-[#C41E1E] text-white rounded hover:bg-[#A01818] font-medium disabled:opacity-40 disabled:cursor-not-allowed"
+                  >
+                    {a.alert_type === "restock" ? "판매중 전환" : "판매중지 적용"} ({selected.size})
+                  </button>
                 </div>
               )}
             </div>
-          ))}
+            );
+          })}
         </div>
       )}
     </div>

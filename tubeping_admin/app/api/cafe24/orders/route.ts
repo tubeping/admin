@@ -236,10 +236,10 @@ async function saveOrdersToDb(
   const existingMap = new Map<string, { tracking_number: string | null; shipping_company: string | null; shipped_at: string | null; shipping_status: string | null }>();
   for (const e of existingRows || []) {
     existingMap.set(`${e.cafe24_order_id}::${e.cafe24_order_item_code || ""}`, {
-      tracking_number: e.tracking_number,
-      shipping_company: e.shipping_company,
-      shipped_at: e.shipped_at,
-      shipping_status: e.shipping_status,
+      tracking_number: e.tracking_number as string | null,
+      shipping_company: e.shipping_company as string | null,
+      shipped_at: e.shipped_at as string | null,
+      shipping_status: e.shipping_status as string | null,
     });
   }
 

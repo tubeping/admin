@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServiceClient } from "@/lib/supabase";
+import { matchProductsForAlert } from "@/lib/stockAlertMatch";
 
 /**
  * GET /api/product-stock-alerts — 품절/재입고/판매종료 알림 목록
@@ -60,23 +61,13 @@ export async function POST(request: NextRequest) {
 
   const sb = getServiceClient();
 
-  // 상품명으로 매칭 시도 (부분 일치)
-  const matchedIds: string[] = [];
-  if (product_names && Array.isArray(product_names) && product_names.length > 0) {
-    for (const name of product_names) {
-      if (!name || typeof name !== "string") continue;
-      const cleaned = name.trim().slice(0, 60);
-      if (!cleaned) continue;
-      const { data: matches } = await sb
-        .from("products")
-        .select("id")
-        .ilike("product_name", `%${cleaned}%`)
-        .limit(5);
-      for (const m of matches || []) {
-        if (!matchedIds.includes(m.id)) matchedIds.push(m.id);
-      }
-    }
-  }
+  // 토큰 기반 매칭 — supplier 이름 우선
+  const matches = await matchProductsForAlert(
+    sb,
+    Array.isArray(product_names) ? product_names : [],
+    { supplierName: supplier_name || null, limit: 10 }
+  );
+  const matchedIds = matches.map((m) => m.id);
 
   const { data, error } = await sb
     .from("product_stock_alerts")
@@ -102,11 +93,12 @@ export async function POST(request: NextRequest) {
 }
 
 /**
- * PATCH /api/product-stock-alerts — 알림 처리 (적용/무시)
- * body: { id, action: 'apply' | 'ignore', product_ids?: string[] }
- *
- * apply: 선택한 products의 selling='F' 로 설정 (품절/판매종료) 또는 'T' (재입고)
- * ignore: status='ignored'
+ * PATCH /api/product-stock-alerts — 알림 처리
+ * body:
+ *   { id, action: 'apply',    product_ids?: string[] }  -- 선택 상품의 selling 토글
+ *   { id, action: 'ignore' }
+ *   { id, action: 'rematch' }                           -- 매칭 재시도 (토큰 기반)
+ *   { id, action: 'set_match', product_ids: string[] }  -- 수동으로 매칭 상품 지정
  */
 export async function PATCH(request: NextRequest) {
   const body = await request.json();
@@ -157,6 +149,31 @@ export async function PATCH(request: NextRequest) {
       .update({ status: "ignored" })
       .eq("id", id);
     return NextResponse.json({ success: true });
+  }
+
+  if (action === "rematch") {
+    const matches = await matchProductsForAlert(
+      sb,
+      alert.product_names || [],
+      { supplierName: alert.supplier_name, limit: 10 }
+    );
+    const matchedIds = matches.map((m) => m.id);
+    await sb
+      .from("product_stock_alerts")
+      .update({ matched_product_ids: matchedIds })
+      .eq("id", id);
+    return NextResponse.json({ matched: matchedIds.length, products: matches });
+  }
+
+  if (action === "set_match") {
+    if (!Array.isArray(product_ids)) {
+      return NextResponse.json({ error: "product_ids 필수" }, { status: 400 });
+    }
+    await sb
+      .from("product_stock_alerts")
+      .update({ matched_product_ids: product_ids })
+      .eq("id", id);
+    return NextResponse.json({ matched: product_ids.length });
   }
 
   return NextResponse.json({ error: "잘못된 action" }, { status: 400 });

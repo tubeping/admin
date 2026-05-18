@@ -1,10 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServiceClient } from "@/lib/supabase";
 import { getActiveStores, cafe24Fetch } from "@/lib/cafe24";
+import { env } from "@/lib/env.server";
+
+const WEBHOOK_SECRET = env.WEBHOOK_SECRET;
 
 /**
  * POST /api/webhook/bank-sms — 은행 입금 문자 자동 처리 (MacroDroid → webhook)
  *
+ * Headers: Authorization: Bearer <WEBHOOK_SECRET>
  * body: { text: string } — SMS 원문
  *
  * 흐름:
@@ -15,9 +19,12 @@ import { getActiveStores, cafe24Fetch } from "@/lib/cafe24";
  *   5. payment_logs 테이블에 이력 저장
  */
 
-// 신한은행 SMS 파싱
+// 신한은행 SMS 파싱 (멀티라인 + 한줄 형식 모두 지원)
 function parseShinhanSms(text: string): { name: string; amount: number } | null {
-  const lines = text.split("\n").map((l) => l.trim()).filter((l) => l);
+  const cleaned = text.trim();
+  if (!cleaned) return null;
+
+  const lines = cleaned.split("\n").map((l) => l.trim()).filter((l) => l);
   let amount = 0;
   let name = "";
 
@@ -35,6 +42,22 @@ function parseShinhanSms(text: string): { name: string; amount: number } | null 
     if (!name && line.length >= 2) name = line;
   }
 
+  // 한 줄 형식 fallback: [신한은행] 입금 50,000원 홍길동 잔액 1,234,567원
+  if (!name) {
+    const p1 = cleaned.match(/입금\s*[\d,]+\s*원?\s+([가-힣a-zA-Z0-9]{2,})/);
+    if (p1) name = p1[1];
+  }
+  if (!amount) {
+    const amountMatch = cleaned.match(/([\d,]+)\s*원/);
+    if (amountMatch) amount = parseInt(amountMatch[1].replace(/,/g, ""), 10) || 0;
+  }
+  // 최후 수단: 한글 이름 추출
+  if (!name) {
+    const exclude = ["신한", "은행", "입금", "출금", "잔액", "국민", "우리", "하나", "농협", "기업", "발신"];
+    const names = cleaned.match(/[가-힣]{2,4}/g) || [];
+    name = names.find((n) => !exclude.some((ex) => n.includes(ex))) || "";
+  }
+
   if (!name) return null;
   return { name, amount };
 }
@@ -44,6 +67,14 @@ function normalize(s: string): string {
 }
 
 export async function POST(request: NextRequest) {
+  // Bearer 토큰 인증
+  if (WEBHOOK_SECRET) {
+    const auth = request.headers.get("authorization");
+    if (auth !== `Bearer ${WEBHOOK_SECRET}`) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+  }
+
   const body = await request.json().catch(() => null);
   const smsText = body?.text || body?.message || "";
 

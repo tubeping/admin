@@ -108,7 +108,6 @@ async function syncStoreCS(store: StoreInfo) {
         },
         {
           onConflict: "channel,channel_ticket_id,store_id",
-          ignoreDuplicates: false,
         }
       );
 
