@@ -53,9 +53,9 @@ function InvoiceContent() {
       const group: GroupedInvoice = { client: null, orders: filtered, totalQty: 0, totalAmount: 0, totalShipping: 0, grandTotal: 0 };
       for (const o of filtered) {
         group.totalQty += o.quantity;
-        group.totalAmount += o.total_amount;
+        group.totalAmount += o.purchase_price * o.quantity; // 매입가 기준
         group.totalShipping += o.shipping_cost;
-        group.grandTotal += o.total_amount + o.shipping_cost;
+        group.grandTotal += o.purchase_price * o.quantity + o.shipping_cost;
       }
       setGroups([group]);
       setLoading(false);
@@ -189,8 +189,8 @@ function InvoiceContent() {
                     {o.option_text && <span className="text-gray-400 text-xs ml-1">({o.option_text})</span>}
                   </td>
                   <td className="border border-gray-300 px-2 py-1.5 text-right">{o.quantity}</td>
-                  <td className="border border-gray-300 px-2 py-1.5 text-right">₩{o.supply_price.toLocaleString()}</td>
-                  <td className="border border-gray-300 px-2 py-1.5 text-right font-medium">₩{o.total_amount.toLocaleString()}</td>
+                  <td className="border border-gray-300 px-2 py-1.5 text-right">₩{o.purchase_price.toLocaleString()}</td>
+                  <td className="border border-gray-300 px-2 py-1.5 text-right font-medium">₩{(o.purchase_price * o.quantity).toLocaleString()}</td>
                   <td className="border border-gray-300 px-2 py-1.5 text-xs text-center">{o.offline_clients?.name || ""}{o.memo ? ` / ${o.memo}` : ""}</td>
                 </tr>
               ))}
