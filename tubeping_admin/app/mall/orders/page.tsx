@@ -90,14 +90,13 @@ function formatDateTime(d: string) {
 function today() { return new Date().toISOString().slice(0, 10); }
 function daysAgo(n: number) { return new Date(Date.now() - n * 86400000).toISOString().slice(0, 10); }
 
-// 메모이제이션된 행 컴포넌트 — selected 변경 시 해당 행만 re-render
 const OrderRow = memo(function OrderRow({
-  o, idx, displayedCount, isSelected, toggleSelect, editingCell, setEditingCell, saveCellEdit, stores, fetchOrders,
+  o, idx, displayedCount, isSelected, toggleSelect, editingField, onStartEdit, saveCellEdit, stores, fetchOrders,
 }: {
   o: Order; idx: number; displayedCount: number; isSelected: boolean;
   toggleSelect: (id: string) => void;
-  editingCell: { orderId: string; field: "channel" | "store" } | null;
-  setEditingCell: (v: { orderId: string; field: "channel" | "store" } | null) => void;
+  editingField: "channel" | "store" | null;
+  onStartEdit: (orderId: string, field: "channel" | "store") => void;
   saveCellEdit: (orderId: string, field: "channel" | "store", value: string) => void;
   stores: Store[];
   fetchOrders: () => void;
@@ -132,16 +131,16 @@ const OrderRow = memo(function OrderRow({
       </td>
       <td
         className="px-2 py-2.5 text-xs whitespace-nowrap cursor-pointer hover:bg-gray-100/60"
-        onClick={(e) => { e.stopPropagation(); if (!editingCell || editingCell.orderId !== o.id || editingCell.field !== "channel") setEditingCell({ orderId: o.id, field: "channel" }); }}
+        onClick={(e) => { e.stopPropagation(); if (editingField !== "channel") onStartEdit(o.id, "channel"); }}
         title="클릭해서 판매방식 수정"
       >
-        {editingCell?.orderId === o.id && editingCell.field === "channel" ? (
+        {editingField === "channel" ? (
           <select
             autoFocus
             defaultValue={o.sales_channel || ""}
             onClick={(e) => e.stopPropagation()}
             onChange={(e) => saveCellEdit(o.id, "channel", e.target.value)}
-            onBlur={() => setEditingCell(null)}
+            onBlur={() => onStartEdit("", "channel")}
             className="text-xs border border-gray-400 rounded px-1 py-0.5 bg-white"
           >
             <option value="">자사몰</option>
@@ -157,22 +156,20 @@ const OrderRow = memo(function OrderRow({
       </td>
       <td
         className="px-2 py-2.5 text-xs whitespace-nowrap cursor-pointer hover:bg-gray-100/60"
-        onClick={(e) => { e.stopPropagation(); if (!editingCell || editingCell.orderId !== o.id || editingCell.field !== "store") setEditingCell({ orderId: o.id, field: "store" }); }}
+        onClick={(e) => { e.stopPropagation(); if (editingField !== "store") onStartEdit(o.id, "store"); }}
         title="클릭해서 판매사 수정"
       >
-        {editingCell?.orderId === o.id && editingCell.field === "store" ? (
+        {editingField === "store" ? (
           <select
             autoFocus
             defaultValue={stores.find((s) => s.name === o.stores?.name)?.id || ""}
             onClick={(e) => e.stopPropagation()}
             onChange={(e) => saveCellEdit(o.id, "store", e.target.value)}
-            onBlur={() => setEditingCell(null)}
+            onBlur={() => onStartEdit("", "store")}
             className="text-xs border border-gray-400 rounded px-1 py-0.5 bg-white max-w-[180px]"
           >
             <option value="" disabled>판매사 선택</option>
-            {stores
-              .filter((s) => !["전화주문", "공구주문", "엑셀등록", "수기주문"].includes(s.name))
-              .map((s) => (<option key={s.id} value={s.id}>{s.name}</option>))}
+            {stores.map((s) => (<option key={s.id} value={s.id}>{s.name}</option>))}
           </select>
         ) : (() => {
           const name = o.stores?.name || "";
@@ -271,12 +268,14 @@ export default function OrdersPage() {
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(0);
-  const [sampleCount, setSampleCount] = useState(0);
+  const sampleCount = useMemo(() => rawOrders.filter((o) => o.is_sample).length, [rawOrders]);
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
-  // 인라인 편집: 판매방식 / 판매사
   const [editingCell, setEditingCell] = useState<{ orderId: string; field: "channel" | "store" } | null>(null);
+  const onStartEdit = useCallback((orderId: string, field: "channel" | "store") => {
+    setEditingCell(orderId ? { orderId, field } : null);
+  }, []);
 
   // 필터
   const [filterStatus, setFilterStatus] = useState("");
@@ -367,72 +366,43 @@ export default function OrdersPage() {
     } else alert(`오류: ${data.error}`);
   }, [fetchOrders]);
 
-  // 샘플 카운트 — rawOrders 변경 시만 재계산
-  useEffect(() => {
-    setSampleCount(rawOrders.filter((o) => o.is_sample).length);
-  }, [rawOrders]);
-
   // 클라이언트 필터 — useMemo로 즉시 반영, API 재요청 없음
   const orders = useMemo(() => {
-    let list = rawOrders;
-    if (filterNoTracking) list = list.filter((o) => !o.tracking_number && o.shipping_status !== "cancelled" && o.shipping_status !== "delivered");
-    if (filterNoSupplier || filterSupplier === "__none__") list = list.filter((o) => !o.supplier_id);
-    if (poTab === "no_po") list = list.filter((o) =>
-      !o.purchase_order_id
-      && !o.tracking_number
-      && !!o.supplier_id
-      && o.shipping_status !== "cancelled"
-      && o.shipping_status !== "delivered"
-      && o.shipping_status !== "pending"
-      && !o.is_sample
-    );
-    if (poTab === "has_po") list = list.filter((o) => o.purchase_order_id);
-    if (poTab === "sample") list = list.filter((o) => o.is_sample);
-    if (poTab !== "sample") list = list.filter((o) => !o.is_sample);
-    if (searchKeyword) {
-      const kw = searchKeyword.toLowerCase();
-      list = list.filter((o) =>
-        o.product_name?.toLowerCase().includes(kw) ||
-        o.cafe24_order_id?.toLowerCase().includes(kw) ||
-        o.buyer_name?.toLowerCase().includes(kw) ||
-        o.receiver_name?.toLowerCase().includes(kw)
-      );
-    }
-    if (colFilterOrderNo) {
-      const k = colFilterOrderNo.toLowerCase();
-      list = list.filter((o) => o.cafe24_order_id?.toLowerCase().includes(k));
-    }
-    if (colFilterProduct) {
-      const k = colFilterProduct.toLowerCase();
-      list = list.filter((o) => o.product_name?.toLowerCase().includes(k) || o.option_text?.toLowerCase().includes(k));
-    }
-    if (colFilterCustomer) {
-      const k = colFilterCustomer.toLowerCase();
-      list = list.filter((o) => o.buyer_name?.toLowerCase().includes(k) || o.receiver_name?.toLowerCase().includes(k));
-    }
-    if (colFilterChannel) {
-      if (colFilterChannel === "phone") list = list.filter((o) => o.sales_channel === "phone");
-      else if (colFilterChannel === "group") list = list.filter((o) => o.sales_channel === "group");
-      else if (colFilterChannel === "domestic") list = list.filter((o) => !o.sales_channel && !!o.stores?.name);
-    }
-    if (colFilterPayment) {
-      if (colFilterPayment === "paid") list = list.filter((o) => o.shipping_status !== "pending" && o.shipping_status !== "cancelled");
-      else if (colFilterPayment === "unpaid") list = list.filter((o) => o.shipping_status === "pending");
-    }
-    return list;
+    const kw = searchKeyword?.toLowerCase();
+    const kOrderNo = colFilterOrderNo?.toLowerCase();
+    const kProduct = colFilterProduct?.toLowerCase();
+    const kCustomer = colFilterCustomer?.toLowerCase();
+    return rawOrders.filter((o) => {
+      if (filterNoTracking && (o.tracking_number || o.shipping_status === "cancelled" || o.shipping_status === "delivered")) return false;
+      if ((filterNoSupplier || filterSupplier === "__none__") && o.supplier_id) return false;
+      if (poTab === "no_po" && (!o.supplier_id || o.purchase_order_id || o.tracking_number || o.shipping_status === "cancelled" || o.shipping_status === "delivered" || o.shipping_status === "pending" || o.is_sample)) return false;
+      if (poTab === "has_po" && !o.purchase_order_id) return false;
+      if (poTab === "sample" && !o.is_sample) return false;
+      if (poTab !== "sample" && o.is_sample) return false;
+      if (kw && !(o.product_name?.toLowerCase().includes(kw) || o.cafe24_order_id?.toLowerCase().includes(kw) || o.buyer_name?.toLowerCase().includes(kw) || o.receiver_name?.toLowerCase().includes(kw))) return false;
+      if (kOrderNo && !o.cafe24_order_id?.toLowerCase().includes(kOrderNo)) return false;
+      if (kProduct && !(o.product_name?.toLowerCase().includes(kProduct) || o.option_text?.toLowerCase().includes(kProduct))) return false;
+      if (kCustomer && !(o.buyer_name?.toLowerCase().includes(kCustomer) || o.receiver_name?.toLowerCase().includes(kCustomer))) return false;
+      if (colFilterChannel === "phone" && o.sales_channel !== "phone") return false;
+      if (colFilterChannel === "group" && o.sales_channel !== "group") return false;
+      if (colFilterChannel === "domestic" && (o.sales_channel || !o.stores?.name)) return false;
+      if (colFilterPayment === "paid" && (o.shipping_status === "pending" || o.shipping_status === "cancelled")) return false;
+      if (colFilterPayment === "unpaid" && o.shipping_status !== "pending") return false;
+      return true;
+    });
   }, [rawOrders, filterSupplier, filterNoTracking, filterNoSupplier, poTab, searchKeyword, colFilterOrderNo, colFilterProduct, colFilterCustomer, colFilterChannel, colFilterPayment]);
 
   // 필터 변경 시 페이지 리셋
-  useEffect(() => { setPage(0); }, [rawOrders, filterSupplier, filterNoTracking, filterNoSupplier, poTab, searchKeyword, colFilterOrderNo, colFilterProduct, colFilterCustomer, colFilterChannel, colFilterPayment]);
+  useEffect(() => { setPage((p) => p === 0 ? p : 0); }, [rawOrders, filterSupplier, filterNoTracking, filterNoSupplier, poTab, searchKeyword, colFilterOrderNo, colFilterProduct, colFilterCustomer, colFilterChannel, colFilterPayment]);
 
   // 현재 페이지에 표시할 주문만 슬라이스
   const totalPages = Math.max(1, Math.ceil(orders.length / PAGE_SIZE));
   const pagedOrders = useMemo(() => orders.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE), [orders, page]);
 
+  const PSEUDO_STORES = ["전화주문", "공구주문", "엑셀등록", "수기주문"];
+  const filteredStores = useMemo(() => stores.filter((s) => !PSEUDO_STORES.includes(s.name)), [stores]);
+
   const fetchStores = async () => { const r = await fetch("/admin/api/stores"); const d = await r.json(); setStores(d.stores || []); };
-  const sb_patch = async (orderId: string, status: string) => {
-    await fetch("/admin/api/orders", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ids: [orderId], updates: { auto_assign_status: status } }) });
-  };
   const fetchSuppliers = async () => { const r = await fetch("/admin/api/suppliers?status=active"); const d = await r.json(); setSuppliers(d.suppliers || []); };
 
   useEffect(() => { fetchOrders(); fetchStores(); fetchSuppliers(); }, [fetchOrders]);
@@ -464,47 +434,6 @@ export default function OrdersPage() {
     });
     setSelected(new Set());
     fetchOrders();
-  };
-
-  // 발주서 생성 + 이메일 발송
-  // orderIdsOverride: 주어지면 그 id들로 생성 (다중 공급사 루프용), 없으면 selected 사용
-  const handleCreatePOAndSend = async (supplierId: string, orderIdsOverride?: string[]): Promise<{ ok: boolean; message: string }> => {
-    const orderIds = orderIdsOverride ?? Array.from(selected);
-    const supplier = suppliers.find((s) => s.id === supplierId);
-    if (orderIds.length === 0) return { ok: false, message: `${supplier?.name || "?"}: 대상 주문 없음` };
-
-    // 이미 발주서가 있는 주문 체크
-    const alreadyPO = orders.filter(o => orderIds.includes(o.id) && o.purchase_order_id);
-    if (alreadyPO.length > 0 && !orderIdsOverride) {
-      // 단일 공급사 수동 실행 경로에서만 confirm — 루프에서는 skip 안 함
-      if (!confirm(`${alreadyPO.length}건은 이미 발주서가 생성되어 있습니다.\n중복 생성하시겠습니까?`)) {
-        return { ok: false, message: "취소됨" };
-      }
-    }
-
-    const res = await fetch("/admin/api/purchase-orders", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ supplier_id: supplierId, order_ids: orderIds }),
-    });
-    const data = await res.json();
-
-    if (!res.ok || !data.purchase_order) {
-      return { ok: false, message: `${supplier?.name || "?"}: 발주서 생성 실패 — ${data.error || res.status}` };
-    }
-
-    const emailRes = await fetch("/admin/api/purchase-orders/send-email", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ purchase_order_id: data.purchase_order.id }),
-    });
-    const emailData = await emailRes.json();
-    const mailMsg = emailData.success ? `메일 ${emailData.email} 발송완료` : `메일 발송 실패: ${emailData.error || "?"}`;
-
-    return {
-      ok: emailData.success,
-      message: `${supplier?.name || "?"}: ${data.purchase_order.po_number} (${orderIds.length}건) — ${mailMsg}`,
-    };
   };
 
   // 일괄 발주
@@ -637,26 +566,20 @@ export default function OrdersPage() {
     fetchOrders();
   };
 
-  // 통계 — useMemo로 메모이제이션 (selected 변경 시 재계산 방지)
-  const stats = useMemo(() => ({
-    total, displayed: orders.length,
-    pending: orders.filter((o) => o.shipping_status === "pending").length,
-    noTracking: orders.filter((o) => !o.tracking_number && o.shipping_status !== "cancelled" && o.shipping_status !== "delivered").length,
-    noSupplier: orders.filter((o) => !o.supplier_id && o.shipping_status !== "cancelled" && o.shipping_status !== "delivered").length,
-    noPO: orders.filter((o) =>
-      !o.purchase_order_id
-      && !o.tracking_number
-      && !!o.supplier_id
-      && o.shipping_status !== "cancelled"
-      && o.shipping_status !== "delivered"
-      && o.shipping_status !== "pending"
-      && !o.is_sample
-    ).length,
-    unsynced: orders.filter((o) => o.tracking_number && !o.cafe24_shipping_synced).length,
-    totalQty: orders.reduce((s, o) => s + o.quantity, 0),
-    totalAmount: orders.reduce((s, o) => s + o.order_amount, 0),
-    sample: sampleCount,
-  }), [orders, total, sampleCount]);
+  const stats = useMemo(() => {
+    let pending = 0, noTracking = 0, noSupplier = 0, noPO = 0, unsynced = 0, totalQty = 0, totalAmount = 0;
+    const notActive = (s: string) => s === "cancelled" || s === "delivered";
+    for (const o of orders) {
+      totalQty += o.quantity;
+      totalAmount += o.order_amount;
+      if (o.shipping_status === "pending") pending++;
+      if (!o.tracking_number && !notActive(o.shipping_status)) noTracking++;
+      if (!o.supplier_id && !notActive(o.shipping_status)) noSupplier++;
+      if (!o.purchase_order_id && !o.tracking_number && o.supplier_id && !notActive(o.shipping_status) && o.shipping_status !== "pending" && !o.is_sample) noPO++;
+      if (o.tracking_number && !o.cafe24_shipping_synced) unsynced++;
+    }
+    return { total, displayed: orders.length, pending, noTracking, noSupplier, noPO, unsynced, totalQty, totalAmount, sample: sampleCount };
+  }, [orders, total, sampleCount]);
 
   return (
     <div className="p-6 relative"
@@ -1110,10 +1033,10 @@ export default function OrdersPage() {
                   displayedCount={stats.displayed}
                   isSelected={selected.has(o.id)}
                   toggleSelect={toggleSelect}
-                  editingCell={editingCell}
-                  setEditingCell={setEditingCell}
+                  editingField={editingCell?.orderId === o.id ? editingCell.field : null}
+                  onStartEdit={onStartEdit}
                   saveCellEdit={saveCellEdit}
-                  stores={stores}
+                  stores={filteredStores}
                   fetchOrders={fetchOrders}
                 />
               ))}
