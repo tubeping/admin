@@ -49,21 +49,15 @@ function InvoiceContent() {
       const allOrders: InvoiceOrder[] = data.orders || [];
       const filtered = allOrders.filter((o) => ids.includes(o.id));
 
-      // 거래처별 그룹
-      const map = new Map<string, GroupedInvoice>();
+      // 전체를 하나의 명세서로 (공급받는자: 제이드상사 고정)
+      const group: GroupedInvoice = { client: null, orders: filtered, totalQty: 0, totalAmount: 0, totalShipping: 0, grandTotal: 0 };
       for (const o of filtered) {
-        const key = o.offline_clients?.id || "unknown";
-        if (!map.has(key)) {
-          map.set(key, { client: o.offline_clients, orders: [], totalQty: 0, totalAmount: 0, totalShipping: 0, grandTotal: 0 });
-        }
-        const g = map.get(key)!;
-        g.orders.push(o);
-        g.totalQty += o.quantity;
-        g.totalAmount += o.total_amount;
-        g.totalShipping += o.shipping_cost;
-        g.grandTotal += o.total_amount + o.shipping_cost;
+        group.totalQty += o.quantity;
+        group.totalAmount += o.total_amount;
+        group.totalShipping += o.shipping_cost;
+        group.grandTotal += o.total_amount + o.shipping_cost;
       }
-      setGroups(Array.from(map.values()));
+      setGroups([group]);
       setLoading(false);
     })();
   }, []);
@@ -113,23 +107,23 @@ function InvoiceContent() {
                 <tbody>
                   <tr>
                     <td className="border border-gray-300 bg-gray-50 px-2 py-1.5 w-20 font-medium">상 호</td>
-                    <td className="border border-gray-300 px-2 py-1.5 font-bold">{g.client?.name || "-"}</td>
+                    <td className="border border-gray-300 px-2 py-1.5 font-bold">제이드상사</td>
                   </tr>
                   <tr>
                     <td className="border border-gray-300 bg-gray-50 px-2 py-1.5 font-medium">대표자</td>
-                    <td className="border border-gray-300 px-2 py-1.5">{g.client?.contact_name || "-"}</td>
+                    <td className="border border-gray-300 px-2 py-1.5">엄정호</td>
                   </tr>
                   <tr>
                     <td className="border border-gray-300 bg-gray-50 px-2 py-1.5 font-medium">사업자번호</td>
-                    <td className="border border-gray-300 px-2 py-1.5">{g.client?.business_no || "-"}</td>
+                    <td className="border border-gray-300 px-2 py-1.5">607-18-66827</td>
                   </tr>
                   <tr>
                     <td className="border border-gray-300 bg-gray-50 px-2 py-1.5 font-medium">주 소</td>
-                    <td className="border border-gray-300 px-2 py-1.5 text-xs">{g.client?.address || "-"}</td>
+                    <td className="border border-gray-300 px-2 py-1.5 text-xs">부산광역시 동래구 충렬대로95번길 18(온천동)</td>
                   </tr>
                   <tr>
-                    <td className="border border-gray-300 bg-gray-50 px-2 py-1.5 font-medium">연락처</td>
-                    <td className="border border-gray-300 px-2 py-1.5">{g.client?.phone || "-"}</td>
+                    <td className="border border-gray-300 bg-gray-50 px-2 py-1.5 font-medium">업 태</td>
+                    <td className="border border-gray-300 px-2 py-1.5">도소매 / 전자상거래업</td>
                   </tr>
                 </tbody>
               </table>
@@ -197,7 +191,7 @@ function InvoiceContent() {
                   <td className="border border-gray-300 px-2 py-1.5 text-right">{o.quantity}</td>
                   <td className="border border-gray-300 px-2 py-1.5 text-right">₩{o.supply_price.toLocaleString()}</td>
                   <td className="border border-gray-300 px-2 py-1.5 text-right font-medium">₩{o.total_amount.toLocaleString()}</td>
-                  <td className="border border-gray-300 px-2 py-1.5 text-xs text-center">{o.memo || ""}</td>
+                  <td className="border border-gray-300 px-2 py-1.5 text-xs text-center">{o.offline_clients?.name || ""}{o.memo ? ` / ${o.memo}` : ""}</td>
                 </tr>
               ))}
               {/* 배송비 행 */}
