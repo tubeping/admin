@@ -448,6 +448,7 @@ export default function OfflinePage() {
                 <th className="px-3 py-2.5 text-right">공급가</th>
                 <th className="px-3 py-2.5 text-right">납품금액</th>
                 <th className="px-3 py-2.5 text-right">마진</th>
+                <th className="px-3 py-2.5 text-right">택배비</th>
                 <th className="px-3 py-2.5 text-center">배송</th>
                 <th className="px-3 py-2.5 text-center">상태</th>
                 <th className="px-3 py-2.5 text-center">입금</th>
@@ -456,9 +457,9 @@ export default function OfflinePage() {
             </thead>
             <tbody>
               {loading ? (
-                <tr><td colSpan={14} className="text-center py-10 text-gray-400">로딩 중...</td></tr>
+                <tr><td colSpan={15} className="text-center py-10 text-gray-400">로딩 중...</td></tr>
               ) : orders.length === 0 ? (
-                <tr><td colSpan={14} className="text-center py-10 text-gray-400">납품 내역이 없습니다</td></tr>
+                <tr><td colSpan={15} className="text-center py-10 text-gray-400">납품 내역이 없습니다</td></tr>
               ) : orders.map((o, idx) => {
                 const margin = (o.supply_price - o.purchase_price) * o.quantity;
                 const marginRate = o.supply_price > 0 ? ((o.supply_price - o.purchase_price) / o.supply_price * 100).toFixed(1) : "0";
@@ -494,6 +495,9 @@ export default function OfflinePage() {
                         ₩{margin.toLocaleString()}
                       </span>
                       <div className="text-[10px] text-gray-400">{marginRate}%</div>
+                    </td>
+                    <td className="px-3 py-2.5 text-right text-xs text-gray-500">
+                      {o.shipping_cost > 0 ? `₩${o.shipping_cost.toLocaleString()}` : "-"}
                     </td>
                     <td className="px-3 py-2.5 text-center">
                       <span className={`text-xs px-1.5 py-0.5 rounded ${o.shipping_method === "freight" ? "bg-orange-100 text-orange-700" : "bg-gray-100 text-gray-600"}`}>
