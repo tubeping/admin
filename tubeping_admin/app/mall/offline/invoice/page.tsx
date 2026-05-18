@@ -142,15 +142,15 @@ function InvoiceContent() {
                 <tbody>
                   <tr>
                     <td className="border border-gray-300 bg-gray-50 px-2 py-1.5 w-20 font-medium">상 호</td>
-                    <td className="border border-gray-300 px-2 py-1.5 font-bold">이음로직스</td>
+                    <td className="border border-gray-300 px-2 py-1.5 font-bold">(주)신산애널리틱스</td>
                   </tr>
                   <tr>
                     <td className="border border-gray-300 bg-gray-50 px-2 py-1.5 font-medium">대표자</td>
-                    <td className="border border-gray-300 px-2 py-1.5">-</td>
+                    <td className="border border-gray-300 px-2 py-1.5">김국태</td>
                   </tr>
                   <tr>
                     <td className="border border-gray-300 bg-gray-50 px-2 py-1.5 font-medium">사업자번호</td>
-                    <td className="border border-gray-300 px-2 py-1.5">-</td>
+                    <td className="border border-gray-300 px-2 py-1.5">757-87-01392</td>
                   </tr>
                   <tr>
                     <td className="border border-gray-300 bg-gray-50 px-2 py-1.5 font-medium">주 소</td>
@@ -239,7 +239,7 @@ function InvoiceContent() {
             위와 같이 거래하였음을 확인합니다.
           </div>
           <div className="text-xs text-gray-400 text-center mt-2">
-            {dateStr} &nbsp;|&nbsp; 이음로직스
+            {dateStr} &nbsp;|&nbsp; (주)신산애널리틱스
           </div>
         </div>
       ))}
