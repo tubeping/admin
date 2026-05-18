@@ -10,6 +10,7 @@ interface InvoiceOrder {
   product_name: string;
   option_text: string | null;
   quantity: number;
+  purchase_price: number;
   supply_price: number;
   total_amount: number;
   shipping_cost: number;
