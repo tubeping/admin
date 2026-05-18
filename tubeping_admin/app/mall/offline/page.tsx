@@ -502,14 +502,42 @@ export default function OfflinePage() {
                       {o.tracking_number && <div className="text-[10px] text-gray-400 mt-0.5">{o.tracking_number}</div>}
                     </td>
                     <td className="px-3 py-2.5 text-center">
-                      <span className={`text-xs px-1.5 py-0.5 rounded ${STATUS_STYLE[o.status] || ""}`}>
-                        {STATUS_LABEL[o.status] || o.status}
-                      </span>
+                      <select
+                        value={o.status}
+                        className={`text-xs px-1.5 py-0.5 rounded border-0 cursor-pointer ${STATUS_STYLE[o.status] || ""}`}
+                        onChange={async (e) => {
+                          const updates: Record<string, unknown> = { status: e.target.value };
+                          if (e.target.value === "shipped") updates.shipped_at = new Date().toISOString();
+                          await fetch("/admin/api/offline-orders", {
+                            method: "PATCH",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({ ids: [o.id], updates }),
+                          });
+                          fetchOrders();
+                        }}
+                      >
+                        {Object.entries(STATUS_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+                      </select>
                     </td>
                     <td className="px-3 py-2.5 text-center">
-                      <span className={`text-xs font-medium ${PAYMENT_STYLE[o.payment_status] || ""}`}>
+                      <button
+                        className={`text-xs font-medium px-2 py-0.5 rounded cursor-pointer hover:opacity-70 ${o.payment_status === "paid" ? "bg-green-100 text-green-700" : "bg-red-50 text-red-500"}`}
+                        onClick={async () => {
+                          const next = o.payment_status === "paid" ? "unpaid" : "paid";
+                          await fetch("/admin/api/offline-orders", {
+                            method: "PATCH",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({
+                              ids: [o.id],
+                              updates: { payment_status: next, paid_at: next === "paid" ? new Date().toISOString() : null },
+                            }),
+                          });
+                          fetchOrders();
+                        }}
+                        title="클릭해서 입금 상태 변경"
+                      >
                         {PAYMENT_LABEL[o.payment_status] || o.payment_status}
-                      </span>
+                      </button>
                     </td>
                     <td className="px-3 py-2.5 text-xs text-gray-500">{o.order_date}</td>
                   </tr>
