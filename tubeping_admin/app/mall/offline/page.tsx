@@ -405,6 +405,11 @@ export default function OfflinePage() {
               className="px-2.5 py-1.5 text-xs border border-emerald-300 text-emerald-700 rounded-lg hover:bg-emerald-50 cursor-pointer">입금처리</button>
             <button onClick={handleDelete}
               className="px-2.5 py-1.5 text-xs border border-red-300 text-red-600 rounded-lg hover:bg-red-50 cursor-pointer">삭제</button>
+            <button onClick={() => {
+              const ids = Array.from(selected).join(",");
+              window.open(`/admin/mall/offline/invoice?ids=${ids}`, "_blank");
+            }}
+              className="px-2.5 py-1.5 text-xs border border-gray-400 text-gray-700 rounded-lg hover:bg-gray-50 cursor-pointer font-medium">거래명세서</button>
           </>
         )}
 
