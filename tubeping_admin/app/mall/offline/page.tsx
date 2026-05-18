@@ -149,12 +149,12 @@ export default function OfflinePage() {
   // 통계
   const stats = useMemo(() => {
     const totalQty = orders.reduce((s, o) => s + o.quantity, 0);
-    const totalAmount = orders.reduce((s, o) => s + o.total_amount, 0);
-    const totalCost = orders.reduce((s, o) => s + o.purchase_price * o.quantity, 0);
-    const totalMargin = totalAmount - totalCost;
+    const totalAmount = orders.reduce((s, o) => s + o.purchase_price * o.quantity, 0); // 납품금액 = 공급가 × 수량
+    const totalSales = orders.reduce((s, o) => s + o.supply_price * o.quantity, 0); // 판매금액 = 판매가 × 수량
+    const totalMargin = totalSales - totalAmount;
     const totalShipping = orders.reduce((s, o) => s + o.shipping_cost, 0);
     const unpaidCount = orders.filter((o) => o.payment_status === "unpaid" && o.status !== "cancelled").length;
-    const unpaidAmount = orders.filter((o) => o.payment_status === "unpaid" && o.status !== "cancelled").reduce((s, o) => s + o.total_amount, 0);
+    const unpaidAmount = orders.filter((o) => o.payment_status === "unpaid" && o.status !== "cancelled").reduce((s, o) => s + o.purchase_price * o.quantity, 0);
     return { totalQty, totalAmount, totalCost, totalMargin, totalShipping, unpaidCount, unpaidAmount, count: orders.length };
   }, [orders]);
 
@@ -447,10 +447,11 @@ export default function OfflinePage() {
                 <th className="px-3 py-2.5 text-left">No</th>
                 <th className="px-3 py-2.5 text-left">납품번호</th>
                 <th className="px-3 py-2.5 text-left">거래처</th>
+                <th className="px-3 py-2.5 text-left">실제납품처</th>
                 <th className="px-3 py-2.5 text-left">상품정보</th>
                 <th className="px-3 py-2.5 text-right">수량</th>
-                <th className="px-3 py-2.5 text-right">매입가</th>
                 <th className="px-3 py-2.5 text-right">공급가</th>
+                <th className="px-3 py-2.5 text-right">판매가</th>
                 <th className="px-3 py-2.5 text-right">납품금액</th>
                 <th className="px-3 py-2.5 text-right">마진</th>
                 <th className="px-3 py-2.5 text-right">택배비</th>
@@ -462,9 +463,9 @@ export default function OfflinePage() {
             </thead>
             <tbody>
               {loading ? (
-                <tr><td colSpan={15} className="text-center py-10 text-gray-400">로딩 중...</td></tr>
+                <tr><td colSpan={16} className="text-center py-10 text-gray-400">로딩 중...</td></tr>
               ) : orders.length === 0 ? (
-                <tr><td colSpan={15} className="text-center py-10 text-gray-400">납품 내역이 없습니다</td></tr>
+                <tr><td colSpan={16} className="text-center py-10 text-gray-400">납품 내역이 없습니다</td></tr>
               ) : orders.map((o, idx) => {
                 const margin = (o.supply_price - o.purchase_price) * o.quantity;
                 const marginRate = o.supply_price > 0 ? ((o.supply_price - o.purchase_price) / o.supply_price * 100).toFixed(1) : "0";
@@ -485,7 +486,8 @@ export default function OfflinePage() {
                       </button>
                       <div className="text-[10px] text-gray-400">{o.order_date}</div>
                     </td>
-                    <td className="px-3 py-2.5 font-medium">{o.offline_clients?.name || "-"}</td>
+                    <td className="px-3 py-2.5 font-medium text-xs">제이드상사</td>
+                    <td className="px-3 py-2.5 text-xs">{o.offline_clients?.name || "-"}</td>
                     <td className="px-3 py-2.5">
                       <div className="font-medium text-xs">{o.product_name}</div>
                       {o.option_text && <div className="text-[10px] text-gray-400">{o.option_text}</div>}
@@ -494,7 +496,7 @@ export default function OfflinePage() {
                     <td className="px-3 py-2.5 text-right">{o.quantity}</td>
                     <td className="px-3 py-2.5 text-right text-gray-500">₩{o.purchase_price.toLocaleString()}</td>
                     <td className="px-3 py-2.5 text-right">₩{o.supply_price.toLocaleString()}</td>
-                    <td className="px-3 py-2.5 text-right font-medium">₩{o.total_amount.toLocaleString()}</td>
+                    <td className="px-3 py-2.5 text-right font-medium">₩{(o.purchase_price * o.quantity).toLocaleString()}</td>
                     <td className="px-3 py-2.5 text-right">
                       <span className={margin >= 0 ? "text-green-600" : "text-red-500"}>
                         ₩{margin.toLocaleString()}
