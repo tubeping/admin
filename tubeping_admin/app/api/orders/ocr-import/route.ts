@@ -85,7 +85,7 @@ export async function POST(request: NextRequest) {
         responseMimeType: "application/json",
         responseSchema: orderSchema as never,
         temperature: 0.1,
-        maxOutputTokens: 4096,
+        maxOutputTokens: 8192,
       },
       systemInstruction: SYSTEM,
     });
@@ -96,7 +96,19 @@ export async function POST(request: NextRequest) {
     ]);
 
     const raw = result.response.text();
-    const parsed = JSON.parse(raw) as { orders: Record<string, unknown>[] };
+    let parsed: { orders: Record<string, unknown>[] };
+    try {
+      parsed = JSON.parse(raw);
+    } catch {
+      // Gemini가 코드블록이나 불완전 JSON을 반환한 경우 정리 후 재시도
+      const cleaned = raw.replace(/```json?\s*/g, "").replace(/```\s*/g, "").trim();
+      try {
+        parsed = JSON.parse(cleaned);
+      } catch {
+        console.error("[ocr-import] Invalid JSON from Gemini:", raw.slice(0, 500));
+        return NextResponse.json({ error: "AI 응답을 파싱할 수 없습니다. 다른 이미지로 시도해 주세요." }, { status: 422 });
+      }
+    }
 
     return NextResponse.json({
       orders: parsed.orders || [],
