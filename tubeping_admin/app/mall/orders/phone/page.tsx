@@ -10,6 +10,13 @@ interface Product {
   supply_price: number;
 }
 
+interface Variant {
+  id: string;
+  option_name: string;
+  option_value: string;
+  price: number;
+}
+
 interface PhoneOrder {
   id: string;
   cafe24_order_id: string;
@@ -36,6 +43,7 @@ interface PhoneOrder {
 
 interface InputRow {
   product_name: string;
+  product_id: string;
   tp_code: string;
   unit_price: number;
   option_text: string;
@@ -49,12 +57,20 @@ interface InputRow {
   status: "idle" | "saving" | "ok" | "error";
   result?: { order_id: string; payment_amount: number };
   error?: string;
+  variants?: Variant[];
 }
 
 interface SavedRow {
   order_id: string;
   receiver_name: string;
   payment_amount: number;
+}
+
+interface AddressResult {
+  zipNo: string;
+  roadAddr: string;
+  jibunAddr: string;
+  bdNm: string;
 }
 
 type TabKey = "draft" | "all" | "pending" | "ready_po" | "in_po";
@@ -69,6 +85,7 @@ const TAB_LABEL: Record<TabKey, string> = {
 
 const emptyRow = (defaults?: Partial<InputRow>): InputRow => ({
   product_name: defaults?.product_name || "",
+  product_id: defaults?.product_id || "",
   tp_code: defaults?.tp_code || "",
   unit_price: defaults?.unit_price || 0,
   option_text: "",
@@ -80,21 +97,30 @@ const emptyRow = (defaults?: Partial<InputRow>): InputRow => ({
   receiver_address: "",
   memo: "",
   status: "idle",
+  variants: defaults?.variants,
 });
 
 export default function PhoneOrderPage() {
   // 입력 스프레드시트 상태
   const [rows, setRows] = useState<InputRow[]>(() => Array.from({ length: 5 }, () => emptyRow()));
-  // 기본 탭은 "초안" — 저장 직후 사용자가 검토하는 영역
   const initialTab: TabKey = "draft";
-  const [productSearch, setProductSearch] = useState("");
-  const [products, setProducts] = useState<Product[]>([]);
-  const [productOpen, setProductOpen] = useState(false);
-  const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
   const [buyerSameAsReceiver, setBuyerSameAsReceiver] = useState(true);
   const [savingAll, setSavingAll] = useState(false);
   const [savedResults, setSavedResults] = useState<SavedRow[]>([]);
   const [formOpen, setFormOpen] = useState(true);
+
+  // 행별 상품 자동완성
+  const [activeProductRow, setActiveProductRow] = useState<number | null>(null);
+  const [rowProductQuery, setRowProductQuery] = useState("");
+  const [rowProductResults, setRowProductResults] = useState<Product[]>([]);
+  const productDropdownRef = useRef<HTMLTableCellElement>(null);
+
+  // 주소 검색 모달
+  const [addressModalRow, setAddressModalRow] = useState<number | null>(null);
+  const [addressQuery, setAddressQuery] = useState("");
+  const [addressResults, setAddressResults] = useState<AddressResult[]>([]);
+  const [addressSearching, setAddressSearching] = useState(false);
+  const [addressDetail, setAddressDetail] = useState("");
 
   // 목록 상태
   const [orders, setOrders] = useState<PhoneOrder[]>([]);
@@ -106,20 +132,64 @@ export default function PhoneOrderPage() {
 
   const tableRef = useRef<HTMLDivElement>(null);
 
-  // 상품 검색
-  const searchProducts = useCallback(async (kw: string) => {
-    if (!kw || kw.length < 1) { setProducts([]); return; }
-    const res = await fetch(`/admin/api/products?keyword=${encodeURIComponent(kw)}&limit=10`);
-    const data = await res.json();
-    setProducts(data.products || []);
+  // 행별 상품 검색 (debounced)
+  useEffect(() => {
+    if (activeProductRow === null || !rowProductQuery || rowProductQuery.length < 1) {
+      setRowProductResults([]);
+      return;
+    }
+    const t = setTimeout(async () => {
+      const res = await fetch(`/admin/api/products?keyword=${encodeURIComponent(rowProductQuery)}&limit=8`);
+      const data = await res.json();
+      setRowProductResults(data.products || []);
+    }, 200);
+    return () => clearTimeout(t);
+  }, [rowProductQuery, activeProductRow]);
+
+  // 상품 드롭다운 바깥 클릭 시 닫기
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (productDropdownRef.current && !productDropdownRef.current.contains(e.target as Node)) {
+        setActiveProductRow(null);
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
   }, []);
 
-  useEffect(() => {
-    const t = setTimeout(() => searchProducts(productSearch), 200);
-    return () => clearTimeout(t);
-  }, [productSearch, searchProducts]);
+  // 상품 선택 → 행에 적용 + 옵션(variants) 로드
+  const selectProductForRow = async (idx: number, p: Product) => {
+    // 옵션 로드
+    let variants: Variant[] = [];
+    try {
+      const res = await fetch(`/admin/api/products/${p.id}`);
+      const data = await res.json();
+      variants = (data.product?.product_variants || []).filter(
+        (v: Variant & { selling: string }) => v.selling === "T"
+      );
+    } catch { /* ignore */ }
 
-  // 목록 조회 — 초안(draft) 포함해서 가져옴
+    setRows((rs) =>
+      rs.map((r, i) =>
+        i === idx
+          ? {
+              ...r,
+              product_name: p.product_name,
+              product_id: p.id,
+              tp_code: p.tp_code,
+              unit_price: p.price,
+              option_text: "",
+              variants,
+            }
+          : r
+      )
+    );
+    setActiveProductRow(null);
+    setRowProductQuery("");
+    setRowProductResults([]);
+  };
+
+  // 목록 조회
   const fetchOrders = useCallback(async () => {
     const res = await fetch("/admin/api/orders?limit=500&include_draft=true");
     const data = await res.json();
@@ -150,35 +220,12 @@ export default function PhoneOrderPage() {
 
   useEffect(() => { fetchOrders(); }, [fetchOrders]);
 
-  // 상품 선택 — 모든 빈 행에 적용
-  const applyProduct = (p: Product) => {
-    setSelectedProduct(p);
-    setProductSearch(p.product_name);
-    setProductOpen(false);
-    setRows((rs) => rs.map((r) =>
-      (!r.product_name && r.status !== "ok")
-        ? { ...r, product_name: p.product_name, tp_code: p.tp_code, unit_price: p.price }
-        : r
-    ));
-  };
-  const applyProductToAll = () => {
-    if (!selectedProduct) { alert("상품을 먼저 선택하세요."); return; }
-    setRows((rs) => rs.map((r) =>
-      r.status === "ok"
-        ? r
-        : { ...r, product_name: selectedProduct.product_name, tp_code: selectedProduct.tp_code, unit_price: selectedProduct.price }
-    ));
-  };
-
   // 행 편집
   const updateRow = (idx: number, patch: Partial<InputRow>) => {
     setRows((rs) => rs.map((r, i) => i === idx ? { ...r, ...patch } : r));
   };
   const addRows = (n: number) => {
-    const base = selectedProduct
-      ? { product_name: selectedProduct.product_name, tp_code: selectedProduct.tp_code, unit_price: selectedProduct.price }
-      : undefined;
-    setRows((rs) => [...rs, ...Array.from({ length: n }, () => emptyRow(base))]);
+    setRows((rs) => [...rs, ...Array.from({ length: n }, () => emptyRow())]);
   };
   const removeRow = (idx: number) => {
     setRows((rs) => rs.filter((_, i) => i !== idx));
@@ -188,10 +235,10 @@ export default function PhoneOrderPage() {
     setRows(Array.from({ length: 5 }, () => emptyRow()));
   };
 
-  // 엑셀 붙여넣기 핸들러 (수령인 / 입금자명 / 연락처 / 우편번호 / 주소 / 배송메시지 / 수량 순)
+  // 엑셀 붙여넣기 핸들러 (수취인 / 입금자명 / 연락처 / 우편번호 / 주소 / 배송메시지 / 수량 순)
   const handlePaste = (e: React.ClipboardEvent, startIdx: number) => {
     const text = e.clipboardData.getData("text");
-    if (!text.includes("\t") && !text.includes("\n")) return; // 단일 셀 붙여넣기는 기본 동작
+    if (!text.includes("\t") && !text.includes("\n")) return;
     e.preventDefault();
     const lines = text.split(/\r?\n/).filter((l) => l.trim());
     if (lines.length === 0) return;
@@ -199,18 +246,13 @@ export default function PhoneOrderPage() {
     const parsed = lines.map((line) => line.split("\t"));
     setRows((rs) => {
       const next = [...rs];
-      // 필요한 만큼 행 추가
       const needed = startIdx + parsed.length - next.length;
       if (needed > 0) {
-        const base = selectedProduct
-          ? { product_name: selectedProduct.product_name, tp_code: selectedProduct.tp_code, unit_price: selectedProduct.price }
-          : undefined;
-        for (let i = 0; i < needed; i++) next.push(emptyRow(base));
+        for (let i = 0; i < needed; i++) next.push(emptyRow());
       }
       parsed.forEach((cols, i) => {
         const r = next[startIdx + i];
         if (!r) return;
-        // 컬럼 순서: 수령인 / 입금자명 / 연락처 / 우편번호 / 주소 / 메시지 / 수량(선택)
         const [recv, buyer, phone, zip, addr, memo, qtyStr] = cols;
         const qty = parseInt((qtyStr || "").replace(/[^0-9]/g, ""), 10);
         next[startIdx + i] = {
@@ -233,9 +275,9 @@ export default function PhoneOrderPage() {
   const validRows = useMemo(() => rows.filter((r) => r.status !== "ok" && isRowValid(r)), [rows]);
   const totalAmount = useMemo(() => validRows.reduce((s, r) => s + r.unit_price * r.quantity, 0), [validRows]);
 
-  // 일괄 저장 — 각 행을 순차 호출 (고유 입금액 충돌 방지)
+  // 일괄 저장
   const saveAll = async () => {
-    if (validRows.length === 0) { alert("저장 가능한 행이 없습니다. 상품/수령인/연락처/주소/수량을 채워주세요."); return; }
+    if (validRows.length === 0) { alert("저장 가능한 행이 없습니다. 상품/수취인/연락처/주소/수량을 채워주세요."); return; }
     if (!confirm(`${validRows.length}건을 저장합니다. 계속할까요?`)) return;
 
     setSavingAll(true);
@@ -286,7 +328,38 @@ export default function PhoneOrderPage() {
     }
   };
 
-  // 목록 액션 — 발주 전환
+  // 주소 검색
+  const searchAddress = async () => {
+    if (!addressQuery || addressQuery.length < 2) { alert("검색어를 2자 이상 입력해주세요."); return; }
+    setAddressSearching(true);
+    try {
+      const res = await fetch(`/admin/api/address-search?keyword=${encodeURIComponent(addressQuery)}`);
+      const data = await res.json();
+      if (data.error) { alert(data.error); return; }
+      setAddressResults(data.results || []);
+    } catch {
+      alert("주소 검색에 실패했습니다.");
+    } finally {
+      setAddressSearching(false);
+    }
+  };
+
+  const applyAddress = (addr: AddressResult) => {
+    if (addressModalRow === null) return;
+    const fullAddress = addressDetail
+      ? `${addr.roadAddr}, ${addressDetail}`
+      : addr.roadAddr;
+    updateRow(addressModalRow, {
+      receiver_zipcode: addr.zipNo,
+      receiver_address: fullAddress,
+    });
+    setAddressModalRow(null);
+    setAddressQuery("");
+    setAddressResults([]);
+    setAddressDetail("");
+  };
+
+  // 목록 액션
   const togglePayment = async (orderId: string, currentStatus: string) => {
     const newStatus = currentStatus === "pending" ? "ordered" : "pending";
     const label = newStatus === "ordered" ? "입금확인" : "입금전";
@@ -315,14 +388,13 @@ export default function PhoneOrderPage() {
     fetchOrders();
   };
 
-  // 주문집계 등록 — 초안(draft) → 입금대기(pending) 승격, 주문집계 페이지에서 보이게 됨
   const bulkPromoteToAggregate = async () => {
     const ids = Array.from(selected).filter((id) => {
       const o = orders.find((x) => x.id === id);
       return o && o.shipping_status === "draft";
     });
     if (ids.length === 0) { alert("초안 상태인 주문이 선택되지 않았습니다."); return; }
-    if (!confirm(`${ids.length}건을 주문집계에 등록합니다.\n이후 주문집계 페이지에서도 보이며, 계좌이체 입금이 확인되면 '입금확인' 처리하세요.\n\n계속할까요?`)) return;
+    if (!confirm(`${ids.length}건을 주문집계로 발송합니다.\n주문집계 페이지에 '전화주문'으로 노출되고, 계좌이체 입금이 확인되면 '입금확인'을 누르세요.\n\n계속할까요?`)) return;
     await fetch("/admin/api/orders", {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
@@ -332,7 +404,6 @@ export default function PhoneOrderPage() {
     fetchOrders();
   };
 
-  // 단건 주문집계 등록 (행 액션)
   const promoteOne = async (orderId: string) => {
     if (!confirm("이 주문을 주문집계에 등록하시겠습니까?")) return;
     await fetch("/admin/api/orders", {
@@ -406,7 +477,6 @@ export default function PhoneOrderPage() {
   // 필터링
   const filtered = useMemo(() => {
     return orders.filter((o) => {
-      // 초안 탭은 draft만, 그 외 탭은 draft 제외
       if (tab === "draft") {
         if (o.shipping_status !== "draft") return false;
       } else {
@@ -471,7 +541,8 @@ export default function PhoneOrderPage() {
         <div>
           <h1 className="text-xl font-bold text-gray-900">전화주문 관리</h1>
           <p className="text-xs text-gray-500 mt-1">
-            ① 스프레드시트로 입력·저장(초안) → ② 검토 후 <strong>주문집계 등록</strong> → ③ 계좌이체 <strong>입금확인</strong> → ④ 발주서 생성
+            ① 스프레드시트로 입력·저장(초안) → ② 검토 후 <strong>주문집계로 발송</strong> → ③ 계좌이체 <strong>입금확인</strong> → ④ 발주서 생성
+            <span className="ml-2 px-1.5 py-0.5 rounded bg-blue-50 text-blue-700 text-[10px] font-medium">전화주문 = 100% 계좌이체</span>
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -538,56 +609,20 @@ export default function PhoneOrderPage() {
       {/* 스프레드시트 입력 영역 */}
       {formOpen && (
         <div className="bg-white rounded-xl border p-4 mb-5">
-          {/* 상단: 상품 선택 + 도구 */}
+          {/* 상단 도구 */}
           <div className="flex items-end gap-3 mb-3 flex-wrap">
             <div className="flex-1 min-w-[280px]">
               <label className="block text-[11px] font-medium text-gray-600 mb-1">상품 선택 (TP코드/이름) — 빈 행에 자동 적용</label>
-              <div className="relative">
-                <input
-                  type="text"
-                  value={productSearch}
-                  onChange={(e) => { setProductSearch(e.target.value); setProductOpen(true); }}
-                  onFocus={() => setProductOpen(true)}
-                  placeholder="상품명 입력..."
-                  className="w-full border rounded-lg px-3 py-2 text-sm"
-                />
-                {productOpen && products.length > 0 && (
-                  <div className="absolute top-full mt-1 left-0 right-0 bg-white border rounded-lg shadow-lg max-h-60 overflow-y-auto z-10">
-                    {products.map((p) => (
-                      <button
-                        key={p.id}
-                        onClick={() => applyProduct(p)}
-                        className="w-full text-left px-3 py-2 text-sm hover:bg-gray-50 border-b last:border-0 flex items-center gap-2"
-                      >
-                        <span className="font-mono text-[10px] font-bold text-[#C41E1E] bg-[#FFF0F5] px-1.5 py-0.5 rounded">{p.tp_code}</span>
-                        <span className="flex-1 truncate">{p.product_name}</span>
-                        <span className="text-xs text-gray-500">₩{p.price.toLocaleString()}</span>
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
-              {selectedProduct && (
-                <p className="text-[10px] text-gray-500 mt-1">
-                  선택: <span className="font-mono text-[#C41E1E] font-semibold">{selectedProduct.tp_code}</span> · {selectedProduct.product_name} · ₩{selectedProduct.price.toLocaleString()}
-                </p>
-              )}
+              <p className="text-[10px] text-gray-400">각 행의 상품 칸에 직접 타이핑하면 자동완성됩니다</p>
             </div>
-            <button
-              onClick={applyProductToAll}
-              disabled={!selectedProduct}
-              className="px-3 py-2 text-xs font-medium border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-40"
-            >
-              전체 행에 적용
-            </button>
             <label className="flex items-center gap-1.5 text-xs text-gray-600 cursor-pointer select-none px-2 py-2">
               <input type="checkbox" checked={buyerSameAsReceiver} onChange={(e) => setBuyerSameAsReceiver(e.target.checked)} />
-              주문자=수령인 (입금자명 비우면 수령인으로)
+              주문자=수취인 (입금자명 비우면 수취인으로)
             </label>
           </div>
 
           <details className="mb-3 text-xs text-gray-500">
-            <summary className="cursor-pointer hover:text-gray-700">💡 엑셀/구글시트에서 복사 → 첫 셀에 붙여넣기 (수령인 / 입금자명 / 연락처 / 우편번호 / 주소 / 메시지 / 수량)</summary>
+            <summary className="cursor-pointer hover:text-gray-700">엑셀/구글시트에서 복사 → 첫 셀에 붙여넣기 (수취인 / 입금자명 / 연락처 / 우편번호 / 주소 / 메시지 / 수량)</summary>
             <div className="mt-2 bg-gray-50 rounded p-2 font-mono text-[10px] leading-relaxed">
               예시 (탭 구분):<br />
               김대일{"\t"}김대일{"\t"}010-6341-5015{"\t"}{"\t"}경기도고양시일산동구일산로11 506동303호{"\t"}{"\t"}1<br />
@@ -602,14 +637,13 @@ export default function PhoneOrderPage() {
                 <tr>
                   <th className="px-2 py-2 w-8 text-center font-medium">#</th>
                   <th className="px-2 py-2 text-left font-medium min-w-[200px]">상품</th>
-                  <th className="px-2 py-2 text-left font-medium min-w-[100px]">옵션</th>
+                  <th className="px-2 py-2 text-left font-medium min-w-[120px]">옵션</th>
                   <th className="px-2 py-2 w-16 text-center font-medium">수량</th>
                   <th className="px-2 py-2 w-24 text-right font-medium">단가</th>
-                  <th className="px-2 py-2 text-left font-medium min-w-[90px]">수령인</th>
+                  <th className="px-2 py-2 text-left font-medium min-w-[90px]">수취인</th>
                   <th className="px-2 py-2 text-left font-medium min-w-[90px]">입금자명</th>
                   <th className="px-2 py-2 text-left font-medium min-w-[130px]">연락처</th>
-                  <th className="px-2 py-2 w-20 text-left font-medium">우편번호</th>
-                  <th className="px-2 py-2 text-left font-medium min-w-[280px]">주소(전체)</th>
+                  <th className="px-2 py-2 text-left font-medium min-w-[320px]">우편번호 / 주소</th>
                   <th className="px-2 py-2 text-left font-medium min-w-[140px]">배송메시지</th>
                   <th className="px-2 py-2 w-20 text-center font-medium">상태</th>
                   <th className="px-2 py-2 w-10 text-center font-medium"></th>
@@ -619,22 +653,86 @@ export default function PhoneOrderPage() {
                 {rows.map((r, idx) => {
                   const done = r.status === "ok";
                   const cellBase = "w-full border-0 bg-transparent px-1.5 py-1.5 text-xs focus:bg-blue-50 focus:outline-none focus:ring-1 focus:ring-blue-400";
+                  const isProductActive = activeProductRow === idx;
                   return (
                     <tr key={idx} className={`border-t border-gray-100 ${done ? "bg-green-50/40" : "hover:bg-gray-50/40"}`}>
                       <td className="px-2 py-1 text-center text-gray-400 text-[10px]">{idx + 1}</td>
-                      <td className="px-1 py-0">
+                      {/* 상품 — 자동완성 */}
+                      <td className="px-1 py-0 relative" ref={isProductActive ? productDropdownRef : undefined}>
                         <input
                           type="text"
-                          value={r.product_name}
-                          onChange={(e) => updateRow(idx, { product_name: e.target.value })}
+                          value={isProductActive ? rowProductQuery : r.product_name}
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            setActiveProductRow(idx);
+                            setRowProductQuery(val);
+                            updateRow(idx, { product_name: val, product_id: "", tp_code: "", variants: undefined });
+                          }}
+                          onFocus={() => {
+                            setActiveProductRow(idx);
+                            setRowProductQuery(r.product_name);
+                          }}
                           disabled={done}
-                          placeholder="상품명"
+                          placeholder="상품명 입력..."
                           className={cellBase}
+                          autoComplete="off"
                         />
                         {r.tp_code && <div className="px-1.5 text-[9px] text-[#C41E1E] font-mono">{r.tp_code}</div>}
+                        {/* 자동완성 드롭다운 */}
+                        {isProductActive && rowProductResults.length > 0 && (
+                          <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-xl max-h-60 overflow-y-auto z-20">
+                            {rowProductResults.map((p) => (
+                              <button
+                                key={p.id}
+                                onClick={() => selectProductForRow(idx, p)}
+                                className="w-full text-left px-3 py-2 text-xs hover:bg-blue-50 border-b last:border-0 flex items-center gap-2"
+                              >
+                                <span className="font-mono text-[10px] font-bold text-[#C41E1E] bg-[#FFF0F5] px-1.5 py-0.5 rounded shrink-0">{p.tp_code}</span>
+                                <span className="flex-1 truncate">{p.product_name}</span>
+                                <span className="text-[10px] text-gray-500 shrink-0">₩{p.price.toLocaleString()}</span>
+                              </button>
+                            ))}
+                          </div>
+                        )}
                       </td>
+                      {/* 옵션 — variants 있으면 드롭다운, 없으면 자유입력 */}
                       <td className="px-1 py-0">
-                        <input type="text" value={r.option_text} onChange={(e) => updateRow(idx, { option_text: e.target.value })} disabled={done} className={cellBase} />
+                        {r.variants && r.variants.length > 0 ? (
+                          <select
+                            value={r.option_text}
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              // 옵션 선택 시 해당 옵션의 가격이 있으면 단가 변경
+                              const variant = r.variants?.find((v) =>
+                                `${v.option_name}: ${v.option_value}` === val
+                              );
+                              const patch: Partial<InputRow> = { option_text: val };
+                              if (variant && variant.price > 0) {
+                                patch.unit_price = variant.price;
+                              }
+                              updateRow(idx, patch);
+                            }}
+                            disabled={done}
+                            className={`${cellBase} cursor-pointer`}
+                          >
+                            <option value="">옵션 선택...</option>
+                            {r.variants.map((v) => (
+                              <option key={v.id} value={`${v.option_name}: ${v.option_value}`}>
+                                {v.option_name}: {v.option_value}
+                                {v.price > 0 ? ` (₩${v.price.toLocaleString()})` : ""}
+                              </option>
+                            ))}
+                          </select>
+                        ) : (
+                          <input
+                            type="text"
+                            value={r.option_text}
+                            onChange={(e) => updateRow(idx, { option_text: e.target.value })}
+                            disabled={done}
+                            placeholder={r.product_id ? "옵션 없음" : ""}
+                            className={cellBase}
+                          />
+                        )}
                       </td>
                       <td className="px-1 py-0">
                         <input type="number" min={1} value={r.quantity} onChange={(e) => updateRow(idx, { quantity: Number(e.target.value) || 1 })} disabled={done} className={`${cellBase} text-center`} />
@@ -658,18 +756,47 @@ export default function PhoneOrderPage() {
                           value={r.buyer_name}
                           onChange={(e) => updateRow(idx, { buyer_name: e.target.value })}
                           disabled={done}
-                          placeholder={buyerSameAsReceiver ? "(수령인 동일)" : ""}
+                          placeholder={buyerSameAsReceiver ? "(수취인 동일)" : ""}
                           className={cellBase}
                         />
                       </td>
                       <td className="px-1 py-0">
                         <input type="tel" value={r.receiver_phone} onChange={(e) => updateRow(idx, { receiver_phone: e.target.value })} disabled={done} placeholder="010-0000-0000" className={cellBase} />
                       </td>
+                      {/* 우편번호 + 주소 + 검색버튼 */}
                       <td className="px-1 py-0">
-                        <input type="text" value={r.receiver_zipcode} onChange={(e) => updateRow(idx, { receiver_zipcode: e.target.value })} disabled={done} className={cellBase} />
-                      </td>
-                      <td className="px-1 py-0">
-                        <input type="text" value={r.receiver_address} onChange={(e) => updateRow(idx, { receiver_address: e.target.value })} disabled={done} placeholder="도로명 + 상세주소" className={cellBase} />
+                        <div className="flex items-center gap-1">
+                          <input
+                            type="text"
+                            value={r.receiver_zipcode}
+                            onChange={(e) => updateRow(idx, { receiver_zipcode: e.target.value })}
+                            disabled={done}
+                            placeholder="우편번호"
+                            className={`${cellBase} w-[70px] shrink-0`}
+                          />
+                          <input
+                            type="text"
+                            value={r.receiver_address}
+                            onChange={(e) => updateRow(idx, { receiver_address: e.target.value })}
+                            disabled={done}
+                            placeholder="도로명 + 상세주소"
+                            className={`${cellBase} flex-1`}
+                          />
+                          {!done && (
+                            <button
+                              onClick={() => {
+                                setAddressModalRow(idx);
+                                setAddressQuery("");
+                                setAddressResults([]);
+                                setAddressDetail("");
+                              }}
+                              className="shrink-0 px-1.5 py-1 text-[10px] font-medium text-blue-600 border border-blue-300 rounded hover:bg-blue-50"
+                              title="주소 검색"
+                            >
+                              검색
+                            </button>
+                          )}
+                        </div>
                       </td>
                       <td className="px-1 py-0">
                         <input type="text" value={r.memo} onChange={(e) => updateRow(idx, { memo: e.target.value })} disabled={done} className={cellBase} />
@@ -719,6 +846,82 @@ export default function PhoneOrderPage() {
         </div>
       )}
 
+      {/* 주소 검색 모달 */}
+      {addressModalRow !== null && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={() => setAddressModalRow(null)}>
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg mx-4 max-h-[80vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between px-5 py-4 border-b">
+              <h3 className="text-sm font-bold text-gray-900">주소 검색</h3>
+              <button onClick={() => setAddressModalRow(null)} className="text-gray-400 hover:text-gray-600 text-lg">×</button>
+            </div>
+            <div className="px-5 py-3 border-b">
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={addressQuery}
+                  onChange={(e) => setAddressQuery(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === "Enter") searchAddress(); }}
+                  placeholder="도로명, 건물명, 지번 입력 (예: 판교역로 235)"
+                  className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
+                  autoFocus
+                />
+                <button
+                  onClick={searchAddress}
+                  disabled={addressSearching}
+                  className="px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 disabled:opacity-50 shrink-0"
+                >
+                  {addressSearching ? "검색중..." : "검색"}
+                </button>
+              </div>
+              <p className="text-[10px] text-gray-400 mt-1.5">도로명주소, 건물명, 지번으로 검색 가능합니다 (juso.go.kr)</p>
+            </div>
+            <div className="flex-1 overflow-y-auto px-5 py-2 min-h-[200px]">
+              {addressResults.length === 0 ? (
+                <div className="flex items-center justify-center h-40 text-sm text-gray-400">
+                  {addressSearching ? "검색 중..." : "검색 결과가 여기에 표시됩니다"}
+                </div>
+              ) : (
+                <div className="divide-y divide-gray-100">
+                  {addressResults.map((addr, i) => (
+                    <button
+                      key={i}
+                      onClick={() => {
+                        // 상세주소 입력 요청
+                        const detail = prompt("상세주소를 입력하세요 (동/호수 등)", "");
+                        if (detail !== null) {
+                          const fullAddress = detail.trim()
+                            ? `${addr.roadAddr}, ${detail.trim()}`
+                            : addr.roadAddr;
+                          if (addressModalRow !== null) {
+                            updateRow(addressModalRow, {
+                              receiver_zipcode: addr.zipNo,
+                              receiver_address: fullAddress,
+                            });
+                          }
+                          setAddressModalRow(null);
+                          setAddressQuery("");
+                          setAddressResults([]);
+                        }
+                      }}
+                      className="w-full text-left py-2.5 hover:bg-blue-50 rounded px-2 -mx-2 transition-colors"
+                    >
+                      <div className="flex items-start gap-2">
+                        <span className="shrink-0 mt-0.5 px-1.5 py-0.5 rounded bg-blue-100 text-blue-700 text-[10px] font-mono font-bold">{addr.zipNo}</span>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-xs font-medium text-gray-800 truncate">{addr.roadAddr}</p>
+                          {addr.jibunAddr && <p className="text-[10px] text-gray-400 truncate">{addr.jibunAddr}</p>}
+                          {addr.bdNm && <p className="text-[10px] text-gray-500">{addr.bdNm}</p>}
+                        </div>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* 목록 액션 바 */}
       <div className="flex items-center gap-2 mb-3 flex-wrap">
         <div className="flex border border-gray-300 rounded-lg overflow-hidden">
@@ -749,48 +952,48 @@ export default function PhoneOrderPage() {
         <input
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          placeholder="주문번호 / 상품 / 수령인 / 연락처 검색"
+          placeholder="주문번호 / 상품 / 수취인 / 연락처 검색"
           className="text-sm border border-gray-300 rounded-lg px-3 py-1.5 w-64"
         />
 
         <div className="ml-auto flex items-center gap-2">
+          {selected.size > 0 && <span className="text-xs text-gray-500">선택 {selected.size}건</span>}
+          {tab === "draft" && (
+            <button
+              onClick={bulkPromoteToAggregate}
+              disabled={selected.size === 0}
+              className="px-3 py-1.5 bg-[#C41E1E] text-white text-xs font-bold rounded-lg hover:bg-[#A01818] cursor-pointer shadow-sm disabled:opacity-40 disabled:cursor-not-allowed"
+              title={selected.size === 0 ? "초안 행을 먼저 선택하세요" : ""}
+            >
+              → 주문집계로 발송{selected.size > 0 ? ` (${selected.size})` : ""}
+            </button>
+          )}
+          {(tab === "pending" || tab === "all") && (
+            <button
+              onClick={bulkConfirmPayment}
+              disabled={selected.size === 0}
+              className="px-3 py-1.5 bg-emerald-600 text-white text-xs font-bold rounded-lg hover:bg-emerald-700 cursor-pointer shadow-sm disabled:opacity-40 disabled:cursor-not-allowed"
+              title={selected.size === 0 ? "입금대기 행을 먼저 선택하세요" : "계좌이체 입금이 확인된 주문만 처리"}
+            >
+              입금확인{selected.size > 0 ? ` (${selected.size})` : ""}
+            </button>
+          )}
+          {selected.size > 0 && tab !== "draft" && (
+            <button
+              onClick={bulkCreatePO}
+              disabled={bulkBusy}
+              className="px-3 py-1.5 bg-blue-600 text-white text-xs font-medium rounded-lg hover:bg-blue-700 cursor-pointer disabled:opacity-50"
+            >
+              {bulkBusy ? "발주 중..." : `선택 발주 (${selected.size})`}
+            </button>
+          )}
           {selected.size > 0 && (
-            <>
-              <span className="text-xs text-gray-500">선택 {selected.size}건</span>
-              {/* 초안 탭에서만 — 주문집계 등록 (draft → pending 승격) */}
-              {tab === "draft" && (
-                <button
-                  onClick={bulkPromoteToAggregate}
-                  className="px-3 py-1.5 bg-[#C41E1E] text-white text-xs font-bold rounded-lg hover:bg-[#A01818] cursor-pointer shadow-sm"
-                >
-                  → 주문집계 등록 ({selected.size})
-                </button>
-              )}
-              {/* 초안 아닌 탭에서만 — 입금확인 / 선택 발주 / 삭제 */}
-              {tab !== "draft" && (
-                <button
-                  onClick={bulkConfirmPayment}
-                  className="px-3 py-1.5 bg-emerald-600 text-white text-xs font-bold rounded-lg hover:bg-emerald-700 cursor-pointer shadow-sm"
-                >
-                  💰 입금확인 처리 ({selected.size})
-                </button>
-              )}
-              {tab !== "draft" && (
-                <button
-                  onClick={bulkCreatePO}
-                  disabled={bulkBusy}
-                  className="px-3 py-1.5 bg-blue-600 text-white text-xs font-medium rounded-lg hover:bg-blue-700 cursor-pointer disabled:opacity-50"
-                >
-                  {bulkBusy ? "발주 중..." : `선택 발주 (${selected.size})`}
-                </button>
-              )}
-              <button
-                onClick={bulkDelete}
-                className="px-3 py-1.5 border border-red-300 text-red-600 text-xs font-medium rounded-lg hover:bg-red-50 cursor-pointer"
-              >
-                삭제
-              </button>
-            </>
+            <button
+              onClick={bulkDelete}
+              className="px-3 py-1.5 border border-red-300 text-red-600 text-xs font-medium rounded-lg hover:bg-red-50 cursor-pointer"
+            >
+              삭제
+            </button>
           )}
         </div>
       </div>
@@ -813,7 +1016,7 @@ export default function PhoneOrderPage() {
               <th className="text-left px-3 py-2.5 font-medium">상품</th>
               <th className="text-center px-3 py-2.5 font-medium">수량</th>
               <th className="text-right px-3 py-2.5 font-medium">금액</th>
-              <th className="text-left px-3 py-2.5 font-medium">수령인</th>
+              <th className="text-left px-3 py-2.5 font-medium">수취인</th>
               <th className="text-left px-3 py-2.5 font-medium">연락처</th>
               <th className="text-left px-3 py-2.5 font-medium">주소</th>
               <th className="text-center px-3 py-2.5 font-medium">상태</th>
@@ -860,14 +1063,14 @@ export default function PhoneOrderPage() {
                       onClick={() => promoteOne(o.id)}
                       className="text-[11px] px-2 py-1 rounded bg-[#C41E1E] text-white font-medium hover:bg-[#A01818] cursor-pointer whitespace-nowrap"
                     >
-                      → 주문집계 등록
+                      → 주문집계로 발송
                     </button>
                   ) : o.shipping_status === "pending" ? (
                     <button
                       onClick={() => togglePayment(o.id, o.shipping_status)}
                       className="text-[11px] px-2 py-1 rounded bg-emerald-600 text-white font-medium hover:bg-emerald-700 cursor-pointer whitespace-nowrap"
                     >
-                      💰 입금확인
+                      입금확인
                     </button>
                   ) : (
                     <button
