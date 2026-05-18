@@ -155,7 +155,7 @@ export default function OfflinePage() {
     const totalShipping = orders.reduce((s, o) => s + o.shipping_cost, 0);
     const unpaidCount = orders.filter((o) => o.payment_status === "unpaid" && o.status !== "cancelled").length;
     const unpaidAmount = orders.filter((o) => o.payment_status === "unpaid" && o.status !== "cancelled").reduce((s, o) => s + o.purchase_price * o.quantity, 0);
-    return { totalQty, totalAmount, totalCost, totalMargin, totalShipping, unpaidCount, unpaidAmount, count: orders.length };
+    return { totalQty, totalAmount, totalSales, totalMargin, totalShipping, unpaidCount, unpaidAmount, count: orders.length };
   }, [orders]);
 
   // 주문 저장
@@ -368,7 +368,7 @@ export default function OfflinePage() {
         {[
           { label: "주문수량", value: `${stats.totalQty}개` },
           { label: "납품금액", value: `₩${stats.totalAmount.toLocaleString()}` },
-          { label: "매입원가", value: `₩${stats.totalCost.toLocaleString()}` },
+          { label: "판매금액", value: `₩${stats.totalSales.toLocaleString()}` },
           { label: "마진", value: `₩${stats.totalMargin.toLocaleString()}`, color: stats.totalMargin > 0 ? "text-green-600" : "text-red-600" },
           { label: "배송비", value: `₩${stats.totalShipping.toLocaleString()}` },
           { label: "미입금", value: `${stats.unpaidCount}건`, color: "text-red-500" },
