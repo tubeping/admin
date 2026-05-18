@@ -146,19 +146,19 @@ function InvoiceContent() {
                   </tr>
                   <tr>
                     <td className="border border-gray-300 bg-gray-50 px-2 py-1.5 font-medium">대표자</td>
-                    <td className="border border-gray-300 px-2 py-1.5">김국태</td>
+                    <td className="border border-gray-300 px-2 py-1.5">최준</td>
                   </tr>
                   <tr>
                     <td className="border border-gray-300 bg-gray-50 px-2 py-1.5 font-medium">사업자번호</td>
-                    <td className="border border-gray-300 px-2 py-1.5">757-87-01392</td>
+                    <td className="border border-gray-300 px-2 py-1.5">352-81-03270</td>
                   </tr>
                   <tr>
                     <td className="border border-gray-300 bg-gray-50 px-2 py-1.5 font-medium">주 소</td>
-                    <td className="border border-gray-300 px-2 py-1.5 text-xs">-</td>
+                    <td className="border border-gray-300 px-2 py-1.5 text-xs">서울특별시 마포구 마포대로 127, 1826호</td>
                   </tr>
                   <tr>
-                    <td className="border border-gray-300 bg-gray-50 px-2 py-1.5 font-medium">연락처</td>
-                    <td className="border border-gray-300 px-2 py-1.5">-</td>
+                    <td className="border border-gray-300 bg-gray-50 px-2 py-1.5 font-medium">업 태</td>
+                    <td className="border border-gray-300 px-2 py-1.5">도매 및 소매업 / 전자상거래 소매업</td>
                   </tr>
                 </tbody>
               </table>
