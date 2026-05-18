@@ -271,6 +271,8 @@ export default function OrdersPage() {
   const sampleCount = useMemo(() => rawOrders.filter((o) => o.is_sample).length, [rawOrders]);
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
+  const [ocrProcessing, setOcrProcessing] = useState(false);
+  const [ocrResults, setOcrResults] = useState<{ product_name: string; option_text?: string; quantity: number; unit_price?: number; order_amount?: number; buyer_name?: string; buyer_phone?: string; receiver_name?: string; receiver_phone?: string; receiver_address?: string; receiver_zipcode?: string; memo?: string }[] | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [editingCell, setEditingCell] = useState<{ orderId: string; field: "channel" | "store" } | null>(null);
   const onStartEdit = useCallback((orderId: string, field: "channel" | "store") => {
@@ -366,6 +368,68 @@ export default function OrdersPage() {
     } else alert(`오류: ${data.error}`);
   }, [fetchOrders]);
 
+  // 이미지 OCR 처리
+  const handleImageOCR = useCallback(async (file: File) => {
+    setOcrProcessing(true);
+    try {
+      const fd = new FormData();
+      fd.append("image", file);
+      const res = await fetch("/admin/api/orders/ocr-import", { method: "POST", body: fd });
+      const data = await res.json();
+      if (!res.ok) { alert(`OCR 실패: ${data.error}`); return; }
+      if (!data.orders?.length) { alert("이미지에서 주문 데이터를 찾지 못했습니다."); return; }
+      setOcrResults(data.orders);
+    } catch (e) {
+      alert(`OCR 오류: ${(e as Error).message}`);
+    } finally {
+      setOcrProcessing(false);
+    }
+  }, []);
+
+  // OCR 결과 → 전화주문으로 일괄 등록
+  const handleOcrConfirm = useCallback(async () => {
+    if (!ocrResults?.length) return;
+    let success = 0;
+    const errors: string[] = [];
+    for (const o of ocrResults) {
+      const res = await fetch("/admin/api/orders/phone-order", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          product_name: o.product_name,
+          option_text: o.option_text || "",
+          quantity: o.quantity || 1,
+          unit_price: o.unit_price || o.order_amount || 0,
+          buyer_name: o.buyer_name || o.receiver_name || "",
+          buyer_phone: o.buyer_phone || o.receiver_phone || "",
+          receiver_name: o.receiver_name || o.buyer_name || "미입력",
+          receiver_phone: o.receiver_phone || o.buyer_phone || "미입력",
+          receiver_address: o.receiver_address || "미입력",
+          receiver_zipcode: o.receiver_zipcode || "",
+          memo: o.memo || "스크린샷 OCR 등록",
+        }),
+      });
+      if (res.ok) success++;
+      else {
+        const d = await res.json();
+        errors.push(`${o.product_name}: ${d.error}`);
+      }
+    }
+    alert(`${success}건 등록 완료${errors.length ? `\n\n실패 ${errors.length}건:\n${errors.slice(0, 5).join("\n")}` : ""}`);
+    setOcrResults(null);
+    fetchOrders();
+  }, [ocrResults, fetchOrders]);
+
+  // 드롭/붙여넣기 파일 분기 (엑셀 vs 이미지)
+  const handleFileDrop = useCallback(async (file: File) => {
+    const isImage = file.type.startsWith("image/");
+    if (isImage) {
+      await handleImageOCR(file);
+    } else {
+      await handleImportFile(file);
+    }
+  }, [handleImageOCR, handleImportFile]);
+
   // 클라이언트 필터 — useMemo로 즉시 반영, API 재요청 없음
   const orders = useMemo(() => {
     const kw = searchKeyword?.toLowerCase();
@@ -406,6 +470,24 @@ export default function OrdersPage() {
   const fetchSuppliers = async () => { const r = await fetch("/admin/api/suppliers?status=active"); const d = await r.json(); setSuppliers(d.suppliers || []); };
 
   useEffect(() => { fetchOrders(); fetchStores(); fetchSuppliers(); }, [fetchOrders]);
+
+  // 클립보드 붙여넣기 (Ctrl+V) — 이미지 감지 시 OCR
+  useEffect(() => {
+    const handlePaste = (e: ClipboardEvent) => {
+      const items = e.clipboardData?.items;
+      if (!items) return;
+      for (const item of Array.from(items)) {
+        if (item.type.startsWith("image/")) {
+          e.preventDefault();
+          const file = item.getAsFile();
+          if (file) handleImageOCR(file);
+          return;
+        }
+      }
+    };
+    document.addEventListener("paste", handlePaste);
+    return () => document.removeEventListener("paste", handlePaste);
+  }, [handleImageOCR]);
 
   // 카페24 주문 수집
   const handleSync = async () => {
@@ -599,7 +681,7 @@ export default function OrdersPage() {
         dragCounterRef.current = 0;
         setIsDragging(false);
         const file = e.dataTransfer.files?.[0];
-        if (file) await handleImportFile(file);
+        if (file) await handleFileDrop(file);
       }}
     >
       {isDragging && (
@@ -608,8 +690,100 @@ export default function OrdersPage() {
             <svg className="mx-auto mb-2 w-12 h-12 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
             </svg>
-            <p className="text-lg font-semibold text-blue-700">엑셀/CSV 파일을 여기에 놓으세요</p>
-            <p className="text-sm text-blue-500 mt-1">수기등록 업로드</p>
+            <p className="text-lg font-semibold text-blue-700">파일을 여기에 놓으세요</p>
+            <p className="text-sm text-blue-500 mt-1">엑셀/CSV → 수기등록 | 이미지(스크린샷) → OCR 자동 인식</p>
+          </div>
+        </div>
+      )}
+      {/* OCR 처리 중 오버레이 */}
+      {ocrProcessing && (
+        <div className="absolute inset-0 z-50 flex items-center justify-center bg-white/80 rounded-xl">
+          <div className="text-center">
+            <div className="animate-spin mx-auto mb-3 w-10 h-10 border-4 border-blue-500 border-t-transparent rounded-full" />
+            <p className="text-lg font-semibold text-gray-700">이미지 분석 중...</p>
+            <p className="text-sm text-gray-500 mt-1">Gemini AI가 주문 데이터를 인식하고 있습니다</p>
+          </div>
+        </div>
+      )}
+      {/* OCR 결과 확인 모달 */}
+      {ocrResults && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/40">
+          <div className="bg-white rounded-2xl shadow-2xl w-[90vw] max-w-[900px] max-h-[80vh] flex flex-col">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200">
+              <div>
+                <h2 className="text-lg font-bold text-gray-900">스크린샷 OCR 결과</h2>
+                <p className="text-sm text-gray-500">{ocrResults.length}건 인식됨 — 확인 후 전화주문으로 등록됩니다</p>
+              </div>
+              <button onClick={() => setOcrResults(null)} className="text-gray-400 hover:text-gray-600 text-2xl cursor-pointer">×</button>
+            </div>
+            <div className="flex-1 overflow-auto px-6 py-4">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="text-xs text-gray-500 border-b">
+                    <th className="text-left py-2 px-2">상품명</th>
+                    <th className="text-left py-2 px-2">옵션</th>
+                    <th className="text-right py-2 px-2">수량</th>
+                    <th className="text-right py-2 px-2">단가</th>
+                    <th className="text-left py-2 px-2">주문자</th>
+                    <th className="text-left py-2 px-2">수령인</th>
+                    <th className="text-left py-2 px-2">연락처</th>
+                    <th className="text-left py-2 px-2">주소</th>
+                    <th className="text-center py-2 px-2">삭제</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {ocrResults.map((o, i) => (
+                    <tr key={i} className="border-b border-gray-50 hover:bg-gray-50/50">
+                      <td className="py-2 px-2">
+                        <input className="w-full text-sm border border-gray-200 rounded px-2 py-1" value={o.product_name}
+                          onChange={(e) => setOcrResults((prev) => prev!.map((r, j) => j === i ? { ...r, product_name: e.target.value } : r))} />
+                      </td>
+                      <td className="py-2 px-2">
+                        <input className="w-full text-sm border border-gray-200 rounded px-2 py-1" value={o.option_text || ""}
+                          onChange={(e) => setOcrResults((prev) => prev!.map((r, j) => j === i ? { ...r, option_text: e.target.value } : r))} />
+                      </td>
+                      <td className="py-2 px-2">
+                        <input type="number" className="w-16 text-sm border border-gray-200 rounded px-2 py-1 text-right" value={o.quantity}
+                          onChange={(e) => setOcrResults((prev) => prev!.map((r, j) => j === i ? { ...r, quantity: Number(e.target.value) } : r))} />
+                      </td>
+                      <td className="py-2 px-2">
+                        <input type="number" className="w-20 text-sm border border-gray-200 rounded px-2 py-1 text-right" value={o.unit_price || 0}
+                          onChange={(e) => setOcrResults((prev) => prev!.map((r, j) => j === i ? { ...r, unit_price: Number(e.target.value) } : r))} />
+                      </td>
+                      <td className="py-2 px-2">
+                        <input className="w-20 text-sm border border-gray-200 rounded px-2 py-1" value={o.buyer_name || ""}
+                          onChange={(e) => setOcrResults((prev) => prev!.map((r, j) => j === i ? { ...r, buyer_name: e.target.value } : r))} />
+                      </td>
+                      <td className="py-2 px-2">
+                        <input className="w-20 text-sm border border-gray-200 rounded px-2 py-1" value={o.receiver_name || ""}
+                          onChange={(e) => setOcrResults((prev) => prev!.map((r, j) => j === i ? { ...r, receiver_name: e.target.value } : r))} />
+                      </td>
+                      <td className="py-2 px-2">
+                        <input className="w-28 text-sm border border-gray-200 rounded px-2 py-1" value={o.receiver_phone || ""}
+                          onChange={(e) => setOcrResults((prev) => prev!.map((r, j) => j === i ? { ...r, receiver_phone: e.target.value } : r))} />
+                      </td>
+                      <td className="py-2 px-2">
+                        <input className="w-40 text-sm border border-gray-200 rounded px-2 py-1" value={o.receiver_address || ""}
+                          onChange={(e) => setOcrResults((prev) => prev!.map((r, j) => j === i ? { ...r, receiver_address: e.target.value } : r))} />
+                      </td>
+                      <td className="py-2 px-2 text-center">
+                        <button onClick={() => setOcrResults((prev) => prev!.filter((_, j) => j !== i))}
+                          className="text-red-400 hover:text-red-600 cursor-pointer text-lg">×</button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <div className="flex items-center justify-between px-6 py-4 border-t border-gray-200">
+              <p className="text-xs text-gray-400">인식 결과를 수정한 후 등록해 주세요. Ctrl+V로 스크린샷 붙여넣기도 가능합니다.</p>
+              <div className="flex gap-2">
+                <button onClick={() => setOcrResults(null)} className="px-4 py-2 text-sm border border-gray-300 rounded-lg hover:bg-gray-50 cursor-pointer">취소</button>
+                <button onClick={handleOcrConfirm} className="px-4 py-2 text-sm bg-[#C41E1E] text-white rounded-lg hover:bg-[#A01818] cursor-pointer">
+                  전화주문으로 {ocrResults.length}건 등록
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}
