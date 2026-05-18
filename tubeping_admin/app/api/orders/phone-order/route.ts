@@ -48,7 +48,7 @@ export async function POST(request: NextRequest) {
   if (!product_name || !receiver_name || !receiver_phone || !receiver_address) {
     return NextResponse.json({ error: "상품명, 수령인, 연락처, 주소 필수" }, { status: 400 });
   }
-  if (!quantity || quantity < 1 || !unit_price || unit_price < 0) {
+  if (!quantity || quantity < 1 || unit_price == null || unit_price < 0) {
     return NextResponse.json({ error: "수량/단가가 유효하지 않음" }, { status: 400 });
   }
 
