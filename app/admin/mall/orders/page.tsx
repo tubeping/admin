@@ -1,4 +1,8 @@
-const ORDERS = [
+"use client";
+
+import { useState, useRef, useEffect } from "react";
+
+const INITIAL_ORDERS = [
   { id: "ORD-2026-0401", product: "프리미엄 무선 이어폰", channel: "테크리뷰TV", supplier: "테크월드", qty: 50, amount: 1995000, status: "발주완료", date: "2026-04-01" },
   { id: "ORD-2026-0399", product: "스테인리스 텀블러", channel: "일상브이로그", supplier: "리빙플러스", qty: 120, amount: 2268000, status: "배송중", date: "2026-03-31" },
   { id: "ORD-2026-0398", product: "비타민C 1000mg", channel: "건강지킴이", supplier: "헬스팜", qty: 200, amount: 4980000, status: "정산대기", date: "2026-03-30" },
@@ -8,6 +12,8 @@ const ORDERS = [
   { id: "ORD-2026-0385", product: "프로틴 쉐이크", channel: "헬스타그램", supplier: "헬스팜", qty: 150, amount: 4800000, status: "정산완료", date: "2026-03-25" },
 ];
 
+const STATUS_LIST = ["발주완료", "배송중", "배송완료", "정산대기", "정산완료"] as const;
+
 const STATUS_STYLE: Record<string, string> = {
   "발주완료": "bg-blue-100 text-blue-700",
   "배송중": "bg-yellow-100 text-yellow-700",
@@ -16,7 +22,58 @@ const STATUS_STYLE: Record<string, string> = {
   "정산완료": "bg-gray-100 text-gray-500",
 };
 
+function StatusDropdown({ currentStatus, onStatusChange }: { currentStatus: string; onStatusChange: (status: string) => void }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    }
+    if (open) document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [open]);
+
+  return (
+    <div ref={ref} className="relative inline-block">
+      <button
+        onClick={(e) => { e.stopPropagation(); setOpen(!open); }}
+        className={`text-xs font-medium px-2 py-1 rounded-full cursor-pointer hover:ring-2 hover:ring-offset-1 hover:ring-gray-300 transition-all ${STATUS_STYLE[currentStatus] || "bg-gray-100 text-gray-600"}`}
+      >
+        {currentStatus} ▾
+      </button>
+      {open && (
+        <div className="absolute z-50 mt-1 left-1/2 -translate-x-1/2 bg-white rounded-lg shadow-lg border border-gray-200 py-1 min-w-[120px]">
+          {STATUS_LIST.map((s) => (
+            <button
+              key={s}
+              onClick={(e) => { e.stopPropagation(); onStatusChange(s); setOpen(false); }}
+              className={`w-full text-left px-3 py-1.5 text-xs hover:bg-gray-50 transition-colors ${s === currentStatus ? "font-bold text-gray-900" : "text-gray-600"}`}
+            >
+              <span className={`inline-block w-1.5 h-1.5 rounded-full mr-2 ${STATUS_STYLE[s]?.split(" ")[0] || "bg-gray-200"}`} />
+              {s}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function OrdersPage() {
+  const [orders, setOrders] = useState(INITIAL_ORDERS);
+
+  function handleStatusChange(orderId: string, newStatus: string) {
+    setOrders((prev) => prev.map((o) => o.id === orderId ? { ...o, status: newStatus } : o));
+  }
+
+  const summaryStats = {
+    total: orders.length,
+    shipping: orders.filter((o) => o.status === "배송중").length,
+    pendingSettle: orders.filter((o) => o.status === "정산대기").length,
+    totalAmount: orders.reduce((sum, o) => sum + o.amount, 0),
+  };
+
   return (
     <div className="p-8">
       <div className="flex items-center justify-between mb-6">
@@ -32,10 +89,10 @@ export default function OrdersPage() {
       {/* Summary */}
       <div className="grid grid-cols-4 gap-4 mb-6">
         {[
-          { label: "전체 발주", value: "7건" },
-          { label: "배송중", value: "1건" },
-          { label: "정산대기", value: "1건" },
-          { label: "이번 달 발주액", value: "₩31,199,000" },
+          { label: "전체 발주", value: `${summaryStats.total}건` },
+          { label: "배송중", value: `${summaryStats.shipping}건` },
+          { label: "정산대기", value: `${summaryStats.pendingSettle}건` },
+          { label: "이번 달 발주액", value: `₩${summaryStats.totalAmount.toLocaleString()}` },
         ].map((s) => (
           <div key={s.label} className="bg-white rounded-xl border border-gray-200 p-4">
             <p className="text-xs text-gray-500">{s.label}</p>
@@ -60,7 +117,7 @@ export default function OrdersPage() {
             </tr>
           </thead>
           <tbody>
-            {ORDERS.map((o) => (
+            {orders.map((o) => (
               <tr key={o.id} className="border-b border-gray-50 last:border-0 hover:bg-gray-50/50 cursor-pointer">
                 <td className="px-6 py-3.5 text-sm font-medium text-gray-900">{o.id}</td>
                 <td className="px-3 py-3.5 text-sm text-gray-700">{o.product}</td>
@@ -69,9 +126,7 @@ export default function OrdersPage() {
                 <td className="px-3 py-3.5 text-sm text-gray-700 text-right">{o.qty}</td>
                 <td className="px-3 py-3.5 text-sm text-gray-700 text-right">₩{o.amount.toLocaleString()}</td>
                 <td className="px-3 py-3.5 text-center">
-                  <span className={`text-xs font-medium px-2 py-1 rounded-full ${STATUS_STYLE[o.status]}`}>
-                    {o.status}
-                  </span>
+                  <StatusDropdown currentStatus={o.status} onStatusChange={(s) => handleStatusChange(o.id, s)} />
                 </td>
                 <td className="px-6 py-3.5 text-sm text-gray-500 text-right">{o.date}</td>
               </tr>

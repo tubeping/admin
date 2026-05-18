@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback, useMemo, memo, useRef } from "react";
 
 interface Store { id: string; name: string; mall_id: string; status: string; }
 interface Supplier { id: string; name: string; email: string; }
@@ -90,11 +90,187 @@ function formatDateTime(d: string) {
 function today() { return new Date().toISOString().slice(0, 10); }
 function daysAgo(n: number) { return new Date(Date.now() - n * 86400000).toISOString().slice(0, 10); }
 
+// 메모이제이션된 행 컴포넌트 — selected 변경 시 해당 행만 re-render
+const OrderRow = memo(function OrderRow({
+  o, idx, displayedCount, isSelected, toggleSelect, editingCell, setEditingCell, saveCellEdit, stores, fetchOrders,
+}: {
+  o: Order; idx: number; displayedCount: number; isSelected: boolean;
+  toggleSelect: (id: string) => void;
+  editingCell: { orderId: string; field: "channel" | "store" } | null;
+  setEditingCell: (v: { orderId: string; field: "channel" | "store" } | null) => void;
+  saveCellEdit: (orderId: string, field: "channel" | "store", value: string) => void;
+  stores: Store[];
+  fetchOrders: () => void;
+}) {
+  const noTrack = !o.tracking_number && o.shipping_status !== "cancelled" && o.shipping_status !== "delivered";
+  const noSup = !o.supplier_id;
+  const noPO = !o.purchase_order_id && o.shipping_status !== "cancelled" && o.shipping_status !== "delivered";
+  return (
+    <tr
+      className={`border-b border-gray-50 last:border-0 hover:bg-gray-50/50 cursor-pointer ${
+        isSelected ? "bg-blue-50/60" : noPO && noSup ? "bg-red-50/20" : noPO ? "bg-amber-50/20" : ""
+      }`}
+      onClick={() => toggleSelect(o.id)}
+    >
+      <td className="px-3 py-2.5">
+        <input type="checkbox" checked={isSelected} onChange={() => toggleSelect(o.id)} onClick={(e) => e.stopPropagation()} className="rounded" />
+      </td>
+      <td className="px-2 py-2.5 text-xs text-gray-400">{displayedCount - idx}</td>
+      <td className="px-2 py-2.5 whitespace-nowrap">
+        <div className="text-xs font-medium text-gray-900">{o.cafe24_order_id}</div>
+        <div className="text-[11px] text-gray-400">{formatDateTime(o.order_date)}</div>
+      </td>
+      <td className="px-2 py-2.5 max-w-[220px]">
+        <div className="text-sm text-gray-900 truncate">{o.product_name}</div>
+        {o.option_text && <div className="text-[11px] text-gray-400 truncate">{o.option_text}</div>}
+      </td>
+      <td className="px-2 py-2.5 whitespace-nowrap">
+        <div className="text-xs text-gray-700">{o.buyer_name || o.receiver_name || "-"}</div>
+        {o.receiver_name && o.buyer_name && o.receiver_name !== o.buyer_name && (
+          <div className="text-[11px] text-gray-400">→ {o.receiver_name}</div>
+        )}
+      </td>
+      <td
+        className="px-2 py-2.5 text-xs whitespace-nowrap cursor-pointer hover:bg-gray-100/60"
+        onClick={(e) => { e.stopPropagation(); if (!editingCell || editingCell.orderId !== o.id || editingCell.field !== "channel") setEditingCell({ orderId: o.id, field: "channel" }); }}
+        title="클릭해서 판매방식 수정"
+      >
+        {editingCell?.orderId === o.id && editingCell.field === "channel" ? (
+          <select
+            autoFocus
+            defaultValue={o.sales_channel || ""}
+            onClick={(e) => e.stopPropagation()}
+            onChange={(e) => saveCellEdit(o.id, "channel", e.target.value)}
+            onBlur={() => setEditingCell(null)}
+            className="text-xs border border-gray-400 rounded px-1 py-0.5 bg-white"
+          >
+            <option value="">자사몰</option>
+            <option value="phone">전화주문</option>
+            <option value="group">공구주문</option>
+          </select>
+        ) : (() => {
+          if (o.sales_channel === "phone") return <span className="px-1.5 py-0.5 rounded bg-purple-100 text-purple-700 font-medium">전화주문</span>;
+          if (o.sales_channel === "group") return <span className="px-1.5 py-0.5 rounded bg-pink-100 text-pink-700 font-medium">공구주문</span>;
+          if (!o.stores?.name) return <span className="text-gray-300">-</span>;
+          return <span className="px-1.5 py-0.5 rounded bg-blue-100 text-blue-700 font-medium">자사몰</span>;
+        })()}
+      </td>
+      <td
+        className="px-2 py-2.5 text-xs whitespace-nowrap cursor-pointer hover:bg-gray-100/60"
+        onClick={(e) => { e.stopPropagation(); if (!editingCell || editingCell.orderId !== o.id || editingCell.field !== "store") setEditingCell({ orderId: o.id, field: "store" }); }}
+        title="클릭해서 판매사 수정"
+      >
+        {editingCell?.orderId === o.id && editingCell.field === "store" ? (
+          <select
+            autoFocus
+            defaultValue={stores.find((s) => s.name === o.stores?.name)?.id || ""}
+            onClick={(e) => e.stopPropagation()}
+            onChange={(e) => saveCellEdit(o.id, "store", e.target.value)}
+            onBlur={() => setEditingCell(null)}
+            className="text-xs border border-gray-400 rounded px-1 py-0.5 bg-white max-w-[180px]"
+          >
+            <option value="" disabled>판매사 선택</option>
+            {stores
+              .filter((s) => !["전화주문", "공구주문", "엑셀등록", "수기주문"].includes(s.name))
+              .map((s) => (<option key={s.id} value={s.id}>{s.name}</option>))}
+          </select>
+        ) : (() => {
+          const name = o.stores?.name || "";
+          const isPseudo = name === "전화주문" || name === "공구주문";
+          if (!name || isPseudo) return <span className="text-gray-400 italic">- (클릭해서 지정)</span>;
+          const isManual = o.stores?.mall_id?.startsWith("manual_") || o.stores?.mall_id?.startsWith("excel_");
+          return isManual
+            ? <span className="px-1.5 py-0.5 rounded bg-amber-50 text-amber-700 font-medium">{name}</span>
+            : <span className="text-gray-500">{name}</span>;
+        })()}
+      </td>
+      <td className="px-2 py-2.5 whitespace-nowrap">
+        {o.suppliers?.name ? (
+          <span className="text-xs text-gray-700">{o.suppliers.name}</span>
+        ) : (
+          <span className="text-[11px] text-red-400 font-medium">미배정</span>
+        )}
+      </td>
+      <td className="px-2 py-2.5 text-right text-gray-700">{o.quantity}</td>
+      <td className="px-2 py-2.5 text-right text-gray-700 whitespace-nowrap">₩{o.order_amount.toLocaleString()}</td>
+      <td className="px-2 py-2.5 text-center">
+        {(() => {
+          const isPaid = o.shipping_status !== "pending" && o.shipping_status !== "cancelled";
+          const isCancelled = o.shipping_status === "cancelled";
+          const isPhone = o.sales_channel === "phone" || o.stores?.name === "전화주문";
+          if (isCancelled) return <span className="text-[10px] text-gray-300">-</span>;
+          return (
+            <button
+              onClick={async (e) => {
+                e.stopPropagation();
+                const newStatus = isPaid ? "pending" : "ordered";
+                const label = isPaid ? "입금전으로 되돌림" : "입금확인 처리";
+                const extra = isPhone && !isPaid ? "\n\n(전화주문 — 계좌이체 입금 확인 후 진행)" : "";
+                if (!confirm(`${label}하시겠습니까?${extra}`)) return;
+                await fetch("/admin/api/orders", {
+                  method: "PATCH",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ ids: [o.id], updates: { shipping_status: newStatus } }),
+                });
+                fetchOrders();
+              }}
+              className={`text-[11px] font-medium px-2 py-0.5 rounded-full border cursor-pointer transition-colors ${
+                isPaid
+                  ? "bg-green-100 text-green-700 border-green-300 hover:bg-green-200"
+                  : isPhone
+                    ? "bg-amber-50 text-amber-700 border-amber-300 hover:bg-amber-100"
+                    : "bg-red-50 text-red-600 border-red-300 hover:bg-red-100"
+              }`}
+              title={isPhone
+                ? (isPaid ? "전화주문(계좌이체) — 클릭 시 입금전으로 되돌림" : "전화주문(계좌이체) — 입금 확인 후 클릭")
+                : (isPaid ? "클릭하면 입금전으로 되돌림" : "클릭하면 입금확인 처리")}
+            >
+              {isPaid ? "✓ 완료" : isPhone ? "💰 계좌이체 대기" : "✗ 입금전"}
+            </button>
+          );
+        })()}
+      </td>
+      <td className="px-2 py-2.5 whitespace-nowrap">
+        {o.tracking_number ? (
+          <div>
+            <span className="text-[11px] text-gray-500">{o.shipping_company}</span>
+            <span className="text-xs text-gray-700 ml-1">{o.tracking_number}</span>
+            {!o.cafe24_shipping_synced && <span className="text-[10px] text-orange-500 ml-1">미연동</span>}
+          </div>
+        ) : noTrack ? (
+          <span className="text-[11px] text-red-400">미입력</span>
+        ) : (
+          <span className="text-gray-300">-</span>
+        )}
+      </td>
+      <td className="px-2 py-2.5 text-center">
+        {(() => {
+          const ps = derivePOStatus(o);
+          return ps.label ? (
+            <span className={`text-[11px] font-medium ${ps.style}`}>{ps.label}</span>
+          ) : (
+            <span className="text-gray-300">-</span>
+          );
+        })()}
+      </td>
+      <td className="px-2 py-2.5 text-center">
+        <span className={`text-[11px] font-medium px-1.5 py-0.5 rounded-full ${STATUS_STYLE[o.shipping_status] || STATUS_STYLE.pending}`}>
+          {STATUS_LABEL[o.shipping_status] || o.shipping_status}
+        </span>
+      </td>
+      <td className="px-3 py-2.5 text-xs text-gray-400 text-right whitespace-nowrap">{formatDate(o.order_date)}</td>
+    </tr>
+  );
+});
+
+const PAGE_SIZE = 50;
+
 export default function OrdersPage() {
   const [rawOrders, setRawOrders] = useState<Order[]>([]);
   const [stores, setStores] = useState<Store[]>([]);
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [total, setTotal] = useState(0);
+  const [page, setPage] = useState(0);
   const [sampleCount, setSampleCount] = useState(0);
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
@@ -125,6 +301,10 @@ export default function OrdersPage() {
   // 발주 상태 탭
   const [poTab, setPoTab] = useState<"all" | "no_po" | "has_po" | "sample">("all");
 
+  // 드래그앤드롭
+  const [isDragging, setIsDragging] = useState(false);
+  const dragCounterRef = useRef(0);
+
   // 서버 fetch — 서버측 필터만 deps (status/store/supplier/date). 키 입력마다 재요청 방지
   const fetchOrders = useCallback(async () => {
     setLoading(true);
@@ -143,6 +323,49 @@ export default function OrdersPage() {
     setTotal(data.total || 0);
     setLoading(false);
   }, [filterStatus, filterStore, filterSupplier, dateFrom, dateTo]);
+
+  const handleImportFile = useCallback(async (file: File) => {
+    const ext = file.name.split(".").pop()?.toLowerCase();
+    if (!["csv", "xlsx", "xls"].includes(ext || "")) {
+      alert("csv, xlsx, xls 파일만 업로드 가능합니다.");
+      return;
+    }
+    const sel = document.getElementById("import-store") as HTMLSelectElement;
+    if (!sel.value) {
+      alert("판매사를 먼저 선택해주세요");
+      return;
+    }
+    const sampleEl = document.getElementById("import-is-sample") as HTMLInputElement;
+    const phoneEl = document.getElementById("import-is-phone") as HTMLInputElement;
+    const groupEl = document.getElementById("import-is-group") as HTMLInputElement;
+    const fd = new FormData();
+    fd.append("file", file);
+    if (sel.value.startsWith("id:")) fd.append("store_id", sel.value.slice(3));
+    else fd.append("store_name", sel.value.slice(5));
+    if (sampleEl?.checked) fd.append("is_sample", "true");
+    if (phoneEl?.checked) fd.append("sales_channel", "phone");
+    else if (groupEl?.checked) fd.append("sales_channel", "group");
+    const res = await fetch("/admin/api/orders/import", { method: "POST", body: fd });
+    const data = await res.json();
+    if (res.ok) {
+      const parts = [`${data.imported}건 신규등록`];
+      if (data.overwritten) parts.push(`${data.overwritten}건 덮어쓰기 갱신`);
+      let msg = parts.join(" · ");
+      const mc = data.matched_columns || {};
+      const critical = ["receiver_name", "receiver_phone", "receiver_address"];
+      const missing = critical.filter((k) => !mc[k]);
+      if (missing.length > 0) {
+        msg += `\n\n⚠ 수령인 정보 일부가 매칭 안됨: ${missing.join(", ")}\n헤더명을 확인해주세요.\n(인식 못한 헤더: ${(data.unmatched_headers || []).join(", ") || "없음"})`;
+      }
+      msg += "\n\n공급사 매칭은 '매핑 검증' 페이지에서 진행하세요.";
+      alert(msg);
+      fetchOrders();
+      if (phoneEl) phoneEl.checked = false;
+      if (groupEl) groupEl.checked = false;
+      if (sampleEl) sampleEl.checked = false;
+      sel.value = "";
+    } else alert(`오류: ${data.error}`);
+  }, [fetchOrders]);
 
   // 샘플 카운트 — rawOrders 변경 시만 재계산
   useEffect(() => {
@@ -198,6 +421,13 @@ export default function OrdersPage() {
     }
     return list;
   }, [rawOrders, filterSupplier, filterNoTracking, filterNoSupplier, poTab, searchKeyword, colFilterOrderNo, colFilterProduct, colFilterCustomer, colFilterChannel, colFilterPayment]);
+
+  // 필터 변경 시 페이지 리셋
+  useEffect(() => { setPage(0); }, [rawOrders, filterSupplier, filterNoTracking, filterNoSupplier, poTab, searchKeyword, colFilterOrderNo, colFilterProduct, colFilterCustomer, colFilterChannel, colFilterPayment]);
+
+  // 현재 페이지에 표시할 주문만 슬라이스
+  const totalPages = Math.max(1, Math.ceil(orders.length / PAGE_SIZE));
+  const pagedOrders = useMemo(() => orders.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE), [orders, page]);
 
   const fetchStores = async () => { const r = await fetch("/admin/api/stores"); const d = await r.json(); setStores(d.stores || []); };
   const sb_patch = async (orderId: string, status: string) => {
@@ -304,11 +534,19 @@ export default function OrdersPage() {
     fetchOrders();
   };
 
-  const toggleSelect = (id: string) => { setSelected((prev) => { const next = new Set(prev); if (next.has(id)) next.delete(id); else next.add(id); return next; }); };
-  const toggleAll = () => { if (selected.size === orders.length) setSelected(new Set()); else setSelected(new Set(orders.map((o) => o.id))); };
+  const toggleSelect = useCallback((id: string) => { setSelected((prev) => { const next = new Set(prev); if (next.has(id)) next.delete(id); else next.add(id); return next; }); }, []);
+  const toggleAll = () => {
+    const pageIds = pagedOrders.map((o) => o.id);
+    const allPageSelected = pageIds.every((id) => selected.has(id));
+    if (allPageSelected) {
+      setSelected((prev) => { const next = new Set(prev); pageIds.forEach((id) => next.delete(id)); return next; });
+    } else {
+      setSelected((prev) => { const next = new Set(prev); pageIds.forEach((id) => next.add(id)); return next; });
+    }
+  };
 
   // 인라인 편집 저장 — 판매방식(sales_channel) / 판매사(store_id)
-  const saveCellEdit = async (orderId: string, field: "channel" | "store", value: string) => {
+  const saveCellEdit = useCallback(async (orderId: string, field: "channel" | "store", value: string) => {
     const updates: Record<string, string | null> = {};
     if (field === "channel") {
       updates.sales_channel = value === "" ? null : value;
@@ -330,7 +568,7 @@ export default function OrdersPage() {
     } else {
       alert(`수정 실패: ${errMsg}`);
     }
-  };
+  }, [fetchOrders]);
 
   // 일괄 편집 — 선택된 여러 주문의 판매방식 또는 판매사 한 번에 변경
   const bulkUpdateChannel = async (value: string) => {
@@ -399,13 +637,12 @@ export default function OrdersPage() {
     fetchOrders();
   };
 
-  // 통계
-  const stats = {
+  // 통계 — useMemo로 메모이제이션 (selected 변경 시 재계산 방지)
+  const stats = useMemo(() => ({
     total, displayed: orders.length,
     pending: orders.filter((o) => o.shipping_status === "pending").length,
     noTracking: orders.filter((o) => !o.tracking_number && o.shipping_status !== "cancelled" && o.shipping_status !== "delivered").length,
     noSupplier: orders.filter((o) => !o.supplier_id && o.shipping_status !== "cancelled" && o.shipping_status !== "delivered").length,
-    // 미발주: 공급사 배정됐으나 PO 아직 없음, 송장 없음, 취소/배송완료 아님
     noPO: orders.filter((o) =>
       !o.purchase_order_id
       && !o.tracking_number
@@ -419,10 +656,40 @@ export default function OrdersPage() {
     totalQty: orders.reduce((s, o) => s + o.quantity, 0),
     totalAmount: orders.reduce((s, o) => s + o.order_amount, 0),
     sample: sampleCount,
-  };
+  }), [orders, total, sampleCount]);
 
   return (
-    <div className="p-6">
+    <div className="p-6 relative"
+      onDragEnter={(e) => {
+        e.preventDefault(); e.stopPropagation();
+        dragCounterRef.current++;
+        if (dragCounterRef.current === 1) setIsDragging(true);
+      }}
+      onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }}
+      onDragLeave={(e) => {
+        e.preventDefault(); e.stopPropagation();
+        dragCounterRef.current--;
+        if (dragCounterRef.current === 0) setIsDragging(false);
+      }}
+      onDrop={async (e) => {
+        e.preventDefault(); e.stopPropagation();
+        dragCounterRef.current = 0;
+        setIsDragging(false);
+        const file = e.dataTransfer.files?.[0];
+        if (file) await handleImportFile(file);
+      }}
+    >
+      {isDragging && (
+        <div className="absolute inset-0 z-50 flex items-center justify-center bg-blue-50/80 border-2 border-dashed border-blue-400 rounded-xl pointer-events-none">
+          <div className="text-center">
+            <svg className="mx-auto mb-2 w-12 h-12 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+            </svg>
+            <p className="text-lg font-semibold text-blue-700">엑셀/CSV 파일을 여기에 놓으세요</p>
+            <p className="text-sm text-blue-500 mt-1">수기등록 업로드</p>
+          </div>
+        </div>
+      )}
       {/* Header */}
       <div className="flex items-center justify-between mb-5">
         <h1 className="text-2xl font-bold text-gray-900">주문 집계</h1>
@@ -598,43 +865,7 @@ export default function OrdersPage() {
             수기등록
             <input type="file" accept=".csv,.xlsx,.xls" className="hidden" onChange={async (e) => {
               const file = e.target.files?.[0]; if (!file) return;
-              const sel = document.getElementById("import-store") as HTMLSelectElement;
-              if (!sel.value) {
-                alert("판매사를 먼저 선택해주세요");
-                e.target.value = "";
-                return;
-              }
-              const sampleEl = document.getElementById("import-is-sample") as HTMLInputElement;
-              const phoneEl = document.getElementById("import-is-phone") as HTMLInputElement;
-              const groupEl = document.getElementById("import-is-group") as HTMLInputElement;
-              const fd = new FormData();
-              fd.append("file", file);
-              if (sel.value.startsWith("id:")) fd.append("store_id", sel.value.slice(3));
-              else fd.append("store_name", sel.value.slice(5));
-              if (sampleEl?.checked) fd.append("is_sample", "true");
-              if (phoneEl?.checked) fd.append("sales_channel", "phone");
-              else if (groupEl?.checked) fd.append("sales_channel", "group");
-              const res = await fetch("/admin/api/orders/import", { method: "POST", body: fd });
-              const data = await res.json();
-              if (res.ok) {
-                const parts = [`${data.imported}건 신규등록`];
-                if (data.overwritten) parts.push(`${data.overwritten}건 덮어쓰기 갱신`);
-                let msg = parts.join(" · ");
-                const mc = data.matched_columns || {};
-                const critical = ["receiver_name", "receiver_phone", "receiver_address"];
-                const missing = critical.filter((k) => !mc[k]);
-                if (missing.length > 0) {
-                  msg += `\n\n⚠ 수령인 정보 일부가 매칭 안됨: ${missing.join(", ")}\n헤더명을 확인해주세요.\n(인식 못한 헤더: ${(data.unmatched_headers || []).join(", ") || "없음"})`;
-                }
-                msg += "\n\n공급사 매칭은 '매핑 검증' 페이지에서 진행하세요.";
-                alert(msg);
-                fetchOrders();
-                // 업로드 완료 후 체크박스/셀렉트 초기화 (다음 업로드 안전)
-                if (phoneEl) phoneEl.checked = false;
-                if (groupEl) groupEl.checked = false;
-                if (sampleEl) sampleEl.checked = false;
-                sel.value = "";
-              } else alert(`오류: ${data.error}`);
+              await handleImportFile(file);
               e.target.value = "";
             }} />
           </label>
@@ -762,11 +993,12 @@ export default function OrdersPage() {
             조건에 맞는 주문이 없습니다.
           </div>
         ) : (
+          <>
           <table className="w-full text-sm">
             <thead>
               <tr className="text-xs text-gray-500 border-b border-gray-100 bg-gray-50/50">
                 <th className="px-3 py-2.5 w-8">
-                  <input type="checkbox" checked={selected.size === orders.length && orders.length > 0} onChange={toggleAll} className="rounded" />
+                  <input type="checkbox" checked={pagedOrders.length > 0 && pagedOrders.every((o) => selected.has(o.id))} onChange={toggleAll} className="rounded" />
                 </th>
                 <th className="text-left px-2 py-2.5 font-medium">No</th>
                 <th className="text-left px-2 py-2.5 font-medium">주문번호</th>
@@ -870,172 +1102,75 @@ export default function OrdersPage() {
               </tr>
             </thead>
             <tbody>
-              {orders.map((o, idx) => {
-                const noTrack = !o.tracking_number && o.shipping_status !== "cancelled" && o.shipping_status !== "delivered";
-                const noSup = !o.supplier_id;
-                const noPO = !o.purchase_order_id && o.shipping_status !== "cancelled" && o.shipping_status !== "delivered";
-                return (
-                  <tr key={o.id}
-                    className={`border-b border-gray-50 last:border-0 hover:bg-gray-50/50 cursor-pointer ${
-                      selected.has(o.id) ? "bg-blue-50/60" : noPO && noSup ? "bg-red-50/20" : noPO ? "bg-amber-50/20" : ""
-                    }`}
-                    onClick={() => toggleSelect(o.id)}
-                  >
-                    <td className="px-3 py-2.5">
-                      <input type="checkbox" checked={selected.has(o.id)} onChange={() => toggleSelect(o.id)} onClick={(e) => e.stopPropagation()} className="rounded" />
-                    </td>
-                    <td className="px-2 py-2.5 text-xs text-gray-400">{stats.displayed - idx}</td>
-                    <td className="px-2 py-2.5 whitespace-nowrap">
-                      <div className="text-xs font-medium text-gray-900">{o.cafe24_order_id}</div>
-                      <div className="text-[11px] text-gray-400">{formatDateTime(o.order_date)}</div>
-                    </td>
-                    <td className="px-2 py-2.5 max-w-[220px]">
-                      <div className="text-sm text-gray-900 truncate">{o.product_name}</div>
-                      {o.option_text && <div className="text-[11px] text-gray-400 truncate">{o.option_text}</div>}
-                    </td>
-                    <td className="px-2 py-2.5 whitespace-nowrap">
-                      <div className="text-xs text-gray-700">{o.buyer_name || o.receiver_name || "-"}</div>
-                      {o.receiver_name && o.buyer_name && o.receiver_name !== o.buyer_name && (
-                        <div className="text-[11px] text-gray-400">→ {o.receiver_name}</div>
-                      )}
-                    </td>
-                    {/* 판매방식 — 클릭 시 인라인 편집 */}
-                    <td
-                      className="px-2 py-2.5 text-xs whitespace-nowrap cursor-pointer hover:bg-gray-100/60"
-                      onClick={(e) => { e.stopPropagation(); if (!editingCell || editingCell.orderId !== o.id || editingCell.field !== "channel") setEditingCell({ orderId: o.id, field: "channel" }); }}
-                      title="클릭해서 판매방식 수정"
-                    >
-                      {editingCell?.orderId === o.id && editingCell.field === "channel" ? (
-                        <select
-                          autoFocus
-                          defaultValue={o.sales_channel || ""}
-                          onClick={(e) => e.stopPropagation()}
-                          onChange={(e) => saveCellEdit(o.id, "channel", e.target.value)}
-                          onBlur={() => setEditingCell(null)}
-                          className="text-xs border border-gray-400 rounded px-1 py-0.5 bg-white"
-                        >
-                          <option value="">자사몰</option>
-                          <option value="phone">전화주문</option>
-                          <option value="group">공구주문</option>
-                        </select>
-                      ) : (() => {
-                        // sales_channel 단독 판정 (store name fallback 제거 — 사용자 편집 반영을 가리지 않음)
-                        if (o.sales_channel === "phone") return <span className="px-1.5 py-0.5 rounded bg-purple-100 text-purple-700 font-medium">전화주문</span>;
-                        if (o.sales_channel === "group") return <span className="px-1.5 py-0.5 rounded bg-pink-100 text-pink-700 font-medium">공구주문</span>;
-                        if (!o.stores?.name) return <span className="text-gray-300">-</span>;
-                        return <span className="px-1.5 py-0.5 rounded bg-blue-100 text-blue-700 font-medium">자사몰</span>;
-                      })()}
-                    </td>
-                    {/* 판매사 — 클릭 시 인라인 편집 (실제 store 선택) */}
-                    <td
-                      className="px-2 py-2.5 text-xs whitespace-nowrap cursor-pointer hover:bg-gray-100/60"
-                      onClick={(e) => { e.stopPropagation(); if (!editingCell || editingCell.orderId !== o.id || editingCell.field !== "store") setEditingCell({ orderId: o.id, field: "store" }); }}
-                      title="클릭해서 판매사 수정"
-                    >
-                      {editingCell?.orderId === o.id && editingCell.field === "store" ? (
-                        <select
-                          autoFocus
-                          defaultValue={stores.find((s) => s.name === o.stores?.name)?.id || ""}
-                          onClick={(e) => e.stopPropagation()}
-                          onChange={(e) => saveCellEdit(o.id, "store", e.target.value)}
-                          onBlur={() => setEditingCell(null)}
-                          className="text-xs border border-gray-400 rounded px-1 py-0.5 bg-white max-w-[180px]"
-                        >
-                          <option value="" disabled>판매사 선택</option>
-                          {stores
-                            .filter((s) => !["전화주문", "공구주문", "엑셀등록", "수기주문"].includes(s.name))
-                            .map((s) => (<option key={s.id} value={s.id}>{s.name}</option>))}
-                        </select>
-                      ) : (() => {
-                        const name = o.stores?.name || "";
-                        const isPseudo = name === "전화주문" || name === "공구주문";
-                        if (!name || isPseudo) return <span className="text-gray-400 italic">- (클릭해서 지정)</span>;
-                        const isManual = o.stores?.mall_id?.startsWith("manual_") || o.stores?.mall_id?.startsWith("excel_");
-                        return isManual
-                          ? <span className="px-1.5 py-0.5 rounded bg-amber-50 text-amber-700 font-medium">{name}</span>
-                          : <span className="text-gray-500">{name}</span>;
-                      })()}
-                    </td>
-                    <td className="px-2 py-2.5 whitespace-nowrap">
-                      {o.suppliers?.name ? (
-                        <span className="text-xs text-gray-700">{o.suppliers.name}</span>
-                      ) : (
-                        <span className="text-[11px] text-red-400 font-medium">미배정</span>
-                      )}
-                    </td>
-                    <td className="px-2 py-2.5 text-right text-gray-700">{o.quantity}</td>
-                    <td className="px-2 py-2.5 text-right text-gray-700 whitespace-nowrap">₩{o.order_amount.toLocaleString()}</td>
-                    <td className="px-2 py-2.5 text-center">
-                      {(() => {
-                        const isPaid = o.shipping_status !== "pending" && o.shipping_status !== "cancelled";
-                        const isCancelled = o.shipping_status === "cancelled";
-                        const isPhone = o.sales_channel === "phone" || o.stores?.name === "전화주문";
-                        if (isCancelled) return <span className="text-[10px] text-gray-300">-</span>;
-                        return (
-                          <button
-                            onClick={async (e) => {
-                              e.stopPropagation();
-                              const newStatus = isPaid ? "pending" : "ordered";
-                              const label = isPaid ? "입금전으로 되돌림" : "입금확인 처리";
-                              const extra = isPhone && !isPaid ? "\n\n(전화주문 — 계좌이체 입금 확인 후 진행)" : "";
-                              if (!confirm(`${label}하시겠습니까?${extra}`)) return;
-                              await fetch("/admin/api/orders", {
-                                method: "PATCH",
-                                headers: { "Content-Type": "application/json" },
-                                body: JSON.stringify({ ids: [o.id], updates: { shipping_status: newStatus } }),
-                              });
-                              fetchOrders();
-                            }}
-                            className={`text-[11px] font-medium px-2 py-0.5 rounded-full border cursor-pointer transition-colors ${
-                              isPaid
-                                ? "bg-green-100 text-green-700 border-green-300 hover:bg-green-200"
-                                : isPhone
-                                  ? "bg-amber-50 text-amber-700 border-amber-300 hover:bg-amber-100"
-                                  : "bg-red-50 text-red-600 border-red-300 hover:bg-red-100"
-                            }`}
-                            title={isPhone
-                              ? (isPaid ? "전화주문(계좌이체) — 클릭 시 입금전으로 되돌림" : "전화주문(계좌이체) — 입금 확인 후 클릭")
-                              : (isPaid ? "클릭하면 입금전으로 되돌림" : "클릭하면 입금확인 처리")}
-                          >
-                            {isPaid ? "✓ 완료" : isPhone ? "💰 계좌이체 대기" : "✗ 입금전"}
-                          </button>
-                        );
-                      })()}
-                    </td>
-                    <td className="px-2 py-2.5 whitespace-nowrap">
-                      {o.tracking_number ? (
-                        <div>
-                          <span className="text-[11px] text-gray-500">{o.shipping_company}</span>
-                          <span className="text-xs text-gray-700 ml-1">{o.tracking_number}</span>
-                          {!o.cafe24_shipping_synced && <span className="text-[10px] text-orange-500 ml-1">미연동</span>}
-                        </div>
-                      ) : noTrack ? (
-                        <span className="text-[11px] text-red-400">미입력</span>
-                      ) : (
-                        <span className="text-gray-300">-</span>
-                      )}
-                    </td>
-                    <td className="px-2 py-2.5 text-center">
-                      {(() => {
-                        const ps = derivePOStatus(o);
-                        return ps.label ? (
-                          <span className={`text-[11px] font-medium ${ps.style}`}>{ps.label}</span>
-                        ) : (
-                          <span className="text-gray-300">-</span>
-                        );
-                      })()}
-                    </td>
-                    <td className="px-2 py-2.5 text-center">
-                      <span className={`text-[11px] font-medium px-1.5 py-0.5 rounded-full ${STATUS_STYLE[o.shipping_status] || STATUS_STYLE.pending}`}>
-                        {STATUS_LABEL[o.shipping_status] || o.shipping_status}
-                      </span>
-                    </td>
-                    <td className="px-3 py-2.5 text-xs text-gray-400 text-right whitespace-nowrap">{formatDate(o.order_date)}</td>
-                  </tr>
-                );
-              })}
+              {pagedOrders.map((o, idx) => (
+                <OrderRow
+                  key={o.id}
+                  o={o}
+                  idx={page * PAGE_SIZE + idx}
+                  displayedCount={stats.displayed}
+                  isSelected={selected.has(o.id)}
+                  toggleSelect={toggleSelect}
+                  editingCell={editingCell}
+                  setEditingCell={setEditingCell}
+                  saveCellEdit={saveCellEdit}
+                  stores={stores}
+                  fetchOrders={fetchOrders}
+                />
+              ))}
             </tbody>
           </table>
+
+          {/* 페이지네이션 */}
+          {totalPages > 1 && (
+            <div className="flex items-center justify-between px-4 py-3 border-t border-gray-100">
+              <span className="text-xs text-gray-500">
+                {page * PAGE_SIZE + 1}~{Math.min((page + 1) * PAGE_SIZE, orders.length)} / {orders.length}건
+              </span>
+              <div className="flex items-center gap-1">
+                <button
+                  onClick={() => setPage(0)}
+                  disabled={page === 0}
+                  className="px-2 py-1 text-xs border border-gray-300 rounded hover:bg-gray-50 disabled:opacity-30 disabled:cursor-default cursor-pointer"
+                >«</button>
+                <button
+                  onClick={() => setPage((p) => Math.max(0, p - 1))}
+                  disabled={page === 0}
+                  className="px-2 py-1 text-xs border border-gray-300 rounded hover:bg-gray-50 disabled:opacity-30 disabled:cursor-default cursor-pointer"
+                >‹</button>
+                {Array.from({ length: totalPages }, (_, i) => i)
+                  .filter((i) => i === 0 || i === totalPages - 1 || Math.abs(i - page) <= 2)
+                  .reduce<(number | "...")[]>((acc, i, idx, arr) => {
+                    if (idx > 0 && i - (arr[idx - 1] as number) > 1) acc.push("...");
+                    acc.push(i);
+                    return acc;
+                  }, [])
+                  .map((item, i) =>
+                    item === "..." ? (
+                      <span key={`dot-${i}`} className="px-1 text-xs text-gray-400">…</span>
+                    ) : (
+                      <button
+                        key={item}
+                        onClick={() => setPage(item as number)}
+                        className={`px-2.5 py-1 text-xs rounded cursor-pointer ${
+                          page === item ? "bg-[#C41E1E] text-white" : "border border-gray-300 hover:bg-gray-50"
+                        }`}
+                      >{(item as number) + 1}</button>
+                    )
+                  )}
+                <button
+                  onClick={() => setPage((p) => Math.min(totalPages - 1, p + 1))}
+                  disabled={page === totalPages - 1}
+                  className="px-2 py-1 text-xs border border-gray-300 rounded hover:bg-gray-50 disabled:opacity-30 disabled:cursor-default cursor-pointer"
+                >›</button>
+                <button
+                  onClick={() => setPage(totalPages - 1)}
+                  disabled={page === totalPages - 1}
+                  className="px-2 py-1 text-xs border border-gray-300 rounded hover:bg-gray-50 disabled:opacity-30 disabled:cursor-default cursor-pointer"
+                >»</button>
+              </div>
+            </div>
+          )}
+          </>
         )}
       </div>
 
