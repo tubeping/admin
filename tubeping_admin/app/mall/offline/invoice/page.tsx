@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 
 interface InvoiceOrder {
@@ -27,6 +27,14 @@ interface GroupedInvoice {
 }
 
 export default function InvoicePage() {
+  return (
+    <Suspense fallback={<div className="p-10 text-center text-gray-400">로딩 중...</div>}>
+      <InvoiceContent />
+    </Suspense>
+  );
+}
+
+function InvoiceContent() {
   const searchParams = useSearchParams();
   const ids = searchParams.get("ids")?.split(",") || [];
   const [groups, setGroups] = useState<GroupedInvoice[]>([]);
