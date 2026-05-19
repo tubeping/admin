@@ -23,17 +23,21 @@ interface GroupedInvoice {
   orders: InvoiceOrder[];
   totalQty: number;
   totalAmount: number;
+  totalMargin: number;
   totalShipping: number;
   grandTotal: number;
 }
 
-// v2 - purchase_price fix
 export default function InvoicePage() {
   return (
     <Suspense fallback={<div className="p-10 text-center text-gray-400">로딩 중...</div>}>
       <InvoiceContent />
     </Suspense>
   );
+}
+
+function calcMargin(o: InvoiceOrder) {
+  return ((o.supply_price - o.purchase_price) * o.quantity - o.shipping_cost) / 2;
 }
 
 function InvoiceContent() {
@@ -51,18 +55,48 @@ function InvoiceContent() {
       const allOrders: InvoiceOrder[] = data.orders || [];
       const filtered = allOrders.filter((o) => ids.includes(o.id));
 
-      // 전체를 하나의 명세서로 (공급받는자: 제이드상사 고정)
-      const group: GroupedInvoice = { client: null, orders: filtered, totalQty: 0, totalAmount: 0, totalShipping: 0, grandTotal: 0 };
+      const group: GroupedInvoice = { client: null, orders: filtered, totalQty: 0, totalAmount: 0, totalMargin: 0, totalShipping: 0, grandTotal: 0 };
       for (const o of filtered) {
+        const margin = calcMargin(o);
+        const supply = o.purchase_price * o.quantity;
         group.totalQty += o.quantity;
-        group.totalAmount += o.purchase_price * o.quantity; // 매입가 기준
+        group.totalAmount += supply;
+        group.totalMargin += margin;
         group.totalShipping += o.shipping_cost;
-        group.grandTotal += o.purchase_price * o.quantity + o.shipping_cost;
       }
+      group.grandTotal = group.totalAmount + group.totalMargin;
       setGroups([group]);
       setLoading(false);
     })();
   }, []);
+
+  const downloadExcel = (g: GroupedInvoice) => {
+    const header = ["No", "품명", "수량", "단가", "마진", "공급가액", "비고"];
+    const rows = g.orders.map((o, i) => [
+      i + 1,
+      o.product_name + (o.option_text ? ` (${o.option_text})` : ""),
+      o.quantity,
+      o.purchase_price,
+      Math.round(calcMargin(o)),
+      o.purchase_price * o.quantity,
+      (o.offline_clients?.name || "") + (o.memo ? ` / ${o.memo}` : ""),
+    ]);
+    if (g.totalShipping > 0) {
+      rows.push([g.orders.length + 1, "배송비", 1, g.totalShipping, "", g.totalShipping, ""]);
+    }
+    rows.push(["", "합 계", g.totalQty, "", Math.round(g.totalMargin), Math.round(g.grandTotal), ""]);
+
+    const BOM = "\uFEFF";
+    const csv = BOM + [header, ...rows].map((r) => r.map((c) => `"${c}"`).join(",")).join("\n");
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    const today = new Date().toISOString().slice(0, 10);
+    a.href = url;
+    a.download = `거래명세서_${today}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
 
   if (loading) return <div className="p-10 text-center text-gray-400">로딩 중...</div>;
   if (groups.length === 0) return <div className="p-10 text-center text-gray-400">선택된 주문이 없습니다</div>;
@@ -85,6 +119,10 @@ function InvoiceContent() {
       `}</style>
 
       <div className="no-print fixed top-4 right-4 z-50 flex gap-2">
+        <button onClick={() => groups[0] && downloadExcel(groups[0])}
+          className="px-4 py-2 bg-green-600 text-white text-sm font-medium rounded-lg hover:bg-green-700 cursor-pointer shadow-lg">
+          엑셀 다운로드
+        </button>
         <button onClick={() => window.print()}
           className="px-4 py-2 bg-[#C41E1E] text-white text-sm font-medium rounded-lg hover:bg-[#A01818] cursor-pointer shadow-lg">
           인쇄하기
@@ -168,7 +206,7 @@ function InvoiceContent() {
             <div className="text-sm text-gray-600">거래일자: <span className="font-medium text-gray-900">{dateStr}</span></div>
             <div className="text-right">
               <span className="text-sm text-gray-600 mr-2">합계금액</span>
-              <span className="text-xl font-bold text-gray-900">₩{g.grandTotal.toLocaleString()}</span>
+              <span className="text-xl font-bold text-gray-900">₩{Math.round(g.grandTotal).toLocaleString()}</span>
             </div>
           </div>
 
@@ -187,7 +225,7 @@ function InvoiceContent() {
             </thead>
             <tbody>
               {g.orders.map((o, oi) => {
-                const margin = ((o.supply_price - o.purchase_price) * o.quantity - o.shipping_cost) / 2;
+                const margin = calcMargin(o);
                 return (
                 <tr key={o.id}>
                   <td className="border border-gray-300 px-2 py-1.5 text-center">{oi + 1}</td>
@@ -197,7 +235,7 @@ function InvoiceContent() {
                   </td>
                   <td className="border border-gray-300 px-2 py-1.5 text-right">{o.quantity}</td>
                   <td className="border border-gray-300 px-2 py-1.5 text-right">₩{o.purchase_price.toLocaleString()}</td>
-                  <td className="border border-gray-300 px-2 py-1.5 text-right">₩{margin.toLocaleString()}</td>
+                  <td className="border border-gray-300 px-2 py-1.5 text-right">₩{Math.round(margin).toLocaleString()}</td>
                   <td className="border border-gray-300 px-2 py-1.5 text-right font-medium">₩{(o.purchase_price * o.quantity).toLocaleString()}</td>
                   <td className="border border-gray-300 px-2 py-1.5 text-xs text-center">{o.offline_clients?.name || ""}{o.memo ? ` / ${o.memo}` : ""}</td>
                 </tr>
@@ -233,8 +271,8 @@ function InvoiceContent() {
                 <td colSpan={2} className="border border-gray-400 px-2 py-2 text-center">합 계</td>
                 <td className="border border-gray-400 px-2 py-2 text-right">{g.totalQty}</td>
                 <td className="border border-gray-400 px-2 py-2"></td>
-                <td className="border border-gray-400 px-2 py-2 text-right">₩{g.orders.reduce((s, o) => s + ((o.supply_price - o.purchase_price) * o.quantity - o.shipping_cost) / 2, 0).toLocaleString()}</td>
-                <td className="border border-gray-400 px-2 py-2 text-right">₩{g.grandTotal.toLocaleString()}</td>
+                <td className="border border-gray-400 px-2 py-2 text-right">₩{Math.round(g.totalMargin).toLocaleString()}</td>
+                <td className="border border-gray-400 px-2 py-2 text-right">₩{Math.round(g.grandTotal).toLocaleString()}</td>
                 <td className="border border-gray-400 px-2 py-2"></td>
               </tr>
             </tfoot>
