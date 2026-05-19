@@ -302,7 +302,7 @@ export default function OrdersPage() {
   const [searchKeyword, setSearchKeyword] = useState("");
 
   // 발주 상태 탭
-  const [poTab, setPoTab] = useState<"all" | "no_po" | "has_po" | "sample">("all");
+  const [poTab, setPoTab] = useState<"all" | "no_po" | "has_po">("all");
 
   // 드래그앤드롭
   const [isDragging, setIsDragging] = useState(false);
@@ -441,10 +441,8 @@ export default function OrdersPage() {
     return rawOrders.filter((o) => {
       if (filterNoTracking && (o.tracking_number || o.shipping_status === "cancelled" || o.shipping_status === "delivered")) return false;
       if ((filterNoSupplier || filterSupplier === "__none__") && o.supplier_id) return false;
-      if (poTab === "no_po" && (!o.supplier_id || o.purchase_order_id || o.tracking_number || o.shipping_status === "cancelled" || o.shipping_status === "delivered" || o.shipping_status === "pending" || o.sales_channel === "sample")) return false;
+      if (poTab === "no_po" && (!o.supplier_id || o.purchase_order_id || o.tracking_number || o.shipping_status === "cancelled" || o.shipping_status === "delivered" || o.shipping_status === "pending")) return false;
       if (poTab === "has_po" && !o.purchase_order_id) return false;
-      if (poTab === "sample" && o.sales_channel !== "sample") return false;
-      if (poTab !== "sample" && o.sales_channel === "sample") return false;
       if (kw && !(o.product_name?.toLowerCase().includes(kw) || o.cafe24_order_id?.toLowerCase().includes(kw) || o.buyer_name?.toLowerCase().includes(kw) || o.receiver_name?.toLowerCase().includes(kw))) return false;
       if (kOrderNo && !o.cafe24_order_id?.toLowerCase().includes(kOrderNo)) return false;
       if (kProduct && !(o.product_name?.toLowerCase().includes(kProduct) || o.option_text?.toLowerCase().includes(kProduct))) return false;
@@ -903,10 +901,10 @@ export default function OrdersPage() {
       <div className="flex items-center gap-2 mb-3 flex-wrap">
         {/* 발주 탭 */}
         <div className="flex border border-gray-300 rounded-lg overflow-hidden mr-2">
-          {([["all", "전체"], ["no_po", "미발주"], ["has_po", "발주완료"], ["sample", "샘플"]] as const).map(([key, label]) => (
+          {([["all", "전체"], ["no_po", "미발주"], ["has_po", "발주완료"]] as const).map(([key, label]) => (
             <button key={key} onClick={() => setPoTab(key)}
               className={`px-3 py-1.5 text-xs font-medium cursor-pointer ${poTab === key ? "bg-[#C41E1E] text-white" : "bg-white text-gray-600 hover:bg-gray-50"}`}
-            >{label}{key === "no_po" && stats.noPO > 0 ? ` (${stats.noPO})` : ""}{key === "sample" && stats.sample > 0 ? ` (${stats.sample})` : ""}</button>
+            >{label}{key === "no_po" && stats.noPO > 0 ? ` (${stats.noPO})` : ""}</button>
           ))}
         </div>
 
