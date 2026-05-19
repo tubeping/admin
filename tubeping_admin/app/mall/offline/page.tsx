@@ -306,6 +306,28 @@ export default function OfflinePage() {
     setShowClientModal(true);
   };
 
+  // 인라인 수정 헬퍼
+  const handleInlineUpdate = async (orderId: string, field: string, value: unknown) => {
+    const order = orders.find((o) => o.id === orderId);
+    if (!order) return;
+    if ((order as Record<string, unknown>)[field] === value) return;
+
+    const updates: Record<string, unknown> = { [field]: value };
+    // 수량/공급가/판매가 변경 시 total_amount도 업데이트
+    if (field === "quantity" || field === "supply_price") {
+      const qty = field === "quantity" ? (value as number) : order.quantity;
+      const sp = field === "supply_price" ? (value as number) : order.supply_price;
+      updates.total_amount = sp * qty;
+    }
+
+    await fetch("/admin/api/offline-orders", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ids: [orderId], updates }),
+    });
+    fetchOrders();
+  };
+
   const allSelected = orders.length > 0 && orders.every((o) => selected.has(o.id));
 
   return (
@@ -469,6 +491,9 @@ export default function OfflinePage() {
               ) : orders.map((o, idx) => {
                 const margin = ((o.supply_price - o.purchase_price) * o.quantity - o.shipping_cost) / 2;
                 const marginRate = o.supply_price > 0 ? (margin / (o.supply_price * o.quantity) * 100).toFixed(1) : "0";
+                const inlineInputClass = "w-full text-xs border border-transparent hover:border-gray-300 focus:border-blue-400 focus:outline-none rounded px-1.5 py-0.5 bg-transparent";
+                const inlineNumClass = `${inlineInputClass} text-right`;
+                const handleKey = (e: React.KeyboardEvent) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); };
                 return (
                   <tr key={o.id} className={`border-b border-gray-100 hover:bg-gray-50 ${selected.has(o.id) ? "bg-blue-50" : ""}`}>
                     <td className="px-3 py-2.5 text-center">
@@ -480,57 +505,93 @@ export default function OfflinePage() {
                         }} className="w-3.5 h-3.5 cursor-pointer" />
                     </td>
                     <td className="px-3 py-2.5 text-gray-400">{orders.length - idx}</td>
+                    {/* 납품번호 */}
                     <td className="px-3 py-2.5">
                       <button onClick={() => openEditOrder(o)} className="text-blue-600 hover:underline cursor-pointer text-xs font-medium">
                         {o.order_number}
                       </button>
-                      <div className="text-[10px] text-gray-400">{o.order_date}</div>
+                      <div className="mt-0.5">
+                        <input type="date" defaultValue={o.order_date} key={`date-${o.id}-${o.order_date}`}
+                          className="text-[10px] text-gray-400 border border-transparent hover:border-gray-300 focus:border-blue-400 focus:outline-none rounded px-1 py-0 bg-transparent w-24"
+                          onBlur={(e) => handleInlineUpdate(o.id, "order_date", e.target.value)}
+                        />
+                      </div>
                     </td>
+                    {/* 거래처 */}
                     <td className="px-3 py-2.5 font-medium text-xs">제이드상사</td>
-                    <td className="px-3 py-2.5 text-xs">{o.offline_clients?.name || "-"}</td>
-                    <td className="px-3 py-2.5">
-                      <div className="font-medium text-xs">{o.product_name}</div>
-                      {o.option_text && <div className="text-[10px] text-gray-400">{o.option_text}</div>}
-                      {o.products?.tp_code && <div className="text-[10px] text-blue-500">{o.products.tp_code}</div>}
+                    {/* 실제납품처 */}
+                    <td className="px-3 py-2.5 text-xs">
+                      <select defaultValue={o.client_id} key={`client-${o.id}-${o.client_id}`}
+                        className="text-xs border border-transparent hover:border-gray-300 focus:border-blue-400 focus:outline-none rounded px-1 py-0.5 bg-transparent cursor-pointer w-full"
+                        onChange={(e) => handleInlineUpdate(o.id, "client_id", e.target.value)}>
+                        {clients.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                      </select>
                     </td>
-                    <td className="px-3 py-2.5 text-right">{o.quantity}</td>
-                    <td className="px-3 py-2.5 text-right text-gray-500">₩{o.purchase_price.toLocaleString()}</td>
-                    <td className="px-3 py-2.5 text-right">₩{o.supply_price.toLocaleString()}</td>
-                    <td className="px-3 py-2.5 text-right font-medium">₩{(o.purchase_price * o.quantity).toLocaleString()}</td>
+                    {/* 상품정보 */}
+                    <td className="px-3 py-2.5">
+                      <input type="text" defaultValue={o.product_name} key={`pname-${o.id}-${o.product_name}`}
+                        className={`${inlineInputClass} font-medium`}
+                        onBlur={(e) => handleInlineUpdate(o.id, "product_name", e.target.value)}
+                        onKeyDown={handleKey} />
+                      <input type="text" defaultValue={o.option_text || ""} key={`opt-${o.id}-${o.option_text}`}
+                        placeholder="옵션"
+                        className={`${inlineInputClass} text-[10px] text-gray-400 mt-0.5`}
+                        onBlur={(e) => handleInlineUpdate(o.id, "option_text", e.target.value)}
+                        onKeyDown={handleKey} />
+                      {o.products?.tp_code && <div className="text-[10px] text-blue-500 px-1.5">{o.products.tp_code}</div>}
+                    </td>
+                    {/* 수량 */}
+                    <td className="px-3 py-2.5">
+                      <input type="number" defaultValue={o.quantity} key={`qty-${o.id}-${o.quantity}`}
+                        className={`${inlineNumClass} w-16`} min={1}
+                        onBlur={(e) => handleInlineUpdate(o.id, "quantity", parseInt(e.target.value) || 1)}
+                        onKeyDown={handleKey} />
+                    </td>
+                    {/* 공급가 (매입가) */}
+                    <td className="px-3 py-2.5">
+                      <input type="number" defaultValue={o.purchase_price} key={`pp-${o.id}-${o.purchase_price}`}
+                        className={`${inlineNumClass} w-20 text-gray-500`} min={0}
+                        onBlur={(e) => handleInlineUpdate(o.id, "purchase_price", parseInt(e.target.value) || 0)}
+                        onKeyDown={handleKey} />
+                    </td>
+                    {/* 판매가 */}
+                    <td className="px-3 py-2.5">
+                      <input type="number" defaultValue={o.supply_price} key={`sp-${o.id}-${o.supply_price}`}
+                        className={`${inlineNumClass} w-20`} min={0}
+                        onBlur={(e) => handleInlineUpdate(o.id, "supply_price", parseInt(e.target.value) || 0)}
+                        onKeyDown={handleKey} />
+                    </td>
+                    {/* 납품금액 (자동계산: 공급가 × 수량) */}
+                    <td className="px-3 py-2.5 text-right font-medium text-xs">₩{(o.purchase_price * o.quantity).toLocaleString()}</td>
+                    {/* 마진 (자동계산) */}
                     <td className="px-3 py-2.5 text-right">
-                      <span className={margin >= 0 ? "text-green-600" : "text-red-500"}>
+                      <span className={`text-xs ${margin >= 0 ? "text-green-600" : "text-red-500"}`}>
                         ₩{margin.toLocaleString()}
                       </span>
                       <div className="text-[10px] text-gray-400">{marginRate}%</div>
                     </td>
-                    <td className="px-3 py-2.5 text-right">
-                      <input
-                        type="number"
-                        defaultValue={o.shipping_cost}
-                        key={`ship-${o.id}-${o.shipping_cost}`}
-                        className="w-20 text-xs text-right border border-transparent hover:border-gray-300 focus:border-blue-400 focus:outline-none rounded px-1.5 py-0.5 bg-transparent"
-                        min={0}
-                        onBlur={async (e) => {
-                          const val = parseInt(e.target.value) || 0;
-                          if (val === o.shipping_cost) return;
-                          await fetch("/admin/api/offline-orders", {
-                            method: "PATCH",
-                            headers: { "Content-Type": "application/json" },
-                            body: JSON.stringify({ ids: [o.id], updates: { shipping_cost: val } }),
-                          });
-                          fetchOrders();
-                        }}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter") (e.target as HTMLInputElement).blur();
-                        }}
-                      />
+                    {/* 택배비 */}
+                    <td className="px-3 py-2.5">
+                      <input type="number" defaultValue={o.shipping_cost} key={`ship-${o.id}-${o.shipping_cost}`}
+                        className={`${inlineNumClass} w-20`} min={0}
+                        onBlur={(e) => handleInlineUpdate(o.id, "shipping_cost", parseInt(e.target.value) || 0)}
+                        onKeyDown={handleKey} />
                     </td>
+                    {/* 배송 */}
                     <td className="px-3 py-2.5 text-center">
-                      <span className={`text-xs px-1.5 py-0.5 rounded ${o.shipping_method === "freight" ? "bg-orange-100 text-orange-700" : "bg-gray-100 text-gray-600"}`}>
-                        {SHIPPING_LABEL[o.shipping_method] || o.shipping_method}
-                      </span>
-                      {o.tracking_number && <div className="text-[10px] text-gray-400 mt-0.5">{o.tracking_number}</div>}
+                      <select defaultValue={o.shipping_method} key={`sm-${o.id}-${o.shipping_method}`}
+                        className={`text-xs px-1.5 py-0.5 rounded border-0 cursor-pointer ${o.shipping_method === "freight" ? "bg-orange-100 text-orange-700" : "bg-gray-100 text-gray-600"}`}
+                        onChange={(e) => handleInlineUpdate(o.id, "shipping_method", e.target.value)}>
+                        <option value="courier">택배</option>
+                        <option value="freight">용달</option>
+                      </select>
+                      <input type="text" defaultValue={o.tracking_number || ""} key={`tn-${o.id}-${o.tracking_number}`}
+                        placeholder="송장번호"
+                        className="text-[10px] text-gray-400 mt-0.5 w-24 border border-transparent hover:border-gray-300 focus:border-blue-400 focus:outline-none rounded px-1 py-0 bg-transparent text-center block mx-auto"
+                        onBlur={(e) => handleInlineUpdate(o.id, "tracking_number", e.target.value || null)}
+                        onKeyDown={handleKey} />
                     </td>
+                    {/* 상태 */}
                     <td className="px-3 py-2.5 text-center">
                       <select
                         value={o.status}
@@ -549,6 +610,7 @@ export default function OfflinePage() {
                         {Object.entries(STATUS_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
                       </select>
                     </td>
+                    {/* 입금 */}
                     <td className="px-3 py-2.5 text-center">
                       <button
                         className={`text-xs font-medium px-2 py-0.5 rounded cursor-pointer hover:opacity-70 ${o.payment_status === "paid" ? "bg-green-100 text-green-700" : "bg-red-50 text-red-500"}`}
@@ -569,7 +631,13 @@ export default function OfflinePage() {
                         {PAYMENT_LABEL[o.payment_status] || o.payment_status}
                       </button>
                     </td>
-                    <td className="px-3 py-2.5 text-xs text-gray-500">{o.order_date}</td>
+                    {/* 납품일 */}
+                    <td className="px-3 py-2.5">
+                      <input type="date" defaultValue={o.order_date} key={`odate-${o.id}-${o.order_date}`}
+                        className="text-xs text-gray-500 border border-transparent hover:border-gray-300 focus:border-blue-400 focus:outline-none rounded px-1 py-0.5 bg-transparent w-28"
+                        onBlur={(e) => handleInlineUpdate(o.id, "order_date", e.target.value)}
+                      />
+                    </td>
                   </tr>
                 );
               })}
