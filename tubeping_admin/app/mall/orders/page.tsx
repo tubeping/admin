@@ -422,13 +422,14 @@ export default function OrdersPage() {
     fetchOrders();
   }, [ocrResults, fetchOrders]);
 
-  // 드롭/붙여넣기 파일 분기 (엑셀 vs 이미지)
+  // 드롭/붙여넣기 파일 분기: 엑셀/CSV → 구조 파서, 나머지 → OCR(Gemini)
   const handleFileDrop = useCallback(async (file: File) => {
-    const isImage = file.type.startsWith("image/");
-    if (isImage) {
-      await handleImageOCR(file);
-    } else {
+    const ext = file.name?.split(".").pop()?.toLowerCase() || "";
+    const isSpreadsheet = ["csv", "xlsx", "xls"].includes(ext) || file.type === "text/csv" || file.type.includes("spreadsheet") || file.type.includes("excel");
+    if (isSpreadsheet) {
       await handleImportFile(file);
+    } else {
+      await handleImageOCR(file);
     }
   }, [handleImageOCR, handleImportFile]);
 
@@ -692,7 +693,7 @@ export default function OrdersPage() {
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
             </svg>
             <p className="text-lg font-semibold text-blue-700">파일을 여기에 놓으세요</p>
-            <p className="text-sm text-blue-500 mt-1">엑셀/CSV → 주문등록 | 이미지(스크린샷) → OCR 자동 인식</p>
+            <p className="text-sm text-blue-500 mt-1">엑셀/CSV → 주문등록 | 이미지·PDF·한글·워드 → AI 자동 인식</p>
           </div>
         </div>
       )}
@@ -937,14 +938,13 @@ export default function OrdersPage() {
           <div className="text-xs leading-relaxed">
             <span className="font-medium text-gray-700">{ocrProcessing ? "분석중..." : "파일 드래그 또는 클릭"}</span>
             <span className="flex items-center gap-1.5 text-[11px] text-gray-400 mt-0.5">
-              <span className="inline-flex items-center gap-0.5"><kbd className="px-1 py-px rounded bg-gray-100 text-[10px] font-mono">Ctrl</kbd>+<kbd className="px-1 py-px rounded bg-gray-100 text-[10px] font-mono">V</kbd> 스크린샷 붙여넣기 가능</span>
+              이미지 · PDF · 엑셀 · 한글 · <kbd className="px-1 py-px rounded bg-gray-100 text-[10px] font-mono">Ctrl</kbd>+<kbd className="px-1 py-px rounded bg-gray-100 text-[10px] font-mono">V</kbd> 붙여넣기
             </span>
           </div>
-          <input type="file" accept="image/*,.csv,.xlsx,.xls" className="hidden" disabled={ocrProcessing} onChange={async (e) => {
+          <input type="file" accept="image/*,.csv,.xlsx,.xls,.pdf,.doc,.docx,.hwp,.hwpx,.txt" className="hidden" disabled={ocrProcessing} onChange={async (e) => {
             const file = e.target.files?.[0];
             if (!file) return;
-            if (file.type.startsWith("image/")) await handleImageOCR(file);
-            else await handleImportFile(file);
+            await handleFileDrop(file);
             e.target.value = "";
           }} />
         </label>

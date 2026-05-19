@@ -3,11 +3,11 @@ import { GoogleGenerativeAI, SchemaType } from "@google/generative-ai";
 import { env } from "@/lib/env.server";
 
 /**
- * POST /api/orders/ocr-import — 이미지(스크린샷)에서 주문 데이터 추출
+ * POST /api/orders/ocr-import — 파일에서 주문 데이터 추출 (OCR/문서 분석)
  *
- * FormData: image (File — png/jpg/webp)
+ * FormData: image (File — 이미지/PDF/DOCX/XLSX/HWP/TXT 등)
  *
- * Gemini Vision으로 테이블/주문 정보를 읽어 JSON 배열로 반환.
+ * Gemini로 테이블/주문 정보를 읽어 JSON 배열로 반환.
  * 클라이언트에서 확인 후 /api/orders/import 또는 /api/orders/phone-order로 등록.
  */
 
@@ -63,12 +63,25 @@ export async function POST(request: NextRequest) {
   const image = formData.get("image") as File | null;
 
   if (!image) {
-    return NextResponse.json({ error: "이미지가 없습니다" }, { status: 400 });
+    return NextResponse.json({ error: "파일이 없습니다" }, { status: 400 });
   }
 
-  const validTypes = ["image/png", "image/jpeg", "image/webp", "image/gif"];
-  if (!validTypes.includes(image.type)) {
-    return NextResponse.json({ error: "png, jpg, webp, gif 이미지만 지원합니다" }, { status: 400 });
+  const validTypes = [
+    "image/png", "image/jpeg", "image/webp", "image/gif", "image/heic", "image/heif",
+    "application/pdf",
+    "text/plain", "text/html", "text/csv",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",  // docx
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",        // xlsx
+    "application/msword",                                                        // doc
+    "application/vnd.ms-excel",                                                  // xls
+    "application/haansofthwp",                                                   // hwp
+    "application/x-hwp",                                                         // hwp (alt)
+  ];
+  // MIME이 없거나 알 수 없는 경우 확장자로 판단
+  const ext = image.name?.split(".").pop()?.toLowerCase() || "";
+  const extAllowed = ["png","jpg","jpeg","webp","gif","heic","heif","pdf","txt","html","csv","doc","docx","xls","xlsx","hwp","hwpx"];
+  if (!validTypes.includes(image.type) && !extAllowed.includes(ext)) {
+    return NextResponse.json({ error: `지원하지 않는 파일 형식입니다 (${image.type || ext})` }, { status: 400 });
   }
 
   if (!env.GEMINI_API_KEY) {
@@ -90,9 +103,10 @@ export async function POST(request: NextRequest) {
       systemInstruction: SYSTEM,
     });
 
+    const mimeType = image.type || (ext === "pdf" ? "application/pdf" : ext === "hwp" ? "application/haansofthwp" : "application/octet-stream");
     const result = await model.generateContent([
-      { inlineData: { mimeType: image.type, data: base64 } },
-      "이 이미지에서 주문 데이터를 추출해주세요.",
+      { inlineData: { mimeType, data: base64 } },
+      "이 파일에서 주문 데이터를 추출해주세요.",
     ]);
 
     const raw = result.response.text();
