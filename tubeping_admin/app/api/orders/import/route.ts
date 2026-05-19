@@ -15,8 +15,7 @@ export async function POST(request: NextRequest) {
   const file = formData.get("file") as File;
   const storeId = formData.get("store_id") as string | null;
   const storeName = formData.get("store_name") as string | null;
-  const isSample = formData.get("is_sample") === "true";
-  // 판매방식 (전화주문/공구주문) — store와 별개. 'phone' | 'group' | null
+  // 판매방식 (전화주문/공구주문/샘플) — store와 별개. 'phone' | 'group' | 'sample' | null
   const salesChannelRaw = (formData.get("sales_channel") as string | null) || null;
   const salesChannel = salesChannelRaw === "phone" || salesChannelRaw === "group" || salesChannelRaw === "sample" ? salesChannelRaw : null;
 
@@ -237,7 +236,7 @@ export async function POST(request: NextRequest) {
         // 상태 컬럼 없으면: 수기/전화/ACTs 등 외부 플랫폼은 이미 결제완료 상태로 오므로 ordered
         return "ordered";
       })(),
-      is_sample: isSample,
+      is_sample: salesChannel === "sample",
       sales_channel: salesChannel,
     };
 
@@ -259,7 +258,7 @@ export async function POST(request: NextRequest) {
         receiver_address: row.receiver_address,
         receiver_zipcode: row.receiver_zipcode,
         memo: row.memo,
-        is_sample: row.is_sample,
+        is_sample: row.sales_channel === "sample",
         sales_channel: row.sales_channel,
       };
       const r = await sb.from("orders").update(updateFields)

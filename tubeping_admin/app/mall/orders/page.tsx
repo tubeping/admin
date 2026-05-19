@@ -270,7 +270,7 @@ export default function OrdersPage() {
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(0);
-  const sampleCount = useMemo(() => rawOrders.filter((o) => o.is_sample).length, [rawOrders]);
+  const sampleCount = useMemo(() => rawOrders.filter((o) => o.sales_channel === "sample").length, [rawOrders]);
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
   const [ocrProcessing, setOcrProcessing] = useState(false);
@@ -345,8 +345,8 @@ export default function OrdersPage() {
     fd.append("file", file);
     if (sel.value.startsWith("id:")) fd.append("store_id", sel.value.slice(3));
     else fd.append("store_name", sel.value.slice(5));
-    if (sampleEl?.checked) fd.append("is_sample", "true");
-    if (phoneEl?.checked) fd.append("sales_channel", "phone");
+    if (sampleEl?.checked) fd.append("sales_channel", "sample");
+    else if (phoneEl?.checked) fd.append("sales_channel", "phone");
     else if (groupEl?.checked) fd.append("sales_channel", "group");
     const res = await fetch("/admin/api/orders/import", { method: "POST", body: fd });
     const data = await res.json();
@@ -441,10 +441,10 @@ export default function OrdersPage() {
     return rawOrders.filter((o) => {
       if (filterNoTracking && (o.tracking_number || o.shipping_status === "cancelled" || o.shipping_status === "delivered")) return false;
       if ((filterNoSupplier || filterSupplier === "__none__") && o.supplier_id) return false;
-      if (poTab === "no_po" && (!o.supplier_id || o.purchase_order_id || o.tracking_number || o.shipping_status === "cancelled" || o.shipping_status === "delivered" || o.shipping_status === "pending" || o.is_sample)) return false;
+      if (poTab === "no_po" && (!o.supplier_id || o.purchase_order_id || o.tracking_number || o.shipping_status === "cancelled" || o.shipping_status === "delivered" || o.shipping_status === "pending" || o.sales_channel === "sample")) return false;
       if (poTab === "has_po" && !o.purchase_order_id) return false;
-      if (poTab === "sample" && !o.is_sample) return false;
-      if (poTab !== "sample" && o.is_sample) return false;
+      if (poTab === "sample" && o.sales_channel !== "sample") return false;
+      if (poTab !== "sample" && o.sales_channel === "sample") return false;
       if (kw && !(o.product_name?.toLowerCase().includes(kw) || o.cafe24_order_id?.toLowerCase().includes(kw) || o.buyer_name?.toLowerCase().includes(kw) || o.receiver_name?.toLowerCase().includes(kw))) return false;
       if (kOrderNo && !o.cafe24_order_id?.toLowerCase().includes(kOrderNo)) return false;
       if (kProduct && !(o.product_name?.toLowerCase().includes(kProduct) || o.option_text?.toLowerCase().includes(kProduct))) return false;
@@ -660,7 +660,7 @@ export default function OrdersPage() {
       if (o.shipping_status === "pending") pending++;
       if (!o.tracking_number && !notActive(o.shipping_status)) noTracking++;
       if (!o.supplier_id && !notActive(o.shipping_status)) noSupplier++;
-      if (!o.purchase_order_id && !o.tracking_number && o.supplier_id && !notActive(o.shipping_status) && o.shipping_status !== "pending" && !o.is_sample) noPO++;
+      if (!o.purchase_order_id && !o.tracking_number && o.supplier_id && !notActive(o.shipping_status) && o.shipping_status !== "pending" && o.sales_channel !== "sample") noPO++;
       if (o.tracking_number && !o.cafe24_shipping_synced) unsynced++;
     }
     return { total, displayed: orders.length, pending, noTracking, noSupplier, noPO, unsynced, totalQty, totalAmount, sample: sampleCount };
@@ -950,13 +950,22 @@ export default function OrdersPage() {
         {/* 엑셀 등록 */}
         <div className="flex items-center gap-2">
           <label className="flex items-center gap-1 text-xs text-gray-600 cursor-pointer select-none">
-            <input id="import-is-sample" type="checkbox" className="w-3.5 h-3.5 cursor-pointer" />
-            샘플로 등록
+            <input id="import-is-sample" type="checkbox" className="w-3.5 h-3.5 cursor-pointer" onChange={(e) => {
+              if (e.target.checked) {
+                const phoneEl = document.getElementById("import-is-phone") as HTMLInputElement;
+                const groupEl = document.getElementById("import-is-group") as HTMLInputElement;
+                if (phoneEl) phoneEl.checked = false;
+                if (groupEl) groupEl.checked = false;
+              }
+            }} />
+            <span className="px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 font-medium">샘플주문</span>
           </label>
           <label className="flex items-center gap-1 text-xs text-gray-600 cursor-pointer select-none">
             <input id="import-is-phone" type="checkbox" className="w-3.5 h-3.5 cursor-pointer" onChange={(e) => {
               if (e.target.checked) {
+                const sampleEl = document.getElementById("import-is-sample") as HTMLInputElement;
                 const groupEl = document.getElementById("import-is-group") as HTMLInputElement;
+                if (sampleEl) sampleEl.checked = false;
                 if (groupEl) groupEl.checked = false;
               }
             }} />
@@ -965,7 +974,9 @@ export default function OrdersPage() {
           <label className="flex items-center gap-1 text-xs text-gray-600 cursor-pointer select-none">
             <input id="import-is-group" type="checkbox" className="w-3.5 h-3.5 cursor-pointer" onChange={(e) => {
               if (e.target.checked) {
+                const sampleEl = document.getElementById("import-is-sample") as HTMLInputElement;
                 const phoneEl = document.getElementById("import-is-phone") as HTMLInputElement;
+                if (sampleEl) sampleEl.checked = false;
                 if (phoneEl) phoneEl.checked = false;
               }
             }} />
