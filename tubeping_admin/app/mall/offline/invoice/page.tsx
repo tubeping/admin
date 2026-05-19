@@ -2,6 +2,7 @@
 
 import { useState, useEffect, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
+import * as XLSX from "xlsx";
 
 interface InvoiceOrder {
   id: string;
@@ -71,28 +72,66 @@ function InvoiceContent() {
   }, []);
 
   const downloadExcel = (g: GroupedInvoice) => {
-    const header = ["No", "품명", "수량", "단가", "마진", "공급가액", "비고"];
-    const rows = g.orders.map((o, i) => [
-      i + 1,
-      o.product_name + (o.option_text ? ` (${o.option_text})` : ""),
-      o.quantity,
-      o.purchase_price,
-      Math.round(calcMargin(o)),
-      o.purchase_price * o.quantity,
-      (o.offline_clients?.name || "") + (o.memo ? ` / ${o.memo}` : ""),
-    ]);
-    rows.push(["", "합 계", g.totalQty, "", Math.round(g.totalMargin), Math.round(g.grandTotal), ""]);
+    const wb = XLSX.utils.book_new();
+    const rows: (string | number)[][] = [];
+    const merges: XLSX.Range[] = [];
 
-    const BOM = "\uFEFF";
-    const csv = BOM + [header, ...rows].map((r) => r.map((c) => `"${c}"`).join(",")).join("\n");
-    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    const today = new Date().toISOString().slice(0, 10);
-    a.href = url;
-    a.download = `거래명세서_${today}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
+    // 제목
+    rows.push(["거 래 명 세 서"]);
+    merges.push({ s: { r: 0, c: 0 }, e: { r: 0, c: 6 } });
+    rows.push([]);
+
+    // 공급받는자 / 공급자
+    rows.push(["[공급받는자]", "", "", "", "[공급자]", "", ""]);
+    rows.push(["상 호", "제이드상사", "", "", "상 호", "(주)신산애널리틱스", ""]);
+    rows.push(["대표자", "엄정호", "", "", "대표자", "최준", ""]);
+    rows.push(["사업자번호", "607-18-66827", "", "", "사업자번호", "352-81-03270", ""]);
+    rows.push(["주 소", "부산광역시 동래구 충렬대로95번길 18(온천동)", "", "", "주 소", "서울특별시 마포구 마포대로 127, 1826호", ""]);
+    rows.push(["업 태", "도소매 / 전자상거래업", "", "", "업 태", "도매 및 소매업 / 전자상거래 소매업", ""]);
+    rows.push([]);
+
+    // 거래일자 & 합계금액
+    const todayStr = new Date().toISOString().slice(0, 10);
+    rows.push(["거래일자:", todayStr, "", "", "합계금액:", Math.round(g.grandTotal), ""]);
+    rows.push([]);
+
+    // 품목 헤더
+    const headerRow = rows.length;
+    rows.push(["No", "품 명", "수량", "단 가", "마 진", "공급가액", "비 고"]);
+
+    // 품목 데이터
+    g.orders.forEach((o, i) => {
+      const margin = Math.round(calcMargin(o));
+      rows.push([
+        i + 1,
+        o.product_name + (o.option_text ? ` (${o.option_text})` : ""),
+        o.quantity,
+        o.purchase_price,
+        margin,
+        o.purchase_price * o.quantity,
+        (o.offline_clients?.name || "") + (o.memo ? ` / ${o.memo}` : ""),
+      ]);
+    });
+
+    // 합계
+    rows.push(["", "합 계", g.totalQty, "", Math.round(g.totalMargin), g.totalAmount, ""]);
+
+    const ws = XLSX.utils.aoa_to_sheet(rows);
+    ws["!merges"] = merges;
+
+    // 열 너비
+    ws["!cols"] = [
+      { wch: 6 },  // No
+      { wch: 28 }, // 품명
+      { wch: 8 },  // 수량
+      { wch: 12 }, // 단가
+      { wch: 12 }, // 마진
+      { wch: 14 }, // 공급가액
+      { wch: 24 }, // 비고
+    ];
+
+    XLSX.utils.book_append_sheet(wb, ws, "거래명세서");
+    XLSX.writeFile(wb, `거래명세서_${todayStr}.xlsx`);
   };
 
   if (loading) return <div className="p-10 text-center text-gray-400">로딩 중...</div>;
