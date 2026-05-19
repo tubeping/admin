@@ -64,7 +64,7 @@ function InvoiceContent() {
         group.totalMargin += margin;
         group.totalShipping += o.shipping_cost;
       }
-      group.grandTotal = group.totalAmount + group.totalMargin;
+      group.grandTotal = group.totalAmount + group.totalMargin; // 공급가액 합계 + 마진 합계
       setGroups([group]);
       setLoading(false);
     })();
@@ -81,9 +81,6 @@ function InvoiceContent() {
       o.purchase_price * o.quantity,
       (o.offline_clients?.name || "") + (o.memo ? ` / ${o.memo}` : ""),
     ]);
-    if (g.totalShipping > 0) {
-      rows.push([g.orders.length + 1, "배송비", 1, g.totalShipping, "", g.totalShipping, ""]);
-    }
     rows.push(["", "합 계", g.totalQty, "", Math.round(g.totalMargin), Math.round(g.grandTotal), ""]);
 
     const BOM = "\uFEFF";
@@ -241,20 +238,8 @@ function InvoiceContent() {
                 </tr>
                 );
               })}
-              {/* 배송비 행 */}
-              {g.totalShipping > 0 && (
-                <tr>
-                  <td className="border border-gray-300 px-2 py-1.5 text-center">{g.orders.length + 1}</td>
-                  <td className="border border-gray-300 px-2 py-1.5">배송비</td>
-                  <td className="border border-gray-300 px-2 py-1.5 text-right">1</td>
-                  <td className="border border-gray-300 px-2 py-1.5 text-right">₩{g.totalShipping.toLocaleString()}</td>
-                  <td className="border border-gray-300 px-2 py-1.5"></td>
-                  <td className="border border-gray-300 px-2 py-1.5 text-right font-medium">₩{g.totalShipping.toLocaleString()}</td>
-                  <td className="border border-gray-300 px-2 py-1.5"></td>
-                </tr>
-              )}
               {/* 빈 행 채우기 (최소 10행) */}
-              {Array.from({ length: Math.max(0, 10 - g.orders.length - (g.totalShipping > 0 ? 1 : 0)) }).map((_, i) => (
+              {Array.from({ length: Math.max(0, 10 - g.orders.length) }).map((_, i) => (
                 <tr key={`empty-${i}`}>
                   <td className="border border-gray-300 px-2 py-1.5">&nbsp;</td>
                   <td className="border border-gray-300 px-2 py-1.5"></td>
