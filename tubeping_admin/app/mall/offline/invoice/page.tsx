@@ -15,6 +15,11 @@ interface InvoiceOrder {
   supply_price: number;
   total_amount: number;
   shipping_cost: number;
+  shipping_method: string;
+  shipping_company: string | null;
+  tracking_number: string | null;
+  status: string;
+  payment_status: string;
   memo: string | null;
   offline_clients: { id: string; name: string; contact_name: string | null; phone: string | null; address: string | null; business_no: string | null } | null;
 }
@@ -24,10 +29,20 @@ interface GroupedInvoice {
   orders: InvoiceOrder[];
   totalQty: number;
   totalAmount: number;
+  totalSales: number;
   totalMargin: number;
   totalShipping: number;
   grandTotal: number;
 }
+
+const STATUS_LABEL: Record<string, string> = {
+  pending: "대기", confirmed: "확정", shipped: "출고", delivered: "납품완료", cancelled: "취소",
+};
+const STATUS_STYLE: Record<string, string> = {
+  pending: "text-gray-600", confirmed: "text-blue-700", shipped: "text-yellow-700", delivered: "text-green-700", cancelled: "text-red-600",
+};
+const PAYMENT_LABEL: Record<string, string> = { unpaid: "미입금", paid: "입금완료" };
+const SHIPPING_LABEL: Record<string, string> = { courier: "택배", freight: "용달" };
 
 export default function InvoicePage() {
   return (
@@ -56,16 +71,16 @@ function InvoiceContent() {
       const allOrders: InvoiceOrder[] = data.orders || [];
       const filtered = allOrders.filter((o) => ids.includes(o.id));
 
-      const group: GroupedInvoice = { client: null, orders: filtered, totalQty: 0, totalAmount: 0, totalMargin: 0, totalShipping: 0, grandTotal: 0 };
+      const group: GroupedInvoice = { client: null, orders: filtered, totalQty: 0, totalAmount: 0, totalSales: 0, totalMargin: 0, totalShipping: 0, grandTotal: 0 };
       for (const o of filtered) {
         const margin = calcMargin(o);
-        const supply = o.purchase_price * o.quantity;
         group.totalQty += o.quantity;
-        group.totalAmount += supply;
+        group.totalAmount += o.purchase_price * o.quantity;
+        group.totalSales += o.supply_price * o.quantity;
         group.totalMargin += margin;
         group.totalShipping += o.shipping_cost;
       }
-      group.grandTotal = group.totalAmount + group.totalMargin; // 공급가액 합계 + 마진 합계
+      group.grandTotal = group.totalAmount + group.totalMargin;
       setGroups([group]);
       setLoading(false);
     })();
@@ -97,37 +112,58 @@ function InvoiceContent() {
 
     // 품목 헤더
     const headerRow = rows.length;
-    rows.push(["No", "품 명", "수량", "단 가", "마 진", "공급가액", "비 고"]);
+    rows.push(["No", "납품번호", "거래처", "실제납품처", "상품정보", "수량", "공급가", "판매가", "납품금액", "마진", "택배비", "배송", "상태", "입금", "납품일"]);
 
     // 품목 데이터
     g.orders.forEach((o, i) => {
       const margin = Math.round(calcMargin(o));
+      const marginRate = o.supply_price > 0 ? ((margin / (o.supply_price * o.quantity)) * 100).toFixed(1) : "0";
       rows.push([
         i + 1,
+        o.order_number,
+        "제이드상사",
+        o.offline_clients?.name || "-",
         o.product_name + (o.option_text ? ` (${o.option_text})` : ""),
         o.quantity,
         o.purchase_price,
-        margin,
+        o.supply_price,
         o.purchase_price * o.quantity,
-        (o.offline_clients?.name || "") + (o.memo ? ` / ${o.memo}` : ""),
+        `${margin} (${marginRate}%)`,
+        o.shipping_cost,
+        SHIPPING_LABEL[o.shipping_method] || o.shipping_method,
+        STATUS_LABEL[o.status] || o.status,
+        PAYMENT_LABEL[o.payment_status] || o.payment_status,
+        o.order_date,
       ]);
     });
 
     // 합계
-    rows.push(["", "합 계", g.totalQty, "", Math.round(g.totalMargin), g.totalAmount, ""]);
+    rows.push(["", "", "", "", "합 계", g.totalQty, "", "", g.totalAmount, Math.round(g.totalMargin), g.totalShipping, "", "", "", ""]);
+
+    // 입금계좌
+    rows.push([]);
+    rows.push(["입금계좌: 신한은행 140-014-420770 (주)신산애널리틱스"]);
 
     const ws = XLSX.utils.aoa_to_sheet(rows);
     ws["!merges"] = merges;
 
     // 열 너비
     ws["!cols"] = [
-      { wch: 6 },  // No
-      { wch: 28 }, // 품명
+      { wch: 5 },  // No
+      { wch: 20 }, // 납품번호
+      { wch: 12 }, // 거래처
+      { wch: 16 }, // 실제납품처
+      { wch: 24 }, // 상품정보
       { wch: 8 },  // 수량
-      { wch: 12 }, // 단가
-      { wch: 12 }, // 마진
-      { wch: 14 }, // 공급가액
-      { wch: 24 }, // 비고
+      { wch: 10 }, // 공급가
+      { wch: 10 }, // 판매가
+      { wch: 14 }, // 납품금액
+      { wch: 14 }, // 마진
+      { wch: 10 }, // 택배비
+      { wch: 8 },  // 배송
+      { wch: 10 }, // 상태
+      { wch: 10 }, // 입금
+      { wch: 12 }, // 납품일
     ];
 
     XLSX.utils.book_append_sheet(wb, ws, "거래명세서");
@@ -151,7 +187,7 @@ function InvoiceContent() {
           aside, nav, [data-sidebar] { display: none !important; }
           main { margin-left: 0 !important; }
         }
-        @page { size: A4; margin: 15mm; }
+        @page { size: A4 landscape; margin: 10mm; }
       `}</style>
 
       <div className="no-print fixed top-4 right-4 z-50 flex gap-2">
@@ -170,7 +206,7 @@ function InvoiceContent() {
       </div>
 
       {groups.map((g, gi) => (
-        <div key={gi} className="invoice-page max-w-[210mm] mx-auto bg-white p-8" style={{ fontFamily: "'Noto Sans KR', 'Malgun Gothic', sans-serif" }}>
+        <div key={gi} className="invoice-page max-w-[297mm] mx-auto bg-white p-8" style={{ fontFamily: "'Noto Sans KR', 'Malgun Gothic', sans-serif" }}>
           {/* 제목 */}
           <h1 className="text-center text-2xl font-bold tracking-widest border-b-2 border-gray-800 pb-3 mb-6">
             거 래 명 세 서
@@ -247,60 +283,86 @@ function InvoiceContent() {
           </div>
 
           {/* 품목 테이블 */}
-          <table className="w-full text-sm border-collapse border border-gray-400 mb-4">
+          <div className="overflow-x-auto">
+          <table className="w-full text-xs border-collapse border border-gray-400 mb-4">
             <thead>
-              <tr className="bg-gray-100">
-                <th className="border border-gray-400 px-2 py-2 w-8">No</th>
-                <th className="border border-gray-400 px-2 py-2">품 명</th>
-                <th className="border border-gray-400 px-2 py-2 w-16">수량</th>
-                <th className="border border-gray-400 px-2 py-2 w-24">단 가</th>
-                <th className="border border-gray-400 px-2 py-2 w-24">마 진</th>
-                <th className="border border-gray-400 px-2 py-2 w-28">공급가액</th>
-                <th className="border border-gray-400 px-2 py-2 w-20">비 고</th>
+              <tr className="bg-gray-100 text-[11px]">
+                <th className="border border-gray-400 px-1.5 py-2 w-7">No</th>
+                <th className="border border-gray-400 px-1.5 py-2">납품번호</th>
+                <th className="border border-gray-400 px-1.5 py-2">거래처</th>
+                <th className="border border-gray-400 px-1.5 py-2">실제납품처</th>
+                <th className="border border-gray-400 px-1.5 py-2">상품정보</th>
+                <th className="border border-gray-400 px-1.5 py-2 w-12 text-right">수량</th>
+                <th className="border border-gray-400 px-1.5 py-2 text-right">공급가</th>
+                <th className="border border-gray-400 px-1.5 py-2 text-right">판매가</th>
+                <th className="border border-gray-400 px-1.5 py-2 text-right">납품금액</th>
+                <th className="border border-gray-400 px-1.5 py-2 text-right">마진</th>
+                <th className="border border-gray-400 px-1.5 py-2 text-right">택배비</th>
+                <th className="border border-gray-400 px-1.5 py-2 text-center">배송</th>
+                <th className="border border-gray-400 px-1.5 py-2 text-center">상태</th>
+                <th className="border border-gray-400 px-1.5 py-2 text-center">입금</th>
+                <th className="border border-gray-400 px-1.5 py-2">납품일</th>
               </tr>
             </thead>
             <tbody>
               {g.orders.map((o, oi) => {
                 const margin = calcMargin(o);
+                const marginRate = o.supply_price > 0 ? ((margin / (o.supply_price * o.quantity)) * 100).toFixed(1) : "0";
                 return (
                 <tr key={o.id}>
-                  <td className="border border-gray-300 px-2 py-1.5 text-center">{oi + 1}</td>
-                  <td className="border border-gray-300 px-2 py-1.5">
-                    {o.product_name}
-                    {o.option_text && <span className="text-gray-400 text-xs ml-1">({o.option_text})</span>}
+                  <td className="border border-gray-300 px-1.5 py-1.5 text-center">{oi + 1}</td>
+                  <td className="border border-gray-300 px-1.5 py-1.5 whitespace-nowrap">
+                    {o.order_number}
+                    <div className="text-[9px] text-gray-400">{o.order_date}</div>
                   </td>
-                  <td className="border border-gray-300 px-2 py-1.5 text-right">{o.quantity}</td>
-                  <td className="border border-gray-300 px-2 py-1.5 text-right">₩{o.purchase_price.toLocaleString()}</td>
-                  <td className="border border-gray-300 px-2 py-1.5 text-right">₩{Math.round(margin).toLocaleString()}</td>
-                  <td className="border border-gray-300 px-2 py-1.5 text-right font-medium">₩{(o.purchase_price * o.quantity).toLocaleString()}</td>
-                  <td className="border border-gray-300 px-2 py-1.5 text-xs text-center">{o.offline_clients?.name || ""}{o.memo ? ` / ${o.memo}` : ""}</td>
+                  <td className="border border-gray-300 px-1.5 py-1.5 font-medium">제이드상사</td>
+                  <td className="border border-gray-300 px-1.5 py-1.5">{o.offline_clients?.name || "-"}</td>
+                  <td className="border border-gray-300 px-1.5 py-1.5">
+                    {o.product_name}
+                    {o.option_text && <div className="text-[9px] text-gray-400">{o.option_text}</div>}
+                  </td>
+                  <td className="border border-gray-300 px-1.5 py-1.5 text-right">{o.quantity}</td>
+                  <td className="border border-gray-300 px-1.5 py-1.5 text-right whitespace-nowrap">₩{o.purchase_price.toLocaleString()}</td>
+                  <td className="border border-gray-300 px-1.5 py-1.5 text-right whitespace-nowrap">₩{o.supply_price.toLocaleString()}</td>
+                  <td className="border border-gray-300 px-1.5 py-1.5 text-right font-medium whitespace-nowrap">₩{(o.purchase_price * o.quantity).toLocaleString()}</td>
+                  <td className="border border-gray-300 px-1.5 py-1.5 text-right whitespace-nowrap">
+                    <span className={margin >= 0 ? "text-green-600" : "text-red-500"}>₩{Math.round(margin).toLocaleString()}</span>
+                    <div className="text-[9px] text-gray-400">{marginRate}%</div>
+                  </td>
+                  <td className="border border-gray-300 px-1.5 py-1.5 text-right">{o.shipping_cost.toLocaleString()}</td>
+                  <td className="border border-gray-300 px-1.5 py-1.5 text-center">
+                    <span className={`px-1 py-0.5 rounded ${o.shipping_method === "freight" ? "bg-orange-100 text-orange-700" : "bg-gray-100 text-gray-600"}`}>
+                      {SHIPPING_LABEL[o.shipping_method] || o.shipping_method}
+                    </span>
+                    {o.tracking_number && <div className="text-[9px] text-gray-400 mt-0.5">{o.tracking_number}</div>}
+                  </td>
+                  <td className="border border-gray-300 px-1.5 py-1.5 text-center">
+                    <span className={`font-medium ${STATUS_STYLE[o.status] || ""}`}>{STATUS_LABEL[o.status] || o.status}</span>
+                  </td>
+                  <td className="border border-gray-300 px-1.5 py-1.5 text-center">
+                    <span className={`font-medium ${o.payment_status === "paid" ? "text-green-600" : "text-red-500"}`}>
+                      {PAYMENT_LABEL[o.payment_status] || o.payment_status}
+                    </span>
+                  </td>
+                  <td className="border border-gray-300 px-1.5 py-1.5 whitespace-nowrap">{o.order_date}</td>
                 </tr>
                 );
               })}
-              {/* 빈 행 채우기 (최소 10행) */}
-              {Array.from({ length: Math.max(0, 10 - g.orders.length) }).map((_, i) => (
-                <tr key={`empty-${i}`}>
-                  <td className="border border-gray-300 px-2 py-1.5">&nbsp;</td>
-                  <td className="border border-gray-300 px-2 py-1.5"></td>
-                  <td className="border border-gray-300 px-2 py-1.5"></td>
-                  <td className="border border-gray-300 px-2 py-1.5"></td>
-                  <td className="border border-gray-300 px-2 py-1.5"></td>
-                  <td className="border border-gray-300 px-2 py-1.5"></td>
-                  <td className="border border-gray-300 px-2 py-1.5"></td>
-                </tr>
-              ))}
             </tbody>
             <tfoot>
-              <tr className="bg-gray-50 font-bold">
-                <td colSpan={2} className="border border-gray-400 px-2 py-2 text-center">합 계</td>
-                <td className="border border-gray-400 px-2 py-2 text-right">{g.totalQty}</td>
-                <td className="border border-gray-400 px-2 py-2"></td>
-                <td className="border border-gray-400 px-2 py-2 text-right">₩{Math.round(g.totalMargin).toLocaleString()}</td>
-                <td className="border border-gray-400 px-2 py-2 text-right">₩{g.totalAmount.toLocaleString()}</td>
-                <td className="border border-gray-400 px-2 py-2"></td>
+              <tr className="bg-gray-50 font-bold text-[11px]">
+                <td colSpan={5} className="border border-gray-400 px-1.5 py-2 text-center">합 계</td>
+                <td className="border border-gray-400 px-1.5 py-2 text-right">{g.totalQty}</td>
+                <td className="border border-gray-400 px-1.5 py-2"></td>
+                <td className="border border-gray-400 px-1.5 py-2"></td>
+                <td className="border border-gray-400 px-1.5 py-2 text-right">₩{g.totalAmount.toLocaleString()}</td>
+                <td className="border border-gray-400 px-1.5 py-2 text-right">₩{Math.round(g.totalMargin).toLocaleString()}</td>
+                <td className="border border-gray-400 px-1.5 py-2 text-right">{g.totalShipping.toLocaleString()}</td>
+                <td colSpan={4} className="border border-gray-400 px-1.5 py-2"></td>
               </tr>
             </tfoot>
           </table>
+          </div>
 
           {/* 입금 계좌 */}
           <div className="mt-6 border border-gray-300 rounded px-4 py-3 bg-gray-50">
