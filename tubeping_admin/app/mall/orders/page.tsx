@@ -146,10 +146,12 @@ const OrderRow = memo(function OrderRow({
             <option value="">자사몰</option>
             <option value="phone">전화주문</option>
             <option value="group">공구주문</option>
+            <option value="sample">샘플</option>
           </select>
         ) : (() => {
           if (o.sales_channel === "phone") return <span className="px-1.5 py-0.5 rounded bg-purple-100 text-purple-700 font-medium">전화주문</span>;
           if (o.sales_channel === "group") return <span className="px-1.5 py-0.5 rounded bg-pink-100 text-pink-700 font-medium">공구주문</span>;
+          if (o.sales_channel === "sample") return <span className="px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 font-medium">샘플</span>;
           if (!o.stores?.name) return <span className="text-gray-300">-</span>;
           return <span className="px-1.5 py-0.5 rounded bg-blue-100 text-blue-700 font-medium">자사몰</span>;
         })()}
@@ -289,7 +291,7 @@ export default function OrdersPage() {
   const [colFilterOrderNo, setColFilterOrderNo] = useState("");
   const [colFilterProduct, setColFilterProduct] = useState("");
   const [colFilterCustomer, setColFilterCustomer] = useState("");
-  const [colFilterChannel, setColFilterChannel] = useState(""); // "" | "phone" | "group" | "domestic"
+  const [colFilterChannel, setColFilterChannel] = useState(""); // "" | "phone" | "group" | "sample" | "domestic"
   const [colFilterPayment, setColFilterPayment] = useState(""); // "" | "paid" | "unpaid"
   // 기본값: 이번 달 1일 ~ 오늘
   const [dateFrom, setDateFrom] = useState(() => {
@@ -449,6 +451,7 @@ export default function OrdersPage() {
       if (kCustomer && !(o.buyer_name?.toLowerCase().includes(kCustomer) || o.receiver_name?.toLowerCase().includes(kCustomer))) return false;
       if (colFilterChannel === "phone" && o.sales_channel !== "phone") return false;
       if (colFilterChannel === "group" && o.sales_channel !== "group") return false;
+      if (colFilterChannel === "sample" && o.sales_channel !== "sample") return false;
       if (colFilterChannel === "domestic" && (o.sales_channel || !o.stores?.name)) return false;
       if (colFilterPayment === "paid" && (o.shipping_status === "pending" || o.shipping_status === "cancelled")) return false;
       if (colFilterPayment === "unpaid" && o.shipping_status !== "pending") return false;
@@ -584,7 +587,7 @@ export default function OrdersPage() {
   // 일괄 편집 — 선택된 여러 주문의 판매방식 또는 판매사 한 번에 변경
   const bulkUpdateChannel = async (value: string) => {
     if (selected.size === 0) return;
-    const channelLabel = value === "" ? "자사몰" : value === "phone" ? "전화주문" : "공구주문";
+    const channelLabel = value === "" ? "자사몰" : value === "phone" ? "전화주문" : value === "group" ? "공구주문" : "샘플";
     if (!confirm(`선택한 ${selected.size}건의 판매방식을 '${channelLabel}'(으)로 일괄 변경합니다. 계속할까요?`)) return;
     const res = await fetch("/admin/api/orders", {
       method: "PATCH",
@@ -1023,6 +1026,7 @@ export default function OrdersPage() {
               <option value="__none__">자사몰</option>
               <option value="phone">전화주문</option>
               <option value="group">공구주문</option>
+              <option value="sample">샘플</option>
             </select>
             {/* 판매사 일괄변경 */}
             <select onChange={(e) => { const v = e.target.value; e.target.value = ""; if (v) bulkUpdateStore(v); }}
@@ -1164,6 +1168,7 @@ export default function OrdersPage() {
                     <option value="">전체</option>
                     <option value="phone">전화주문</option>
                     <option value="group">공구주문</option>
+                    <option value="sample">샘플</option>
                     <option value="domestic">자사몰</option>
                   </select>
                 </th>
