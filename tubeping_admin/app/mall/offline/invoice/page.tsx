@@ -302,6 +302,12 @@ function InvoiceContent() {
             </tfoot>
           </table>
 
+          {/* 입금 계좌 */}
+          <div className="mt-6 border border-gray-300 rounded px-4 py-3 bg-gray-50">
+            <div className="text-sm font-bold text-gray-700 mb-1">입금 계좌</div>
+            <div className="text-sm text-gray-900">신한은행 140-014-420770 (주)신산애널리틱스</div>
+          </div>
+
           {/* 하단 안내 */}
           <div className="text-xs text-gray-500 text-center mt-6">
             위와 같이 거래하였음을 확인합니다.
