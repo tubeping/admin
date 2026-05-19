@@ -185,7 +185,7 @@ function InvoiceContent() {
             </thead>
             <tbody>
               {g.orders.map((o, oi) => {
-                const margin = (o.supply_price - o.purchase_price) * o.quantity;
+                const margin = ((o.supply_price - o.purchase_price) * o.quantity - o.shipping_cost) / 2;
                 return (
                 <tr key={o.id}>
                   <td className="border border-gray-300 px-2 py-1.5 text-center">{oi + 1}</td>
@@ -231,7 +231,7 @@ function InvoiceContent() {
                 <td colSpan={2} className="border border-gray-400 px-2 py-2 text-center">합 계</td>
                 <td className="border border-gray-400 px-2 py-2 text-right">{g.totalQty}</td>
                 <td className="border border-gray-400 px-2 py-2"></td>
-                <td className="border border-gray-400 px-2 py-2 text-right">₩{g.orders.reduce((s, o) => s + (o.supply_price - o.purchase_price) * o.quantity, 0).toLocaleString()}</td>
+                <td className="border border-gray-400 px-2 py-2 text-right">₩{g.orders.reduce((s, o) => s + ((o.supply_price - o.purchase_price) * o.quantity - o.shipping_cost) / 2, 0).toLocaleString()}</td>
                 <td className="border border-gray-400 px-2 py-2 text-right">₩{g.grandTotal.toLocaleString()}</td>
                 <td className="border border-gray-400 px-2 py-2"></td>
               </tr>

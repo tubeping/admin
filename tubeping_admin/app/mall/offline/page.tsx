@@ -151,8 +151,8 @@ export default function OfflinePage() {
     const totalQty = orders.reduce((s, o) => s + o.quantity, 0);
     const totalAmount = orders.reduce((s, o) => s + o.purchase_price * o.quantity, 0); // 납품금액 = 공급가 × 수량
     const totalSales = orders.reduce((s, o) => s + o.supply_price * o.quantity, 0); // 판매금액 = 판매가 × 수량
-    const totalMargin = totalSales - totalAmount;
     const totalShipping = orders.reduce((s, o) => s + o.shipping_cost, 0);
+    const totalMargin = orders.reduce((s, o) => s + ((o.supply_price - o.purchase_price) * o.quantity - o.shipping_cost) / 2, 0);
     const unpaidCount = orders.filter((o) => o.payment_status === "unpaid" && o.status !== "cancelled").length;
     const unpaidAmount = orders.filter((o) => o.payment_status === "unpaid" && o.status !== "cancelled").reduce((s, o) => s + o.purchase_price * o.quantity, 0);
     return { totalQty, totalAmount, totalSales, totalMargin, totalShipping, unpaidCount, unpaidAmount, count: orders.length };
@@ -467,8 +467,8 @@ export default function OfflinePage() {
               ) : orders.length === 0 ? (
                 <tr><td colSpan={16} className="text-center py-10 text-gray-400">납품 내역이 없습니다</td></tr>
               ) : orders.map((o, idx) => {
-                const margin = (o.supply_price - o.purchase_price) * o.quantity;
-                const marginRate = o.supply_price > 0 ? ((o.supply_price - o.purchase_price) / o.supply_price * 100).toFixed(1) : "0";
+                const margin = ((o.supply_price - o.purchase_price) * o.quantity - o.shipping_cost) / 2;
+                const marginRate = o.supply_price > 0 ? (margin / (o.supply_price * o.quantity) * 100).toFixed(1) : "0";
                 return (
                   <tr key={o.id} className={`border-b border-gray-100 hover:bg-gray-50 ${selected.has(o.id) ? "bg-blue-50" : ""}`}>
                     <td className="px-3 py-2.5 text-center">
@@ -503,8 +503,27 @@ export default function OfflinePage() {
                       </span>
                       <div className="text-[10px] text-gray-400">{marginRate}%</div>
                     </td>
-                    <td className="px-3 py-2.5 text-right text-xs text-gray-500">
-                      {o.shipping_cost > 0 ? `₩${o.shipping_cost.toLocaleString()}` : "-"}
+                    <td className="px-3 py-2.5 text-right">
+                      <input
+                        type="number"
+                        defaultValue={o.shipping_cost}
+                        key={`ship-${o.id}-${o.shipping_cost}`}
+                        className="w-20 text-xs text-right border border-transparent hover:border-gray-300 focus:border-blue-400 focus:outline-none rounded px-1.5 py-0.5 bg-transparent"
+                        min={0}
+                        onBlur={async (e) => {
+                          const val = parseInt(e.target.value) || 0;
+                          if (val === o.shipping_cost) return;
+                          await fetch("/admin/api/offline-orders", {
+                            method: "PATCH",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({ ids: [o.id], updates: { shipping_cost: val } }),
+                          });
+                          fetchOrders();
+                        }}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") (e.target as HTMLInputElement).blur();
+                        }}
+                      />
                     </td>
                     <td className="px-3 py-2.5 text-center">
                       <span className={`text-xs px-1.5 py-0.5 rounded ${o.shipping_method === "freight" ? "bg-orange-100 text-orange-700" : "bg-gray-100 text-gray-600"}`}>
@@ -654,9 +673,9 @@ export default function OfflinePage() {
               {/* 마진 표시 */}
               <div className="col-span-2 bg-gray-50 rounded-lg px-3 py-2 text-xs flex justify-between">
                 <span>총 납품금액: <b>₩{(form.supply_price * form.quantity).toLocaleString()}</b></span>
-                <span>마진: <b className={(form.supply_price - form.purchase_price) >= 0 ? "text-green-600" : "text-red-500"}>
-                  ₩{((form.supply_price - form.purchase_price) * form.quantity).toLocaleString()}
-                  ({form.supply_price > 0 ? ((form.supply_price - form.purchase_price) / form.supply_price * 100).toFixed(1) : 0}%)
+                <span>마진: <b className={((form.supply_price - form.purchase_price) * form.quantity - form.shipping_cost) >= 0 ? "text-green-600" : "text-red-500"}>
+                  ₩{(((form.supply_price - form.purchase_price) * form.quantity - form.shipping_cost) / 2).toLocaleString()}
+                  ({form.supply_price > 0 ? (((form.supply_price - form.purchase_price) * form.quantity - form.shipping_cost) / 2 / (form.supply_price * form.quantity) * 100).toFixed(1) : 0}%)
                 </b></span>
               </div>
 
