@@ -983,13 +983,13 @@ export default function OrdersPage() {
         </div>
         <div className="relative">
           <select id="import-store" className="text-xs border border-gray-300 rounded-lg px-2 py-1.5 pr-16 appearance-none bg-white" defaultValue="">
-            <option value="" disabled>발주서 업로드용 판매사</option>
+            <option value="" disabled>판매사 선택</option>
             {stores
               .filter((s) => !["전화주문", "공구주문", "엑셀등록", "수기주문"].includes(s.name))
               .map((s) => (<option key={s.id} value={`id:${s.id}`}>{s.name}</option>))}
           </select>
           <label className="absolute right-0 top-0 h-full px-2 flex items-center bg-gray-100 border border-gray-300 rounded-r-lg text-xs font-medium text-gray-700 hover:bg-gray-200 cursor-pointer">
-            수기등록
+            파일선택
             <input type="file" accept=".csv,.xlsx,.xls" className="hidden" onChange={async (e) => {
               const file = e.target.files?.[0]; if (!file) return;
               await handleImportFile(file);
@@ -1001,7 +1001,7 @@ export default function OrdersPage() {
         {/* 송장 다운로드 */}
         <div className="relative">
           <select id="export-store" className="text-xs border border-gray-300 rounded-lg px-2 py-1.5 pr-24 appearance-none bg-white" defaultValue="">
-            <option value="" disabled>운송장 다운로드용 판매사</option>
+            <option value="" disabled>판매사 선택</option>
             <option value="__all__">전체</option>
             {stores
               .filter((s) => !["전화주문", "공구주문", "엑셀등록", "수기주문"].includes(s.name))
@@ -1017,7 +1017,7 @@ export default function OrdersPage() {
               window.open(`/admin/api/orders/export?${params}`, "_blank");
             }}
               className="h-full px-2 flex items-center bg-green-100 border border-green-300 rounded-r-lg text-xs font-medium text-green-700 hover:bg-green-200 cursor-pointer">
-              송장↓
+              송장번호조회
             </button>
           </div>
         </div>
