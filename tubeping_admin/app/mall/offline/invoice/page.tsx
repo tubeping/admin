@@ -90,34 +90,58 @@ function InvoiceContent() {
     const wb = XLSX.utils.book_new();
     const rows: (string | number)[][] = [];
     const merges: XLSX.Range[] = [];
-
-    // 제목
-    rows.push(["거 래 명 세 서"]);
-    merges.push({ s: { r: 0, c: 0 }, e: { r: 0, c: 6 } });
-    rows.push([]);
-
-    // 공급받는자 / 공급자
-    rows.push(["[공급받는자]", "", "", "", "[공급자]", "", ""]);
-    rows.push(["상 호", "제이드상사", "", "", "상 호", "(주)신산애널리틱스", ""]);
-    rows.push(["대표자", "엄정호", "", "", "대표자", "최준", ""]);
-    rows.push(["사업자번호", "607-18-66827", "", "", "사업자번호", "352-81-03270", ""]);
-    rows.push(["주 소", "부산광역시 동래구 충렬대로95번길 18(온천동)", "", "", "주 소", "서울특별시 마포구 마포대로 127, 1826호", ""]);
-    rows.push(["업 태", "도소매 / 전자상거래업", "", "", "업 태", "도매 및 소매업 / 전자상거래 소매업", ""]);
-    rows.push([]);
-
-    // 거래일자 & 합계금액
     const todayStr = new Date().toISOString().slice(0, 10);
-    rows.push(["거래일자:", todayStr, "", "", "합계금액:", Math.round(g.grandTotal), ""]);
+
+    // Row 0: 제목 (A~O 병합)
+    rows.push(["거 래 명 세 서", "", "", "", "", "", "", "", "", "", "", "", "", "", ""]);
+    merges.push({ s: { r: 0, c: 0 }, e: { r: 0, c: 14 } });
+
+    // Row 1: 빈 행
     rows.push([]);
 
-    // 품목 헤더
-    const headerRow = rows.length;
-    rows.push(["No", "납품번호", "거래처", "실제납품처", "상품정보", "수량", "공급가", "판매가", "납품금액", "마진", "택배비", "배송", "상태", "입금", "납품일"]);
+    // Row 2~6: 공급받는자 (A~G) / 공급자 (I~O) 나란히
+    // A=라벨, B~G=값 / I=라벨, J~O=값
+    rows.push(["[공급받는자]", "", "", "", "", "", "", "", "[공급자]", "", "", "", "", "", ""]);
+    merges.push({ s: { r: 2, c: 0 }, e: { r: 2, c: 6 } });
+    merges.push({ s: { r: 2, c: 8 }, e: { r: 2, c: 14 } });
+
+    rows.push(["상 호", "제이드상사", "", "", "", "", "", "", "상 호", "(주)신산애널리틱스", "", "", "", "", ""]);
+    merges.push({ s: { r: 3, c: 1 }, e: { r: 3, c: 6 } });
+    merges.push({ s: { r: 3, c: 9 }, e: { r: 3, c: 14 } });
+
+    rows.push(["대표자", "엄정호", "", "", "", "", "", "", "대표자", "최준", "", "", "", "", ""]);
+    merges.push({ s: { r: 4, c: 1 }, e: { r: 4, c: 6 } });
+    merges.push({ s: { r: 4, c: 9 }, e: { r: 4, c: 14 } });
+
+    rows.push(["사업자번호", "607-18-66827", "", "", "", "", "", "", "사업자번호", "352-81-03270", "", "", "", "", ""]);
+    merges.push({ s: { r: 5, c: 1 }, e: { r: 5, c: 6 } });
+    merges.push({ s: { r: 5, c: 9 }, e: { r: 5, c: 14 } });
+
+    rows.push(["주 소", "부산광역시 동래구 충렬대로95번길 18(온천동)", "", "", "", "", "", "", "주 소", "서울특별시 마포구 마포대로 127, 1826호", "", "", "", "", ""]);
+    merges.push({ s: { r: 6, c: 1 }, e: { r: 6, c: 6 } });
+    merges.push({ s: { r: 6, c: 9 }, e: { r: 6, c: 14 } });
+
+    rows.push(["업 태", "도소매 / 전자상거래업", "", "", "", "", "", "", "업 태", "도매 및 소매업 / 전자상거래 소매업", "", "", "", "", ""]);
+    merges.push({ s: { r: 7, c: 1 }, e: { r: 7, c: 6 } });
+    merges.push({ s: { r: 7, c: 9 }, e: { r: 7, c: 14 } });
+
+    // Row 8: 빈 행
+    rows.push([]);
+
+    // Row 9: 거래일자 & 합계금액
+    rows.push(["거래일자:", todayStr, "", "", "", "", "", "", "", "", "", "합계금액:", "", `₩${Math.round(g.grandTotal).toLocaleString()}`, ""]);
+    merges.push({ s: { r: 9, c: 13 }, e: { r: 9, c: 14 } });
+
+    // Row 10: 빈 행
+    rows.push([]);
+
+    // Row 11: 품목 헤더
+    rows.push(["No", "납품번호", "거래처", "실제납품처", "상품정보", "수량", "공급가", "판매가", "납품금액", "마진", "마진율", "택배비", "배송", "상태", "입금"]);
 
     // 품목 데이터
     g.orders.forEach((o, i) => {
       const margin = Math.round(calcMargin(o));
-      const marginRate = o.supply_price > 0 ? ((margin / (o.supply_price * o.quantity)) * 100).toFixed(1) : "0";
+      const marginRate = o.supply_price > 0 ? ((margin / (o.supply_price * o.quantity)) * 100).toFixed(1) + "%" : "0%";
       rows.push([
         i + 1,
         o.order_number,
@@ -128,21 +152,33 @@ function InvoiceContent() {
         o.purchase_price,
         o.supply_price,
         o.purchase_price * o.quantity,
-        `${margin} (${marginRate}%)`,
+        margin,
+        marginRate,
         o.shipping_cost,
         SHIPPING_LABEL[o.shipping_method] || o.shipping_method,
         STATUS_LABEL[o.status] || o.status,
         PAYMENT_LABEL[o.payment_status] || o.payment_status,
-        o.order_date,
       ]);
     });
 
-    // 합계
-    rows.push(["", "", "", "", "합 계", g.totalQty, "", "", g.totalAmount, Math.round(g.totalMargin), g.totalShipping, "", "", "", ""]);
+    // 합계 행
+    rows.push(["", "", "", "", "합 계", g.totalQty, "", "", g.totalAmount, Math.round(g.totalMargin), "", g.totalShipping, "", "", ""]);
+    const totalRowIdx = rows.length - 1;
+    merges.push({ s: { r: totalRowIdx, c: 0 }, e: { r: totalRowIdx, c: 3 } });
+
+    // 빈 행
+    rows.push([]);
 
     // 입금계좌
-    rows.push([]);
-    rows.push(["입금계좌: 신한은행 140-014-420770 (주)신산애널리틱스"]);
+    rows.push(["입금계좌: 신한은행 140-014-420770 (주)신산애널리틱스", "", "", "", "", "", "", "", "", "", "", "", "", "", ""]);
+    merges.push({ s: { r: rows.length - 1, c: 0 }, e: { r: rows.length - 1, c: 14 } });
+
+    // 안내문
+    rows.push(["위와 같이 거래하였음을 확인합니다.", "", "", "", "", "", "", "", "", "", "", "", "", "", ""]);
+    merges.push({ s: { r: rows.length - 1, c: 0 }, e: { r: rows.length - 1, c: 14 } });
+
+    rows.push([`${todayStr}  |  (주)신산애널리틱스`, "", "", "", "", "", "", "", "", "", "", "", "", "", ""]);
+    merges.push({ s: { r: rows.length - 1, c: 0 }, e: { r: rows.length - 1, c: 14 } });
 
     const ws = XLSX.utils.aoa_to_sheet(rows);
     ws["!merges"] = merges;
@@ -152,18 +188,18 @@ function InvoiceContent() {
       { wch: 5 },  // No
       { wch: 20 }, // 납품번호
       { wch: 12 }, // 거래처
-      { wch: 16 }, // 실제납품처
-      { wch: 24 }, // 상품정보
-      { wch: 8 },  // 수량
+      { wch: 18 }, // 실제납품처
+      { wch: 26 }, // 상품정보
+      { wch: 6 },  // 수량
       { wch: 10 }, // 공급가
       { wch: 10 }, // 판매가
       { wch: 14 }, // 납품금액
-      { wch: 14 }, // 마진
+      { wch: 12 }, // 마진
+      { wch: 8 },  // 마진율
       { wch: 10 }, // 택배비
       { wch: 8 },  // 배송
       { wch: 10 }, // 상태
       { wch: 10 }, // 입금
-      { wch: 12 }, // 납품일
     ];
 
     XLSX.utils.book_append_sheet(wb, ws, "거래명세서");
