@@ -78,6 +78,8 @@ function InvoiceContent() {
           .no-print { display: none !important; }
           .invoice-page { page-break-after: always; }
           .invoice-page:last-child { page-break-after: auto; }
+          aside, nav, [data-sidebar] { display: none !important; }
+          main { margin-left: 0 !important; }
         }
         @page { size: A4; margin: 15mm; }
       `}</style>
