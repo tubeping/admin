@@ -178,12 +178,15 @@ function InvoiceContent() {
                 <th className="border border-gray-400 px-2 py-2">품 명</th>
                 <th className="border border-gray-400 px-2 py-2 w-16">수량</th>
                 <th className="border border-gray-400 px-2 py-2 w-24">단 가</th>
+                <th className="border border-gray-400 px-2 py-2 w-24">마 진</th>
                 <th className="border border-gray-400 px-2 py-2 w-28">공급가액</th>
                 <th className="border border-gray-400 px-2 py-2 w-20">비 고</th>
               </tr>
             </thead>
             <tbody>
-              {g.orders.map((o, oi) => (
+              {g.orders.map((o, oi) => {
+                const margin = (o.supply_price - o.purchase_price) * o.quantity;
+                return (
                 <tr key={o.id}>
                   <td className="border border-gray-300 px-2 py-1.5 text-center">{oi + 1}</td>
                   <td className="border border-gray-300 px-2 py-1.5">
@@ -192,10 +195,12 @@ function InvoiceContent() {
                   </td>
                   <td className="border border-gray-300 px-2 py-1.5 text-right">{o.quantity}</td>
                   <td className="border border-gray-300 px-2 py-1.5 text-right">₩{o.purchase_price.toLocaleString()}</td>
+                  <td className="border border-gray-300 px-2 py-1.5 text-right">₩{margin.toLocaleString()}</td>
                   <td className="border border-gray-300 px-2 py-1.5 text-right font-medium">₩{(o.purchase_price * o.quantity).toLocaleString()}</td>
                   <td className="border border-gray-300 px-2 py-1.5 text-xs text-center">{o.offline_clients?.name || ""}{o.memo ? ` / ${o.memo}` : ""}</td>
                 </tr>
-              ))}
+                );
+              })}
               {/* 배송비 행 */}
               {g.totalShipping > 0 && (
                 <tr>
@@ -203,6 +208,7 @@ function InvoiceContent() {
                   <td className="border border-gray-300 px-2 py-1.5">배송비</td>
                   <td className="border border-gray-300 px-2 py-1.5 text-right">1</td>
                   <td className="border border-gray-300 px-2 py-1.5 text-right">₩{g.totalShipping.toLocaleString()}</td>
+                  <td className="border border-gray-300 px-2 py-1.5"></td>
                   <td className="border border-gray-300 px-2 py-1.5 text-right font-medium">₩{g.totalShipping.toLocaleString()}</td>
                   <td className="border border-gray-300 px-2 py-1.5"></td>
                 </tr>
@@ -216,6 +222,7 @@ function InvoiceContent() {
                   <td className="border border-gray-300 px-2 py-1.5"></td>
                   <td className="border border-gray-300 px-2 py-1.5"></td>
                   <td className="border border-gray-300 px-2 py-1.5"></td>
+                  <td className="border border-gray-300 px-2 py-1.5"></td>
                 </tr>
               ))}
             </tbody>
@@ -224,6 +231,7 @@ function InvoiceContent() {
                 <td colSpan={2} className="border border-gray-400 px-2 py-2 text-center">합 계</td>
                 <td className="border border-gray-400 px-2 py-2 text-right">{g.totalQty}</td>
                 <td className="border border-gray-400 px-2 py-2"></td>
+                <td className="border border-gray-400 px-2 py-2 text-right">₩{g.orders.reduce((s, o) => s + (o.supply_price - o.purchase_price) * o.quantity, 0).toLocaleString()}</td>
                 <td className="border border-gray-400 px-2 py-2 text-right">₩{g.grandTotal.toLocaleString()}</td>
                 <td className="border border-gray-400 px-2 py-2"></td>
               </tr>
