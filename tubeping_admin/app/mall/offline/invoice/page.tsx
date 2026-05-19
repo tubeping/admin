@@ -257,7 +257,7 @@ function InvoiceContent() {
                 <td className="border border-gray-400 px-2 py-2 text-right">{g.totalQty}</td>
                 <td className="border border-gray-400 px-2 py-2"></td>
                 <td className="border border-gray-400 px-2 py-2 text-right">₩{Math.round(g.totalMargin).toLocaleString()}</td>
-                <td className="border border-gray-400 px-2 py-2 text-right">₩{Math.round(g.grandTotal).toLocaleString()}</td>
+                <td className="border border-gray-400 px-2 py-2 text-right">₩{g.totalAmount.toLocaleString()}</td>
                 <td className="border border-gray-400 px-2 py-2"></td>
               </tr>
             </tfoot>
