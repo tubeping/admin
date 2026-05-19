@@ -80,16 +80,11 @@ export async function PATCH(request: NextRequest) {
     "client_id", "product_id", "product_name", "option_text", "quantity",
     "purchase_price", "supply_price", "total_amount",
     "shipping_method", "shipping_company", "tracking_number", "shipping_cost", "shipped_at",
-    "status", "payment_status", "paid_at", "memo",
+    "status", "payment_status", "paid_at", "memo", "order_date",
   ];
   const filtered: Record<string, unknown> = {};
   for (const key of allowed) {
     if (updates[key] !== undefined) filtered[key] = updates[key];
-  }
-
-  // total_amount 자동 계산
-  if (updates.supply_price !== undefined && updates.quantity !== undefined) {
-    filtered.total_amount = updates.supply_price * updates.quantity;
   }
 
   const sb = getServiceClient();

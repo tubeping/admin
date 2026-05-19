@@ -39,7 +39,8 @@ const STATUS_LABEL: Record<string, string> = {
   pending: "대기", confirmed: "확정", shipped: "출고", delivered: "납품완료", cancelled: "취소",
 };
 const STATUS_STYLE: Record<string, string> = {
-  pending: "text-gray-600", confirmed: "text-blue-700", shipped: "text-yellow-700", delivered: "text-green-700", cancelled: "text-red-600",
+  pending: "text-gray-600", confirmed: "text-blue-700", shipped: "text-yellow-700",
+  delivered: "text-green-700", cancelled: "text-red-600",
 };
 const PAYMENT_LABEL: Record<string, string> = { unpaid: "미입금", paid: "입금완료" };
 const SHIPPING_LABEL: Record<string, string> = { courier: "택배", freight: "용달" };
@@ -92,51 +93,51 @@ function InvoiceContent() {
     const merges: XLSX.Range[] = [];
     const todayStr = new Date().toISOString().slice(0, 10);
 
-    // Row 0: 제목 (A~O 병합)
-    rows.push(["거 래 명 세 서", "", "", "", "", "", "", "", "", "", "", "", "", "", ""]);
-    merges.push({ s: { r: 0, c: 0 }, e: { r: 0, c: 14 } });
+    // Row 0: 제목 (A~P 병합)
+    rows.push(["거 래 명 세 서", "", "", "", "", "", "", "", "", "", "", "", "", "", "", ""]);
+    merges.push({ s: { r: 0, c: 0 }, e: { r: 0, c: 15 } });
 
     // Row 1: 빈 행
     rows.push([]);
 
     // Row 2~6: 공급받는자 (A~G) / 공급자 (I~O) 나란히
     // A=라벨, B~G=값 / I=라벨, J~O=값
-    rows.push(["[공급받는자]", "", "", "", "", "", "", "", "[공급자]", "", "", "", "", "", ""]);
-    merges.push({ s: { r: 2, c: 0 }, e: { r: 2, c: 6 } });
-    merges.push({ s: { r: 2, c: 8 }, e: { r: 2, c: 14 } });
+    rows.push(["[공급받는자]", "", "", "", "", "", "", "", "[공급자]", "", "", "", "", "", "", ""]);
+    merges.push({ s: { r: 2, c: 0 }, e: { r: 2, c: 7 } });
+    merges.push({ s: { r: 2, c: 8 }, e: { r: 2, c: 15 } });
 
-    rows.push(["상 호", "제이드상사", "", "", "", "", "", "", "상 호", "(주)신산애널리틱스", "", "", "", "", ""]);
-    merges.push({ s: { r: 3, c: 1 }, e: { r: 3, c: 6 } });
-    merges.push({ s: { r: 3, c: 9 }, e: { r: 3, c: 14 } });
+    rows.push(["상 호", "제이드상사", "", "", "", "", "", "", "상 호", "(주)신산애널리틱스", "", "", "", "", "", ""]);
+    merges.push({ s: { r: 3, c: 1 }, e: { r: 3, c: 7 } });
+    merges.push({ s: { r: 3, c: 9 }, e: { r: 3, c: 15 } });
 
-    rows.push(["대표자", "엄정호", "", "", "", "", "", "", "대표자", "최준", "", "", "", "", ""]);
-    merges.push({ s: { r: 4, c: 1 }, e: { r: 4, c: 6 } });
-    merges.push({ s: { r: 4, c: 9 }, e: { r: 4, c: 14 } });
+    rows.push(["대표자", "엄정호", "", "", "", "", "", "", "대표자", "최준", "", "", "", "", "", ""]);
+    merges.push({ s: { r: 4, c: 1 }, e: { r: 4, c: 7 } });
+    merges.push({ s: { r: 4, c: 9 }, e: { r: 4, c: 15 } });
 
-    rows.push(["사업자번호", "607-18-66827", "", "", "", "", "", "", "사업자번호", "352-81-03270", "", "", "", "", ""]);
-    merges.push({ s: { r: 5, c: 1 }, e: { r: 5, c: 6 } });
-    merges.push({ s: { r: 5, c: 9 }, e: { r: 5, c: 14 } });
+    rows.push(["사업자번호", "607-18-66827", "", "", "", "", "", "", "사업자번호", "352-81-03270", "", "", "", "", "", ""]);
+    merges.push({ s: { r: 5, c: 1 }, e: { r: 5, c: 7 } });
+    merges.push({ s: { r: 5, c: 9 }, e: { r: 5, c: 15 } });
 
-    rows.push(["주 소", "부산광역시 동래구 충렬대로95번길 18(온천동)", "", "", "", "", "", "", "주 소", "서울특별시 마포구 마포대로 127, 1826호", "", "", "", "", ""]);
-    merges.push({ s: { r: 6, c: 1 }, e: { r: 6, c: 6 } });
-    merges.push({ s: { r: 6, c: 9 }, e: { r: 6, c: 14 } });
+    rows.push(["주 소", "부산광역시 동래구 충렬대로95번길 18(온천동)", "", "", "", "", "", "", "주 소", "서울특별시 마포구 마포대로 127, 1826호", "", "", "", "", "", ""]);
+    merges.push({ s: { r: 6, c: 1 }, e: { r: 6, c: 7 } });
+    merges.push({ s: { r: 6, c: 9 }, e: { r: 6, c: 15 } });
 
-    rows.push(["업 태", "도소매 / 전자상거래업", "", "", "", "", "", "", "업 태", "도매 및 소매업 / 전자상거래 소매업", "", "", "", "", ""]);
-    merges.push({ s: { r: 7, c: 1 }, e: { r: 7, c: 6 } });
-    merges.push({ s: { r: 7, c: 9 }, e: { r: 7, c: 14 } });
+    rows.push(["업 태", "도소매 / 전자상거래업", "", "", "", "", "", "", "업 태", "도매 및 소매업 / 전자상거래 소매업", "", "", "", "", "", ""]);
+    merges.push({ s: { r: 7, c: 1 }, e: { r: 7, c: 7 } });
+    merges.push({ s: { r: 7, c: 9 }, e: { r: 7, c: 15 } });
 
     // Row 8: 빈 행
     rows.push([]);
 
     // Row 9: 거래일자 & 합계금액
-    rows.push(["거래일자:", todayStr, "", "", "", "", "", "", "", "", "", "합계금액:", "", `₩${Math.round(g.grandTotal).toLocaleString()}`, ""]);
-    merges.push({ s: { r: 9, c: 13 }, e: { r: 9, c: 14 } });
+    rows.push(["거래일자:", todayStr, "", "", "", "", "", "", "", "", "", "", "합계금액:", "", `₩${Math.round(g.grandTotal).toLocaleString()}`, ""]);
+    merges.push({ s: { r: 9, c: 14 }, e: { r: 9, c: 15 } });
 
     // Row 10: 빈 행
     rows.push([]);
 
     // Row 11: 품목 헤더
-    rows.push(["No", "납품번호", "거래처", "실제납품처", "상품정보", "수량", "공급가", "판매가", "납품금액", "마진", "마진율", "택배비", "배송", "상태", "입금"]);
+    rows.push(["No", "납품번호", "거래처", "실제납품처", "상품정보", "수량", "공급가", "판매가", "납품금액", "마진", "마진율", "택배비", "배송", "상태", "입금", "납품일"]);
 
     // 품목 데이터
     g.orders.forEach((o, i) => {
@@ -158,11 +159,12 @@ function InvoiceContent() {
         SHIPPING_LABEL[o.shipping_method] || o.shipping_method,
         STATUS_LABEL[o.status] || o.status,
         PAYMENT_LABEL[o.payment_status] || o.payment_status,
+        o.order_date,
       ]);
     });
 
     // 합계 행
-    rows.push(["", "", "", "", "합 계", g.totalQty, "", "", g.totalAmount, Math.round(g.totalMargin), "", g.totalShipping, "", "", ""]);
+    rows.push(["", "", "", "", "합 계", g.totalQty, "", "", g.totalAmount, Math.round(g.totalMargin), "", g.totalShipping, "", "", "", ""]);
     const totalRowIdx = rows.length - 1;
     merges.push({ s: { r: totalRowIdx, c: 0 }, e: { r: totalRowIdx, c: 3 } });
 
@@ -170,15 +172,15 @@ function InvoiceContent() {
     rows.push([]);
 
     // 입금계좌
-    rows.push(["입금계좌: 신한은행 140-014-420770 (주)신산애널리틱스", "", "", "", "", "", "", "", "", "", "", "", "", "", ""]);
-    merges.push({ s: { r: rows.length - 1, c: 0 }, e: { r: rows.length - 1, c: 14 } });
+    rows.push(["입금계좌: 신한은행 140-014-420770 (주)신산애널리틱스", "", "", "", "", "", "", "", "", "", "", "", "", "", "", ""]);
+    merges.push({ s: { r: rows.length - 1, c: 0 }, e: { r: rows.length - 1, c: 15 } });
 
     // 안내문
-    rows.push(["위와 같이 거래하였음을 확인합니다.", "", "", "", "", "", "", "", "", "", "", "", "", "", ""]);
-    merges.push({ s: { r: rows.length - 1, c: 0 }, e: { r: rows.length - 1, c: 14 } });
+    rows.push(["위와 같이 거래하였음을 확인합니다.", "", "", "", "", "", "", "", "", "", "", "", "", "", "", ""]);
+    merges.push({ s: { r: rows.length - 1, c: 0 }, e: { r: rows.length - 1, c: 15 } });
 
-    rows.push([`${todayStr}  |  (주)신산애널리틱스`, "", "", "", "", "", "", "", "", "", "", "", "", "", ""]);
-    merges.push({ s: { r: rows.length - 1, c: 0 }, e: { r: rows.length - 1, c: 14 } });
+    rows.push([`${todayStr}  |  (주)신산애널리틱스`, "", "", "", "", "", "", "", "", "", "", "", "", "", "", ""]);
+    merges.push({ s: { r: rows.length - 1, c: 0 }, e: { r: rows.length - 1, c: 15 } });
 
     const ws = XLSX.utils.aoa_to_sheet(rows);
     ws["!merges"] = merges;
@@ -200,6 +202,7 @@ function InvoiceContent() {
       { wch: 8 },  // 배송
       { wch: 10 }, // 상태
       { wch: 10 }, // 입금
+      { wch: 12 }, // 납품일
     ];
 
     XLSX.utils.book_append_sheet(wb, ws, "거래명세서");

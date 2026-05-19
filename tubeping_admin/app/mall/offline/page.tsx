@@ -59,7 +59,6 @@ const STATUS_STYLE: Record<string, string> = {
   cancelled: "bg-red-100 text-red-600",
 };
 const PAYMENT_LABEL: Record<string, string> = { unpaid: "미입금", paid: "입금완료" };
-const PAYMENT_STYLE: Record<string, string> = { unpaid: "text-red-500", paid: "text-green-600" };
 const SHIPPING_LABEL: Record<string, string> = { courier: "택배", freight: "용달" };
 
 function today() { return new Date().toISOString().slice(0, 10); }
@@ -313,11 +312,13 @@ export default function OfflinePage() {
     if ((order as Record<string, unknown>)[field] === value) return;
 
     const updates: Record<string, unknown> = { [field]: value };
-    // 수량/공급가/판매가 변경 시 total_amount도 업데이트
+    // 수량/판매가 변경 시 total_amount도 업데이트
     if (field === "quantity" || field === "supply_price") {
       const qty = field === "quantity" ? (value as number) : order.quantity;
       const sp = field === "supply_price" ? (value as number) : order.supply_price;
       updates.total_amount = sp * qty;
+      updates.quantity = qty;
+      updates.supply_price = sp;
     }
 
     await fetch("/admin/api/offline-orders", {
@@ -510,12 +511,7 @@ export default function OfflinePage() {
                       <button onClick={() => openEditOrder(o)} className="text-blue-600 hover:underline cursor-pointer text-xs font-medium">
                         {o.order_number}
                       </button>
-                      <div className="mt-0.5">
-                        <input type="date" defaultValue={o.order_date} key={`date-${o.id}-${o.order_date}`}
-                          className="text-[10px] text-gray-400 border border-transparent hover:border-gray-300 focus:border-blue-400 focus:outline-none rounded px-1 py-0 bg-transparent w-24"
-                          onBlur={(e) => handleInlineUpdate(o.id, "order_date", e.target.value)}
-                        />
-                      </div>
+                      <div className="text-[10px] text-gray-400 mt-0.5">{o.order_date}</div>
                     </td>
                     {/* 거래처 */}
                     <td className="px-3 py-2.5 font-medium text-xs">제이드상사</td>
