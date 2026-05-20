@@ -1078,14 +1078,6 @@ export default function UnifiedOrdersPage() {
             className="text-sm border border-gray-300 rounded-lg px-3 py-1.5 w-64"
             placeholder="상품명, 주문번호, 주문자, 연락처, 송장번호"
           />
-          <label className="flex items-center gap-1.5 text-xs text-gray-600 cursor-pointer">
-            <input type="checkbox" checked={filterNoTracking} onChange={(e) => setFilterNoTracking(e.target.checked)} className="rounded" />
-            송장 미입력
-          </label>
-          <label className="flex items-center gap-1.5 text-xs text-gray-600 cursor-pointer">
-            <input type="checkbox" checked={filterNoSupplier} onChange={(e) => setFilterNoSupplier(e.target.checked)} className="rounded" />
-            공급사 미배정
-          </label>
           <div className="ml-auto flex gap-2">
             <button onClick={() => fetchOrders()} className="px-3 py-1.5 bg-gray-900 text-white text-sm rounded-lg hover:bg-gray-700 cursor-pointer">검색</button>
             <button onClick={handleReset} className="px-3 py-1.5 border border-gray-300 text-sm rounded-lg hover:bg-gray-50 cursor-pointer">초기화</button>
