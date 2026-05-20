@@ -304,7 +304,10 @@ export async function POST(request: NextRequest) {
     }
   }
 
-  // import 시 자동 공급사 배정은 제거됨 — 검증 탭에서만 매칭 처리
+  // import 후 자동 공급사 배정
+  const { autoAssignSuppliers } = await import("@/lib/autoAssignSuppliers");
+  const assignResult = await autoAssignSuppliers(sb);
+
   // 디버깅: 어떤 헤더가 어떤 필드로 매칭됐는지 응답에 포함
   const matchedColumns: Record<string, string> = {};
   for (const [key, idx] of Object.entries(col)) {
@@ -319,5 +322,6 @@ export async function POST(request: NextRequest) {
     matched_columns: matchedColumns,
     unmatched_headers: unmatchedHeaders,
     errors: errors.length > 0 ? errors : undefined,
+    auto_assign: assignResult,
   });
 }
