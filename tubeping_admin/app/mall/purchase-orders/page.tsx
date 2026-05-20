@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import * as XLSX from "xlsx";
 
 interface PurchaseOrder {
   id: string;
@@ -188,36 +187,6 @@ export default function PurchaseOrdersPage() {
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <button
-            onClick={async () => {
-              // 1. Acts29 스토어 id 찾기
-              const storesRes = await fetch("/admin/api/stores");
-              const storesData = await storesRes.json();
-              const actsStore = (storesData.stores || []).find((s: { name: string }) => s.name === "Acts29");
-              if (!actsStore) { alert("Acts29 스토어가 없습니다."); return; }
-
-              // 2. 해당 store_id로 주문 조회
-              const res = await fetch(`/admin/api/orders?store_id=${actsStore.id}&limit=500`);
-              if (!res.ok) { alert("조회 실패"); return; }
-              const data = await res.json();
-              const orders = (data.orders || []).filter((o: { tracking_number?: string; shipping_status?: string }) =>
-                o.tracking_number && o.shipping_status !== "cancelled"
-              );
-              if (orders.length === 0) { alert("ACTs 송장 등록된 주문이 없습니다."); return; }
-              const rows = orders.map((o: { cafe24_order_item_code?: string; cafe24_order_id?: string; shipping_company?: string; tracking_number?: string }) => ({
-                "상품주문번호": o.cafe24_order_item_code || o.cafe24_order_id || "",
-                "택배사": o.shipping_company || "",
-                "송장번호": o.tracking_number || "",
-              }));
-              const ws = XLSX.utils.json_to_sheet(rows);
-              const wb = XLSX.utils.book_new();
-              XLSX.utils.book_append_sheet(wb, ws, "발송처리");
-              XLSX.writeFile(wb, `acts_송장_발송처리_${new Date().toISOString().slice(0, 10)}.xlsx`);
-            }}
-            className="px-4 py-2.5 bg-purple-600 text-white text-sm font-medium rounded-lg hover:bg-purple-700 transition-colors cursor-pointer"
-          >
-            액츠발송양식 다운로드
-          </button>
           {selected.size > 0 && (
             <>
               <span className="text-xs font-bold text-blue-600">{selected.size}건 선택</span>
