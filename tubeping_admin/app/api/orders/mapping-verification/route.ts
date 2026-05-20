@@ -147,35 +147,73 @@ export async function GET(request: NextRequest) {
     });
   }
 
-  // 5.5. unmatched 상품명으로 products.supplier 미리 조회
-  const unmatchedNames = [...new Set(
+  // 5.5. cafe24_product_no 없는 주문은 상품명으로 products 조회
+  const allProductNames = [...new Set(
     Object.values(groupMap)
-      .filter((g) => !g.cafe24_product_no || !keyToProductId.has(`${g.store_id}::${g.cafe24_product_no}`))
       .map((g) => g.rows[0]?.product_name?.trim())
       .filter(Boolean) as string[]
   )];
-  const nameToProductSupplier: Record<string, string> = {};
-  if (unmatchedNames.length > 0) {
+  const nameToProductInfo = new Map<string, { id: string; tp_code: string | null; supplier: string | null; verified: boolean }>();
+  if (allProductNames.length > 0) {
     const { data: byNames } = await sb
       .from("products")
-      .select("product_name, supplier")
-      .in("product_name", unmatchedNames);
+      .select("id, product_name, tp_code, supplier, mapping_verified")
+      .in("product_name", allProductNames);
     for (const p of byNames || []) {
-      if (p.product_name && p.supplier) nameToProductSupplier[p.product_name.trim()] = p.supplier.trim();
+      if (p.product_name) {
+        nameToProductInfo.set(p.product_name.trim(), {
+          id: p.id,
+          tp_code: p.tp_code || null,
+          supplier: p.supplier || null,
+          verified: !!p.mapping_verified,
+        });
+      }
+    }
+    // name_aliases 매칭
+    const unresolvedNames = allProductNames.filter((n) => !nameToProductInfo.has(n));
+    if (unresolvedNames.length > 0) {
+      const { data: byAlias } = await sb
+        .from("products")
+        .select("id, product_name, tp_code, supplier, mapping_verified, name_aliases")
+        .overlaps("name_aliases", unresolvedNames);
+      for (const p of byAlias || []) {
+        const aliases: string[] = p.name_aliases || [];
+        for (const a of aliases) {
+          if (unresolvedNames.includes(a) && !nameToProductInfo.has(a)) {
+            nameToProductInfo.set(a, {
+              id: p.id,
+              tp_code: p.tp_code || null,
+              supplier: p.supplier || null,
+              verified: !!p.mapping_verified,
+            });
+          }
+        }
+      }
     }
   }
 
   // 6. 각 group 상태 계산
   type Status = "match" | "mismatch" | "unmatched_product" | "invalid_tp_code" | "unknown_supplier_code";
   const groups = Object.entries(groupMap).map(([key, g]) => {
-    const productId = g.cafe24_product_no ? keyToProductId.get(`${g.store_id}::${g.cafe24_product_no}`) : undefined;
-    const prod = productId ? productInfo.get(productId) : undefined;
+    // 경로 A: cafe24_product_no → product_cafe24_mappings
+    let productId = g.cafe24_product_no ? keyToProductId.get(`${g.store_id}::${g.cafe24_product_no}`) : undefined;
+    let prod = productId ? productInfo.get(productId) : undefined;
+
+    // 경로 B: 상품명 → products (cafe24_product_no 없거나 매핑 없는 경우)
+    const orderProductName = (g.rows[0]?.product_name || "").trim();
+    if (!prod && orderProductName) {
+      const byName = nameToProductInfo.get(orderProductName);
+      if (byName) {
+        productId = byName.id;
+        prod = { tp_code: byName.tp_code, product_name: orderProductName, verified: byName.verified, supplier: byName.supplier };
+      }
+    }
 
     let status: Status = "unmatched_product";
     let expectedSupplierId: string | null = null;
     let expectedSupplierName: string | null = null;
     let tpCode: string | null = null;
-    let productName = g.rows[0]?.product_name || "";
+    let productName = orderProductName;
 
     if (prod) {
       tpCode = prod.tp_code;
@@ -201,15 +239,6 @@ export async function GET(request: NextRequest) {
         status = allMatch ? "match" : "mismatch";
       } else {
         status = !tpCode ? "invalid_tp_code" : "unknown_supplier_code";
-      }
-    }
-
-    // unmatched_product이지만 상품명으로 products.supplier를 찾을 수 있는 경우
-    if (!prod && !expectedSupplierName) {
-      const nameKey = (g.rows[0]?.product_name || "").trim();
-      const supplierName = nameToProductSupplier[nameKey];
-      if (supplierName && nameToSupplier[supplierName]) {
-        expectedSupplierName = nameToSupplier[supplierName].name;
       }
     }
 

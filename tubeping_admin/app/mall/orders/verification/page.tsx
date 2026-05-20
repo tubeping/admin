@@ -234,7 +234,6 @@ export default function OrderMappingVerificationPage() {
                   <th className="px-3 py-2 text-left font-medium">상태</th>
                   <th className="px-3 py-2 text-left font-medium">상품명</th>
                   <th className="px-3 py-2 text-left font-medium">TP코드</th>
-                  <th className="px-3 py-2 text-center font-medium">주문수</th>
                   <th className="px-3 py-2 text-left font-medium">공급사</th>
                   <th className="px-3 py-2 text-center font-medium">상품관리 연결상태</th>
                 </tr>
@@ -250,7 +249,6 @@ export default function OrderMappingVerificationPage() {
                       </td>
                       <td className="px-3 py-2 max-w-[320px] text-gray-900">{g.product_name}</td>
                       <td className="px-3 py-2 text-xs font-mono text-gray-600 whitespace-nowrap">{g.tp_code || "-"}</td>
-                      <td className="px-3 py-2 text-center text-gray-700">{g.order_count}</td>
                       <td className="px-3 py-2 text-xs text-gray-700 max-w-[160px]">{g.expected_supplier_name || <span className="text-gray-400">-</span>}</td>
                       <td className="px-3 py-2 text-center whitespace-nowrap">
                         <div className="flex items-center justify-center gap-1">
