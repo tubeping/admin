@@ -573,10 +573,36 @@ export default function UnifiedOrdersPage() {
     } else alert(`오류: ${data.error}`);
   }, [fetchOrders]);
 
-  // Image OCR → 바로 등록
+  // Image OCR → 검증 후 바로 등록
   const handleImageOCR = useCallback(async (file: File) => {
+    // 1. 판매방식 체크
+    const sampleEl = document.getElementById("import-is-sample") as HTMLInputElement;
+    const groupEl = document.getElementById("import-is-group") as HTMLInputElement;
+    const etcEl = document.getElementById("import-is-etc") as HTMLInputElement;
+    let salesChannel: string | null = null;
+    if (sampleEl?.checked) salesChannel = "sample";
+    else if (groupEl?.checked) salesChannel = "group";
+    else if (etcEl?.checked) salesChannel = "etc";
+    if (!salesChannel) {
+      alert("판매방식(샘플/공구/기타)을 먼저 선택해주세요.");
+      return;
+    }
+
+    // 2. 판매사 체크
+    const storeSel = document.getElementById("import-store") as HTMLSelectElement;
+    if (!storeSel?.value) {
+      alert("판매사를 먼저 선택해주세요.");
+      return;
+    }
+    const storeId = storeSel.value.startsWith("id:") ? storeSel.value.slice(3) : "";
+    if (!storeId) {
+      alert("판매사를 먼저 선택해주세요.");
+      return;
+    }
+
     setOcrProcessing(true);
     try {
+      // 3. OCR 인식
       const fd = new FormData();
       fd.append("image", file);
       const res = await fetch("/admin/api/orders/ocr-import", { method: "POST", body: fd });
@@ -584,25 +610,65 @@ export default function UnifiedOrdersPage() {
       if (!res.ok) { alert(`OCR 실패: ${data.error}`); return; }
       if (!data.orders?.length) { alert("이미지에서 주문 데이터를 찾지 못했습니다."); return; }
 
-      // 바로 등록
+      // 4. 필수 필드 검증 (주문자/수취인, 연락처, 주소, 상품명, 수량)
+      const invalid: string[] = [];
+      for (const o of data.orders) {
+        const missing: string[] = [];
+        if (!o.product_name) missing.push("상품명");
+        if (!o.receiver_name && !o.buyer_name) missing.push("주문자/수취인");
+        if (!o.receiver_phone && !o.buyer_phone) missing.push("연락처");
+        if (!o.receiver_address) missing.push("주소");
+        if (!o.quantity) missing.push("수량");
+        if (missing.length > 0) invalid.push(`${o.product_name || "?"}: ${missing.join(", ")} 누락`);
+      }
+      if (invalid.length > 0) {
+        alert(`OCR 인식 결과에 필수 정보가 부족합니다:\n\n${invalid.join("\n")}\n\n캡쳐본에 주문자/수취인, 연락처, 주소, 상품명, 수량 정보가 모두 포함되어야 합니다.`);
+        return;
+      }
+
+      // 5. 등록
       const regRes = await fetch("/admin/api/orders/manual-register", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ orders: data.orders }),
+        body: JSON.stringify({ orders: data.orders, store_id: storeId, sales_channel: salesChannel }),
       });
       const regData = await regRes.json();
-      if (regRes.ok) {
-        alert(`OCR 인식 ${data.orders.length}건 → ${regData.success}건 등록 완료${regData.errors?.length ? `\n\n실패:\n${regData.errors.slice(0, 5).join("\n")}` : ""}`);
-        fetchOrders();
-      } else {
-        alert(`등록 실패: ${regData.error}`);
+      if (!regRes.ok) { alert(`등록 실패: ${regData.error}`); return; }
+
+      alert(`OCR 인식 ${data.orders.length}건 → ${regData.success}건 등록 완료${regData.errors?.length ? `\n\n실패:\n${regData.errors.slice(0, 5).join("\n")}` : ""}`);
+      await fetchOrders();
+
+      // 6. 주소 자동 검증
+      if (regData.insertedIds?.length) {
+        try {
+          const addrPayload = data.orders
+            .map((o: { receiver_address?: string }, i: number) => regData.insertedIds[i] ? { id: regData.insertedIds[i], address: o.receiver_address || "" } : null)
+            .filter((x: { id: string; address: string } | null) => x && x.address);
+          if (addrPayload.length > 0) {
+            const verRes = await fetch("/admin/api/address-verify", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ addresses: addrPayload }),
+            });
+            const verData = await verRes.json();
+            if (verRes.ok && verData.results) {
+              const map: Record<string, AddrVerifyResult> = { ...addrResults };
+              for (const r of verData.results) map[r.id] = r;
+              setAddrResults(map);
+              const invalidAddr = verData.results.filter((r: AddrVerifyResult) => r.status === "invalid" || r.status === "suspect");
+              if (invalidAddr.length > 0) {
+                alert(`주소 검증 완료: ${invalidAddr.length}건 확인 필요\n\n${invalidAddr.map((r: AddrVerifyResult) => `- ${r.reason || r.suggestion || r.status}`).slice(0, 5).join("\n")}`);
+              }
+            }
+          }
+        } catch { /* 주소 검증 실패해도 등록은 유지 */ }
       }
     } catch (e) {
       alert(`OCR 오류: ${(e as Error).message}`);
     } finally {
       setOcrProcessing(false);
     }
-  }, [fetchOrders]);
+  }, [fetchOrders, addrResults]);
 
   const handleFileDrop = useCallback(async (file: File) => {
     const ext = file.name?.split(".").pop()?.toLowerCase() || "";
