@@ -1139,7 +1139,7 @@ export default function UnifiedOrdersPage() {
           disabled={orders.length === 0}
           className="px-3 py-1.5 bg-green-700 text-white text-xs font-medium rounded-lg hover:bg-green-800 cursor-pointer disabled:opacity-50"
         >
-          엑셀 다운로드 ({orders.length})
+          엑셀 다운로드
         </button>
 
         {/* File upload */}
