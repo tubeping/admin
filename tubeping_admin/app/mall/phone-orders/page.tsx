@@ -10,6 +10,13 @@ interface PhoneOrderClient {
   phone: string | null;
 }
 
+interface Store {
+  id: string;
+  name: string;
+  channel: string | null;
+  status: string;
+}
+
 interface ProductSearchResult {
   id: string;
   tp_code: string;
@@ -268,7 +275,7 @@ function AddressSearchInput({
 export default function PhoneOrdersPage() {
   const router = useRouter();
   const [orders, setOrders] = useState<PhoneOrder[]>([]);
-  const [clients, setClients] = useState<PhoneOrderClient[]>([]);
+  const [stores, setStores] = useState<Store[]>([]);
   const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [saving, setSaving] = useState(false);
@@ -292,15 +299,11 @@ export default function PhoneOrdersPage() {
   const [productResults, setProductResults] = useState<Record<string, ProductSearchResult[]>>({});
   const productTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
 
-  // 판매처 추가
-  const [showNewClient, setShowNewClient] = useState(false);
-  const [newClientName, setNewClientName] = useState("");
-
-  const fetchClients = useCallback(async () => {
+  const fetchStores = useCallback(async () => {
     try {
-      const res = await fetch("/admin/api/phone-order-clients?status=active");
+      const res = await fetch("/admin/api/stores");
       const data = await res.json();
-      setClients(data.clients || []);
+      setStores((data.stores || data || []).filter((s: Store) => s.status === "active"));
     } catch { /* ignore */ }
   }, []);
 
@@ -321,7 +324,7 @@ export default function PhoneOrdersPage() {
     setLoading(false);
   }, [clientFilter, statusFilter, paymentFilter, keyword, startDate, endDate]);
 
-  useEffect(() => { fetchClients(); }, [fetchClients]);
+  useEffect(() => { fetchStores(); }, [fetchStores]);
   useEffect(() => { fetchOrders(); }, [fetchOrders]);
 
   // === 상품 검색 ===
@@ -354,41 +357,12 @@ export default function PhoneOrdersPage() {
     });
   };
 
-  const addClient = async () => {
-    if (!newClientName.trim()) return;
-    try {
-      const res = await fetch("/admin/api/phone-order-clients", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: newClientName.trim() }),
-      });
-      if (res.ok) {
-        await fetchClients();
-        setNewClientName("");
-        setShowNewClient(false);
-      } else {
-        const err = await res.json();
-        alert(err.error || "판매처 등록 실패");
-      }
-    } catch { /* ignore */ }
-  };
-
   const submitNewRows = async () => {
     const validRows = newRows.filter((r) => r.product_name.trim() && r.recipient_name.trim());
     if (validRows.length === 0) { alert("상품명과 수령인을 입력해주세요."); return; }
 
-    // 텍스트로 입력된 판매처를 자동 매칭
-    for (const row of validRows) {
-      if (!row.client_id && row.client_text.trim()) {
-        const match = clients.find((c) => c.name === row.client_text.trim());
-        if (match) {
-          row.client_id = match.id;
-        }
-      }
-    }
-
-    const noClient = validRows.find((r) => !r.client_id);
-    if (noClient) { alert(`판매처 "${noClient.client_text || ""}"을(를) 찾을 수 없습니다. 드롭다운에서 선택하거나 새 판매처를 등록해주세요.`); return; }
+    const noClient = validRows.find((r) => !r.client_text.trim());
+    if (noClient) { alert("판매처를 입력해주세요."); return; }
 
     setSaving(true);
     const today = new Date().toISOString().slice(0, 10);
@@ -401,7 +375,7 @@ export default function PhoneOrdersPage() {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            client_id: row.client_id,
+            store_name: row.client_text.trim(),
             order_date: today,
             product_name: row.product_name,
             option_text: row.option_text || null,
@@ -479,11 +453,11 @@ export default function PhoneOrdersPage() {
 
   const cellInput = "w-full px-1.5 py-1 text-xs border border-gray-200 rounded outline-none focus:border-[#C41E1E] focus:ring-1 focus:ring-[#C41E1E]/20 bg-white";
 
-  // 판매처 필터용 목록
-  const getFilteredClients = (text: string) => {
-    if (!text) return clients;
+  // 판매처(스토어) 필터용 목록
+  const getFilteredStores = (text: string) => {
+    if (!text) return stores;
     const lower = text.toLowerCase();
-    return clients.filter((c) => c.name.toLowerCase().includes(lower));
+    return stores.filter((s) => s.name.toLowerCase().includes(lower));
   };
 
   return (
@@ -494,9 +468,7 @@ export default function PhoneOrdersPage() {
           <h1 className="text-2xl font-bold text-gray-900">전화주문 관리</h1>
           <p className="text-sm text-gray-500 mt-0.5">전화/문자로 접수된 주문을 관리합니다</p>
         </div>
-        <div className="flex items-center gap-2">
-          <button onClick={() => setShowNewClient(!showNewClient)} className="px-3 py-2 text-xs font-medium text-[#C41E1E] border border-[#C41E1E]/30 rounded-lg hover:bg-[#FFF0F5]">+ 새 판매처</button>
-        </div>
+        <div />
       </div>
 
       {/* 통계 */}
@@ -515,16 +487,6 @@ export default function PhoneOrdersPage() {
       </div>
 
       {/* ====== 스프레드시트 신규 입력 ====== */}
-      {/* 새 판매처 등록 */}
-      {showNewClient && (
-        <div className="bg-white rounded-xl border border-gray-200 p-3 flex items-center gap-2">
-          <span className="text-xs font-medium text-gray-600">새 판매처:</span>
-          <input value={newClientName} onChange={(e) => setNewClientName(e.target.value)} placeholder="판매처명" className="px-2.5 py-1.5 text-xs border border-gray-300 rounded-lg w-40" onKeyDown={(e) => { if (e.key === "Enter") addClient(); }} />
-          <button onClick={addClient} className="px-3 py-1.5 text-xs font-medium bg-[#C41E1E] text-white rounded-lg hover:bg-[#A01818]">등록</button>
-          <button onClick={() => { setShowNewClient(false); setNewClientName(""); }} className="px-3 py-1.5 text-xs text-gray-500 hover:bg-gray-100 rounded-lg">취소</button>
-        </div>
-      )}
-
       {/* 스프레드시트 입력 */}
       <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
           <div className="overflow-x-auto">
@@ -556,16 +518,14 @@ export default function PhoneOrdersPage() {
                         value={row.client_text}
                         onChange={(v) => {
                           updateNewRow(row.id, "client_text", v);
-                          if (!v) updateNewRow(row.id, "client_id", "");
                         }}
                         onSelect={(item) => {
-                          updateNewRow(row.id, "client_id", item.id);
                           updateNewRow(row.id, "client_text", item.label);
                         }}
-                        items={getFilteredClients(row.client_text).map((c) => ({ id: c.id, label: c.name }))}
-                        allItems={clients.map((c) => ({ id: c.id, label: c.name }))}
+                        items={getFilteredStores(row.client_text).map((s) => ({ id: s.id, label: s.name, sub: s.channel || undefined }))}
+                        allItems={stores.map((s) => ({ id: s.id, label: s.name }))}
                         placeholder="판매처 검색"
-                        className={`${cellInput} ${!row.client_id ? "" : "font-medium"}`}
+                        className={cellInput}
                       />
                     </td>
 
@@ -654,7 +614,7 @@ export default function PhoneOrdersPage() {
         <div className="flex flex-wrap items-center gap-2">
           <select value={clientFilter} onChange={(e) => setClientFilter(e.target.value)} className="px-2.5 py-1.5 text-xs border border-gray-300 rounded-lg">
             <option value="">전체 판매처</option>
-            {clients.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+            {stores.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
           </select>
           <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="px-2.5 py-1.5 text-xs border border-gray-300 rounded-lg">
             <option value="">전체 상태</option>

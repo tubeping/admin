@@ -38,7 +38,7 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   const body = await request.json();
   const {
-    client_id, product_name, option_text, quantity,
+    client_id, store_name, product_name, option_text, quantity,
     unit_price, depositor_name, payment_status,
     recipient_name, recipient_phone, recipient_zipcode,
     recipient_address, delivery_message,
@@ -46,11 +46,33 @@ export async function POST(request: NextRequest) {
     memo, order_date,
   } = body;
 
-  if (!client_id) return NextResponse.json({ error: "판매처를 선택해주세요." }, { status: 400 });
+  if (!client_id && !store_name) return NextResponse.json({ error: "판매처를 선택해주세요." }, { status: 400 });
   if (!product_name) return NextResponse.json({ error: "상품명은 필수입니다." }, { status: 400 });
   if (!recipient_name) return NextResponse.json({ error: "수령인은 필수입니다." }, { status: 400 });
 
   const sb = getServiceClient();
+
+  // store_name으로 넘어온 경우 phone_order_clients에서 찾거나 자동 생성
+  let resolvedClientId = client_id;
+  if (!resolvedClientId && store_name) {
+    const { data: existing } = await sb
+      .from("phone_order_clients")
+      .select("id")
+      .eq("name", store_name)
+      .single();
+
+    if (existing) {
+      resolvedClientId = existing.id;
+    } else {
+      const { data: created, error: createErr } = await sb
+        .from("phone_order_clients")
+        .insert({ name: store_name })
+        .select("id")
+        .single();
+      if (createErr) return NextResponse.json({ error: `판매처 생성 실패: ${createErr.message}` }, { status: 500 });
+      resolvedClientId = created.id;
+    }
+  }
 
   const dt = order_date || new Date().toISOString().slice(0, 10);
   const { data: numData } = await sb.rpc("generate_phone_order_number", { order_dt: dt });
@@ -64,7 +86,7 @@ export async function POST(request: NextRequest) {
     .from("phone_orders")
     .insert({
       order_number,
-      client_id,
+      client_id: resolvedClientId,
       order_date: dt,
       product_name,
       option_text,
