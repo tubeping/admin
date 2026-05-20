@@ -287,7 +287,6 @@ export default function PhoneOrdersPage() {
 
   // 신규 입력 (기본 5행)
   const [newRows, setNewRows] = useState<NewRow[]>([makeEmptyRow(), makeEmptyRow(), makeEmptyRow(), makeEmptyRow(), makeEmptyRow()]);
-  const [showNewRows, setShowNewRows] = useState(false);
 
   // 상품 검색 결과 (행별)
   const [productResults, setProductResults] = useState<Record<string, ProductSearchResult[]>>({});
@@ -421,7 +420,6 @@ export default function PhoneOrdersPage() {
 
     if (successCount > 0) {
       setNewRows([makeEmptyRow(), makeEmptyRow(), makeEmptyRow(), makeEmptyRow(), makeEmptyRow()]);
-      setShowNewRows(false);
       fetchOrders();
     }
     setSaving(false);
@@ -497,10 +495,7 @@ export default function PhoneOrdersPage() {
           <p className="text-sm text-gray-500 mt-0.5">전화/문자로 접수된 주문을 관리합니다</p>
         </div>
         <div className="flex items-center gap-2">
-          <button onClick={() => router.push("/mall/phone-orders/clients")} className="px-4 py-2.5 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50">판매처 관리</button>
-          <button onClick={() => setShowNewRows(!showNewRows)} className={`px-4 py-2.5 text-sm font-medium rounded-lg ${showNewRows ? "bg-gray-200 text-gray-700 hover:bg-gray-300" : "bg-[#C41E1E] text-white hover:bg-[#A01818]"}`}>
-            {showNewRows ? "접수 닫기" : "+ 주문 접수"}
-          </button>
+          <button onClick={() => setShowNewClient(!showNewClient)} className="px-3 py-2 text-xs font-medium text-[#C41E1E] border border-[#C41E1E]/30 rounded-lg hover:bg-[#FFF0F5]">+ 새 판매처</button>
         </div>
       </div>
 
@@ -520,25 +515,18 @@ export default function PhoneOrdersPage() {
       </div>
 
       {/* ====== 스프레드시트 신규 입력 ====== */}
-      {showNewRows && (
-        <div className="bg-white rounded-xl border-2 border-[#C41E1E]/30 overflow-hidden">
-          <div className="px-4 py-3 bg-[#FFF0F5] border-b border-[#C41E1E]/10 flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <h2 className="text-sm font-bold text-[#C41E1E]">주문 접수</h2>
-              <span className="text-xs text-gray-500">행 추가로 여러 건 한 번에 접수</span>
-            </div>
-            <div className="flex items-center gap-2">
-              {!showNewClient ? (
-                <button onClick={() => setShowNewClient(true)} className="px-2.5 py-1 text-xs font-medium text-[#C41E1E] border border-[#C41E1E]/30 rounded hover:bg-[#FFF0F5]">+ 새 판매처</button>
-              ) : (
-                <div className="flex items-center gap-1">
-                  <input value={newClientName} onChange={(e) => setNewClientName(e.target.value)} placeholder="판매처명" className="px-2 py-1 text-xs border border-gray-300 rounded w-28" onKeyDown={(e) => { if (e.key === "Enter") addClient(); }} />
-                  <button onClick={addClient} className="px-2 py-1 text-xs font-medium bg-[#C41E1E] text-white rounded hover:bg-[#A01818]">등록</button>
-                  <button onClick={() => { setShowNewClient(false); setNewClientName(""); }} className="px-2 py-1 text-xs text-gray-500 hover:bg-gray-100 rounded">취소</button>
-                </div>
-              )}
-            </div>
-          </div>
+      {/* 새 판매처 등록 */}
+      {showNewClient && (
+        <div className="bg-white rounded-xl border border-gray-200 p-3 flex items-center gap-2">
+          <span className="text-xs font-medium text-gray-600">새 판매처:</span>
+          <input value={newClientName} onChange={(e) => setNewClientName(e.target.value)} placeholder="판매처명" className="px-2.5 py-1.5 text-xs border border-gray-300 rounded-lg w-40" onKeyDown={(e) => { if (e.key === "Enter") addClient(); }} />
+          <button onClick={addClient} className="px-3 py-1.5 text-xs font-medium bg-[#C41E1E] text-white rounded-lg hover:bg-[#A01818]">등록</button>
+          <button onClick={() => { setShowNewClient(false); setNewClientName(""); }} className="px-3 py-1.5 text-xs text-gray-500 hover:bg-gray-100 rounded-lg">취소</button>
+        </div>
+      )}
+
+      {/* 스프레드시트 입력 */}
+      <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
           <div className="overflow-x-auto">
             <table className="w-full text-xs">
               <thead>
@@ -659,8 +647,7 @@ export default function PhoneOrdersPage() {
               </button>
             </div>
           </div>
-        </div>
-      )}
+      </div>
 
       {/* 필터 */}
       <div className="bg-white rounded-xl border border-gray-200 p-3">
