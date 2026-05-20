@@ -444,7 +444,7 @@ export default function PurchaseOrdersPage() {
                           </span>
                           <button
                             onClick={async () => {
-                              const res = await fetch("/api/purchase-orders", {
+                              const res = await fetch("/admin/api/purchase-orders", {
                                 method: "PATCH",
                                 headers: { "Content-Type": "application/json" },
                                 body: JSON.stringify({ id: po.id, days: 7 }),
