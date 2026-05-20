@@ -302,7 +302,7 @@ export default function OrdersPage() {
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
   const [ocrProcessing, setOcrProcessing] = useState(false);
-  const [ocrResults, setOcrResults] = useState<{ product_name: string; option_text?: string; quantity: number; unit_price?: number; order_amount?: number; buyer_name?: string; buyer_phone?: string; receiver_name?: string; receiver_phone?: string; receiver_address?: string; receiver_zipcode?: string; memo?: string }[] | null>(null);
+
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [editingCell, setEditingCell] = useState<{ orderId: string; field: "channel" | "store" } | null>(null);
   const onStartEdit = useCallback((orderId: string, field: "channel" | "store") => {
@@ -399,7 +399,7 @@ export default function OrdersPage() {
     } else alert(`오류: ${data.error}`);
   }, [fetchOrders]);
 
-  // 이미지 OCR 처리
+  // 이미지 OCR → 바로 등록
   const handleImageOCR = useCallback(async (file: File) => {
     setOcrProcessing(true);
     try {
@@ -409,31 +409,25 @@ export default function OrdersPage() {
       const data = await res.json();
       if (!res.ok) { alert(`OCR 실패: ${data.error}`); return; }
       if (!data.orders?.length) { alert("이미지에서 주문 데이터를 찾지 못했습니다."); return; }
-      setOcrResults(data.orders);
+
+      const regRes = await fetch("/admin/api/orders/manual-register", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ orders: data.orders }),
+      });
+      const regData = await regRes.json();
+      if (regRes.ok) {
+        alert(`OCR 인식 ${data.orders.length}건 → ${regData.success}건 등록 완료${regData.errors?.length ? `\n\n실패:\n${regData.errors.slice(0, 5).join("\n")}` : ""}`);
+        fetchOrders();
+      } else {
+        alert(`등록 실패: ${regData.error}`);
+      }
     } catch (e) {
       alert(`OCR 오류: ${(e as Error).message}`);
     } finally {
       setOcrProcessing(false);
     }
-  }, []);
-
-  // OCR 결과 → 수기주문으로 일괄 등록
-  const handleOcrConfirm = useCallback(async () => {
-    if (!ocrResults?.length) return;
-    const res = await fetch("/admin/api/orders/manual-register", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ orders: ocrResults }),
-    });
-    const data = await res.json();
-    if (res.ok) {
-      alert(`${data.success}건 등록 완료${data.errors?.length ? `\n\n실패:\n${data.errors.slice(0, 5).join("\n")}` : ""}`);
-    } else {
-      alert(`등록 실패: ${data.error}`);
-    }
-    setOcrResults(null);
-    fetchOrders();
-  }, [ocrResults, fetchOrders]);
+  }, [fetchOrders]);
 
   // 드롭/붙여넣기 파일 분기: 엑셀/CSV → 구조 파서, 나머지 → OCR(Gemini)
   const handleFileDrop = useCallback(async (file: File) => {
@@ -750,88 +744,6 @@ export default function OrdersPage() {
             <div className="animate-spin mx-auto mb-3 w-10 h-10 border-4 border-blue-500 border-t-transparent rounded-full" />
             <p className="text-lg font-semibold text-gray-700">이미지 분석 중...</p>
             <p className="text-sm text-gray-500 mt-1">Gemini AI가 주문 데이터를 인식하고 있습니다</p>
-          </div>
-        </div>
-      )}
-      {/* OCR 결과 확인 모달 */}
-      {ocrResults && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/40">
-          <div className="bg-white rounded-2xl shadow-2xl w-[90vw] max-w-[900px] max-h-[80vh] flex flex-col">
-            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200">
-              <div>
-                <h2 className="text-lg font-bold text-gray-900">스크린샷 OCR 결과</h2>
-                <p className="text-sm text-gray-500">{ocrResults.length}건 인식됨 — 확인 후 주문으로 등록됩니다</p>
-              </div>
-              <button onClick={() => setOcrResults(null)} className="text-gray-400 hover:text-gray-600 text-2xl cursor-pointer">×</button>
-            </div>
-            <div className="flex-1 overflow-auto px-6 py-4">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="text-xs text-gray-500 border-b">
-                    <th className="text-left py-2 px-2">상품명</th>
-                    <th className="text-left py-2 px-2">옵션</th>
-                    <th className="text-right py-2 px-2">수량</th>
-                    <th className="text-right py-2 px-2">단가</th>
-                    <th className="text-left py-2 px-2">주문자</th>
-                    <th className="text-left py-2 px-2">수령인</th>
-                    <th className="text-left py-2 px-2">연락처</th>
-                    <th className="text-left py-2 px-2">주소</th>
-                    <th className="text-center py-2 px-2">삭제</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {ocrResults.map((o, i) => (
-                    <tr key={i} className="border-b border-gray-50 hover:bg-gray-50/50">
-                      <td className="py-2 px-2">
-                        <input className="w-full text-sm border border-gray-200 rounded px-2 py-1" value={o.product_name}
-                          onChange={(e) => setOcrResults((prev) => prev!.map((r, j) => j === i ? { ...r, product_name: e.target.value } : r))} />
-                      </td>
-                      <td className="py-2 px-2">
-                        <input className="w-full text-sm border border-gray-200 rounded px-2 py-1" value={o.option_text || ""}
-                          onChange={(e) => setOcrResults((prev) => prev!.map((r, j) => j === i ? { ...r, option_text: e.target.value } : r))} />
-                      </td>
-                      <td className="py-2 px-2">
-                        <input type="number" className="w-16 text-sm border border-gray-200 rounded px-2 py-1 text-right" value={o.quantity}
-                          onChange={(e) => setOcrResults((prev) => prev!.map((r, j) => j === i ? { ...r, quantity: Number(e.target.value) } : r))} />
-                      </td>
-                      <td className="py-2 px-2">
-                        <input type="number" className="w-20 text-sm border border-gray-200 rounded px-2 py-1 text-right" value={o.unit_price || 0}
-                          onChange={(e) => setOcrResults((prev) => prev!.map((r, j) => j === i ? { ...r, unit_price: Number(e.target.value) } : r))} />
-                      </td>
-                      <td className="py-2 px-2">
-                        <input className="w-20 text-sm border border-gray-200 rounded px-2 py-1" value={o.buyer_name || ""}
-                          onChange={(e) => setOcrResults((prev) => prev!.map((r, j) => j === i ? { ...r, buyer_name: e.target.value } : r))} />
-                      </td>
-                      <td className="py-2 px-2">
-                        <input className="w-20 text-sm border border-gray-200 rounded px-2 py-1" value={o.receiver_name || ""}
-                          onChange={(e) => setOcrResults((prev) => prev!.map((r, j) => j === i ? { ...r, receiver_name: e.target.value } : r))} />
-                      </td>
-                      <td className="py-2 px-2">
-                        <input className="w-28 text-sm border border-gray-200 rounded px-2 py-1" value={o.receiver_phone || ""}
-                          onChange={(e) => setOcrResults((prev) => prev!.map((r, j) => j === i ? { ...r, receiver_phone: e.target.value } : r))} />
-                      </td>
-                      <td className="py-2 px-2">
-                        <input className="w-40 text-sm border border-gray-200 rounded px-2 py-1" value={o.receiver_address || ""}
-                          onChange={(e) => setOcrResults((prev) => prev!.map((r, j) => j === i ? { ...r, receiver_address: e.target.value } : r))} />
-                      </td>
-                      <td className="py-2 px-2 text-center">
-                        <button onClick={() => setOcrResults((prev) => prev!.filter((_, j) => j !== i))}
-                          className="text-red-400 hover:text-red-600 cursor-pointer text-lg">×</button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-            <div className="flex items-center justify-between px-6 py-4 border-t border-gray-200">
-              <p className="text-xs text-gray-400">인식 결과를 수정한 후 등록해 주세요. Ctrl+V로 스크린샷 붙여넣기도 가능합니다.</p>
-              <div className="flex gap-2">
-                <button onClick={() => setOcrResults(null)} className="px-4 py-2 text-sm border border-gray-300 rounded-lg hover:bg-gray-50 cursor-pointer">취소</button>
-                <button onClick={handleOcrConfirm} className="px-4 py-2 text-sm bg-[#C41E1E] text-white rounded-lg hover:bg-[#A01818] cursor-pointer">
-                  {ocrResults.length}건 등록
-                </button>
-              </div>
-            </div>
           </div>
         </div>
       )}
