@@ -118,8 +118,7 @@ const MENU_GROUPS: MenuGroup[] = [
           </svg>
         ),
         children: [
-          { key: "phone-orders-list", label: "주문 목록", href: "/mall/phone-orders" },
-          { key: "phone-orders-new", label: "주문 접수", href: "/mall/phone-orders/new" },
+          { key: "phone-orders-list", label: "주문 관리", href: "/mall/phone-orders" },
           { key: "phone-orders-clients", label: "판매처 관리", href: "/mall/phone-orders/clients" },
         ],
       },
