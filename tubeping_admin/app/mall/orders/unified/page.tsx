@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, useEffect, useCallback, useMemo, memo, useRef } from "react";
-import * as XLSX from "xlsx";
 
 interface Store { id: string; name: string; mall_id: string; status: string; }
 interface Supplier { id: string; name: string; email: string; }
@@ -431,6 +430,25 @@ export default function UnifiedOrdersPage() {
     return res.ok;
   };
 
+  // Fetch orders (must be defined before callbacks that reference it)
+  const fetchOrders = useCallback(async () => {
+    setLoading(true);
+    const params = new URLSearchParams();
+    if (filterStatus) params.set("status", filterStatus);
+    if (filterStore) params.set("store_id", filterStore);
+    if (filterSupplier && filterSupplier !== "__none__") params.set("supplier_id", filterSupplier);
+    if (dateFrom) params.set("start_date", dateFrom);
+    if (dateTo) params.set("end_date", dateTo);
+    params.set("limit", "500");
+
+    const res = await fetch(`/admin/api/orders?${params}`);
+    if (!res.ok) { setLoading(false); return; }
+    const data = await res.json();
+    setRawOrders(data.orders || []);
+    setTotal(data.total || 0);
+    setLoading(false);
+  }, [filterStatus, filterStore, filterSupplier, dateFrom, dateTo]);
+
   const saveTracking = useCallback(async (id: string) => {
     const edit = trackingEdit[id];
     if (!edit || !edit.number.trim()) return;
@@ -467,25 +485,6 @@ export default function UnifiedOrdersPage() {
     setCsModalOrder(null);
     fetchOrders();
   };
-
-  // Fetch orders
-  const fetchOrders = useCallback(async () => {
-    setLoading(true);
-    const params = new URLSearchParams();
-    if (filterStatus) params.set("status", filterStatus);
-    if (filterStore) params.set("store_id", filterStore);
-    if (filterSupplier && filterSupplier !== "__none__") params.set("supplier_id", filterSupplier);
-    if (dateFrom) params.set("start_date", dateFrom);
-    if (dateTo) params.set("end_date", dateTo);
-    params.set("limit", "500");
-
-    const res = await fetch(`/admin/api/orders?${params}`);
-    if (!res.ok) { setLoading(false); return; }
-    const data = await res.json();
-    setRawOrders(data.orders || []);
-    setTotal(data.total || 0);
-    setLoading(false);
-  }, [filterStatus, filterStore, filterSupplier, dateFrom, dateTo]);
 
   // File import
   const handleImportFile = useCallback(async (file: File) => {
@@ -877,8 +876,9 @@ export default function UnifiedOrdersPage() {
   };
 
   // Excel download
-  const handleExcelDownload = () => {
+  const handleExcelDownload = async () => {
     if (orders.length === 0) { alert("다운로드할 주문이 없습니다."); return; }
+    const XLSX = await import("xlsx");
     const rows = orders.map((o) => ({
       "주문일": formatDate(o.order_date),
       "판매처": o.stores?.name || "",
