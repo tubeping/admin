@@ -41,10 +41,13 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
-  // 출고지(창고) 정보 enrichment
+  // 출고지(창고) + 상품관리 가격 enrichment
   const orders = data || [];
   if (orders.length > 0) {
-    // cafe24_product_no → product_id 매핑
+    // 1) orders.product_id가 이미 설정된 경우 직접 사용
+    const directPids = [...new Set(orders.map((o: any) => o.product_id).filter(Boolean))];
+
+    // 2) cafe24_product_no → product_id 매핑
     const productNos = [...new Set(orders.map((o: any) => o.cafe24_product_no).filter((n: any) => n > 0))];
     const storeProductToProductId: Record<string, string> = {};
     if (productNos.length > 0) {
@@ -56,24 +59,26 @@ export async function GET(request: NextRequest) {
         storeProductToProductId[`${m.store_id}::${m.cafe24_product_no}`] = m.product_id;
       }
     }
-    // product_name → product_id 매핑 (cafe24_product_no 없는 경우)
+    // 3) product_name → product_id 매핑 (cafe24_product_no 없는 경우)
     const productNames = [...new Set(orders.map((o: any) => o.product_name?.trim()).filter(Boolean))];
     const nameToProductId: Record<string, string> = {};
     if (productNames.length > 0) {
       const { data: byName } = await sb.from("products").select("id, product_name").in("product_name", productNames);
       for (const p of byName || []) { if (p.product_name) nameToProductId[p.product_name.trim()] = p.id; }
     }
-    // product_id → fulfillment_warehouse_supplier_id + supply_price + supply_shipping_fee
-    const allPids = [...new Set([...Object.values(storeProductToProductId), ...Object.values(nameToProductId)])];
+    // 4) 모든 product_id에서 가격 정보 + 출고지 가져오기 (price 추가)
+    const allPids = [...new Set([...directPids, ...Object.values(storeProductToProductId), ...Object.values(nameToProductId)])];
     const pidToWarehouse: Record<string, string> = {};
     const pidToSupplyPrice: Record<string, number> = {};
     const pidToSupplyShipping: Record<string, number> = {};
+    const pidToSalePrice: Record<string, number> = {};
     if (allPids.length > 0) {
-      const { data: products } = await sb.from("products").select("id, fulfillment_warehouse_supplier_id, supply_price, supply_shipping_fee").in("id", allPids);
+      const { data: products } = await sb.from("products").select("id, fulfillment_warehouse_supplier_id, supply_price, supply_shipping_fee, price").in("id", allPids);
       for (const p of products || []) {
         if (p.fulfillment_warehouse_supplier_id) pidToWarehouse[p.id] = p.fulfillment_warehouse_supplier_id;
         if (p.supply_price) pidToSupplyPrice[p.id] = p.supply_price;
         if (p.supply_shipping_fee) pidToSupplyShipping[p.id] = p.supply_shipping_fee;
+        if (p.price) pidToSalePrice[p.id] = p.price;
       }
     }
     // warehouse supplier_id → name
@@ -83,14 +88,21 @@ export async function GET(request: NextRequest) {
       const { data: wSuppliers } = await sb.from("suppliers").select("id, name").in("id", warehouseIds);
       for (const s of wSuppliers || []) { warehouseNames[s.id] = s.name; }
     }
-    // 각 주문에 warehouse_name, supply_price, supply_shipping_fee 추가
+    // 각 주문에 warehouse_name, supply_price, supply_shipping_fee + 판매가 보충
     for (const o of orders as any[]) {
-      let pid = o.store_id && o.cafe24_product_no > 0 ? storeProductToProductId[`${o.store_id}::${o.cafe24_product_no}`] : undefined;
+      // product_id 결정: DB에 저장된 값 → cafe24 매핑 → 상품명 매칭
+      let pid = o.product_id || undefined;
+      if (!pid && o.store_id && o.cafe24_product_no > 0) pid = storeProductToProductId[`${o.store_id}::${o.cafe24_product_no}`];
       if (!pid && o.product_name) pid = nameToProductId[o.product_name.trim()];
       const wId = pid ? pidToWarehouse[pid] : undefined;
       o.warehouse_name = wId ? warehouseNames[wId] || null : null;
       o.supply_price = pid ? pidToSupplyPrice[pid] || 0 : 0;
       o.supply_shipping_fee = pid ? pidToSupplyShipping[pid] || 0 : 0;
+      // 판매가가 비어있으면 상품관리 가격으로 보충
+      if (pid && pidToSalePrice[pid]) {
+        if (!o.product_price) o.product_price = pidToSalePrice[pid];
+        if (!o.order_amount) o.order_amount = pidToSalePrice[pid] * (o.quantity || 1);
+      }
     }
   }
 
