@@ -323,6 +323,7 @@ export default function Sidebar({ collapsed, onToggle }: SidebarProps) {
   const pathname = usePathname();
   const router = useRouter();
   const [csOpen, setCsOpen] = useState(0);
+  const [expandedKeys, setExpandedKeys] = useState<Set<string>>(new Set());
 
   const fetchCsCount = useCallback(async () => {
     try {
@@ -337,6 +338,38 @@ export default function Sidebar({ collapsed, onToggle }: SidebarProps) {
     const interval = setInterval(fetchCsCount, 30_000); // 30초마다 갱신
     return () => clearInterval(interval);
   }, [fetchCsCount]);
+
+  // 현재 경로에 해당하는 부모메뉴는 자동으로 펼침
+  useEffect(() => {
+    const autoExpand = new Set<string>();
+    for (const group of MENU_GROUPS) {
+      for (const item of group.items) {
+        if (item.children) {
+          const childMatch = item.children.some(
+            (c) => pathname === c.href || pathname.startsWith(c.href + "/")
+          );
+          const parentMatch = pathname === item.href || pathname.startsWith(item.href + "/");
+          if (childMatch || parentMatch) {
+            autoExpand.add(item.key);
+          }
+        }
+      }
+    }
+    setExpandedKeys((prev) => {
+      const next = new Set(prev);
+      autoExpand.forEach((k) => next.add(k));
+      return next;
+    });
+  }, [pathname]);
+
+  const toggleExpand = (key: string) => {
+    setExpandedKeys((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  };
 
   const isActive = (href: string) => {
     if (href === "/") return pathname === "/";
@@ -409,11 +442,18 @@ export default function Sidebar({ collapsed, onToggle }: SidebarProps) {
             {group.items.map((item) => {
               // 부모 또는 자식 중 하나라도 활성이면 부모를 활성으로 — 자식 경로가 부모 href의 prefix가 아닌 경우(예: /mall/stock-alerts under 상품관리 /mall/products)에도 메뉴 펼친 상태 유지
               const active = isActive(item.href) || (item.children?.some((c) => isActive(c.href)) ?? false);
+              const expanded = expandedKeys.has(item.key);
               const badge = item.key === "cs" ? csOpen : 0;
               return (
                 <div key={item.key}>
                   <button
-                    onClick={() => router.push(item.href)}
+                    onClick={() => {
+                      if (item.children) {
+                        toggleExpand(item.key);
+                      } else {
+                        router.push(item.href);
+                      }
+                    }}
                     title={collapsed ? item.label : undefined}
                     className={`w-full flex items-center gap-3 text-sm font-medium transition-colors cursor-pointer relative ${
                       collapsed ? "px-0 py-3 justify-center" : "px-5 py-2.5"
@@ -433,16 +473,26 @@ export default function Sidebar({ collapsed, onToggle }: SidebarProps) {
                     </span>
                     {!collapsed && (
                       <>
-                        <span>{item.label}</span>
+                        <span className="flex-1 text-left">{item.label}</span>
                         {badge > 0 && (
-                          <span className="ml-auto min-w-[20px] h-5 bg-[#C41E1E] text-white text-[11px] font-bold rounded-full flex items-center justify-center px-1.5">
+                          <span className="min-w-[20px] h-5 bg-[#C41E1E] text-white text-[11px] font-bold rounded-full flex items-center justify-center px-1.5">
                             {badge > 99 ? "99+" : badge}
                           </span>
+                        )}
+                        {item.children && (
+                          <svg
+                            className={`w-4 h-4 text-gray-400 transition-transform ${expanded ? "rotate-90" : ""}`}
+                            fill="none"
+                            stroke="currentColor"
+                            viewBox="0 0 24 24"
+                          >
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                          </svg>
                         )}
                       </>
                     )}
                   </button>
-                  {!collapsed && item.children && active && (
+                  {!collapsed && item.children && expanded && (
                     <div className="ml-[44px] border-l border-gray-200">
                       {item.children.map((child) => {
                         const childActive = isChildActive(item, child);
