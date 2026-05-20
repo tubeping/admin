@@ -105,6 +105,7 @@ function AutocompleteInput({
   onChange,
   onSelect,
   items,
+  allItems,
   placeholder,
   className,
   renderItem,
@@ -113,6 +114,7 @@ function AutocompleteInput({
   onChange: (v: string) => void;
   onSelect: (item: { id: string; label: string }) => void;
   items: { id: string; label: string; sub?: string }[];
+  allItems?: { id: string; label: string }[]; // blur 시 이름 매칭용
   placeholder: string;
   className: string;
   renderItem?: (item: { id: string; label: string; sub?: string }, idx: number) => React.ReactNode;
@@ -129,6 +131,18 @@ function AutocompleteInput({
     return () => document.removeEventListener("mousedown", handler);
   }, []);
 
+  // blur 시 입력한 텍스트가 목록에 정확히 매칭되면 자동 선택
+  const handleBlur = () => {
+    setTimeout(() => {
+      setFocused(false);
+      setOpen(false);
+      if (!value.trim()) return;
+      const source = allItems || items;
+      const match = source.find((item) => item.label === value.trim());
+      if (match) onSelect(match);
+    }, 200);
+  };
+
   const showDropdown = open && focused && items.length > 0;
 
   return (
@@ -137,7 +151,7 @@ function AutocompleteInput({
         value={value}
         onChange={(e) => { onChange(e.target.value); setOpen(true); }}
         onFocus={() => { setFocused(true); setOpen(true); }}
-        onBlur={() => setTimeout(() => setFocused(false), 200)}
+        onBlur={handleBlur}
         placeholder={placeholder}
         className={className}
       />
@@ -271,8 +285,8 @@ export default function PhoneOrdersPage() {
   const [editingCell, setEditingCell] = useState<{ id: string; field: string } | null>(null);
   const [editValue, setEditValue] = useState("");
 
-  // 신규 입력
-  const [newRows, setNewRows] = useState<NewRow[]>([makeEmptyRow()]);
+  // 신규 입력 (기본 5행)
+  const [newRows, setNewRows] = useState<NewRow[]>([makeEmptyRow(), makeEmptyRow(), makeEmptyRow(), makeEmptyRow(), makeEmptyRow()]);
   const [showNewRows, setShowNewRows] = useState(false);
 
   // 상품 검색 결과 (행별)
@@ -335,7 +349,10 @@ export default function PhoneOrdersPage() {
   const addNewRow = () => setNewRows((prev) => [...prev, makeEmptyRow()]);
 
   const removeNewRow = (id: string) => {
-    setNewRows((prev) => prev.length === 1 ? [makeEmptyRow()] : prev.filter((r) => r.id !== id));
+    setNewRows((prev) => {
+      const next = prev.filter((r) => r.id !== id);
+      return next.length === 0 ? [makeEmptyRow()] : next;
+    });
   };
 
   const addClient = async () => {
@@ -360,8 +377,19 @@ export default function PhoneOrdersPage() {
   const submitNewRows = async () => {
     const validRows = newRows.filter((r) => r.product_name.trim() && r.recipient_name.trim());
     if (validRows.length === 0) { alert("상품명과 수령인을 입력해주세요."); return; }
+
+    // 텍스트로 입력된 판매처를 자동 매칭
+    for (const row of validRows) {
+      if (!row.client_id && row.client_text.trim()) {
+        const match = clients.find((c) => c.name === row.client_text.trim());
+        if (match) {
+          row.client_id = match.id;
+        }
+      }
+    }
+
     const noClient = validRows.find((r) => !r.client_id);
-    if (noClient) { alert("판매처를 선택해주세요."); return; }
+    if (noClient) { alert(`판매처 "${noClient.client_text || ""}"을(를) 찾을 수 없습니다. 드롭다운에서 선택하거나 새 판매처를 등록해주세요.`); return; }
 
     setSaving(true);
     const today = new Date().toISOString().slice(0, 10);
@@ -392,7 +420,7 @@ export default function PhoneOrdersPage() {
     }
 
     if (successCount > 0) {
-      setNewRows([makeEmptyRow()]);
+      setNewRows([makeEmptyRow(), makeEmptyRow(), makeEmptyRow(), makeEmptyRow(), makeEmptyRow()]);
       setShowNewRows(false);
       fetchOrders();
     }
@@ -547,6 +575,7 @@ export default function PhoneOrdersPage() {
                           updateNewRow(row.id, "client_text", item.label);
                         }}
                         items={getFilteredClients(row.client_text).map((c) => ({ id: c.id, label: c.name }))}
+                        allItems={clients.map((c) => ({ id: c.id, label: c.name }))}
                         placeholder="판매처 검색"
                         className={`${cellInput} ${!row.client_id ? "" : "font-medium"}`}
                       />
