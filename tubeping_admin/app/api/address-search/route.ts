@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { env } from "@/lib/env.server";
 
 /**
  * GET /api/address-search — 주소통합검색 (juso.go.kr) 프록시
@@ -13,7 +14,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ results: [], totalCount: 0 });
   }
 
-  const confmKey = process.env.JUSO_CONFIRM_KEY;
+  const confmKey = env.JUSO_CONFIRM_KEY;
   if (!confmKey) {
     return NextResponse.json(
       { error: "JUSO_CONFIRM_KEY 환경변수가 설정되지 않았습니다" },

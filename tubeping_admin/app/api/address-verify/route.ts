@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { env } from "@/lib/env.server";
 
 /**
  * POST /api/address-verify — 주소 검증 (juso.go.kr 기반)
@@ -8,7 +9,7 @@ import { NextRequest, NextResponse } from "next/server";
  * juso.go.kr API로 검색 → 매칭 결과에 따라 valid/invalid/unknown 반환
  */
 export async function POST(request: NextRequest) {
-  const confmKey = process.env.JUSO_CONFIRM_KEY;
+  const confmKey = env.JUSO_CONFIRM_KEY;
   if (!confmKey) {
     return NextResponse.json(
       { error: "JUSO_CONFIRM_KEY 환경변수가 설정되지 않았습니다" },
