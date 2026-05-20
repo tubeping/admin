@@ -236,7 +236,7 @@ export default function OrderMappingVerificationPage() {
                   <th className="px-3 py-2 text-left font-medium">TP코드</th>
                   <th className="px-3 py-2 text-center font-medium">주문수</th>
                   <th className="px-3 py-2 text-left font-medium">공급사</th>
-                  <th className="px-3 py-2 text-center font-medium">액션</th>
+                  <th className="px-3 py-2 text-center font-medium">상품관리 연결상태</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
@@ -260,8 +260,8 @@ export default function OrderMappingVerificationPage() {
                           {g.status === "unmatched_product" && (
                             <button onClick={() => openLink(g)} className="text-[11px] px-2 py-0.5 rounded bg-blue-600 text-white hover:bg-blue-700 cursor-pointer">상품 연결</button>
                           )}
-                          {g.product_id && !g.mapping_verified && (
-                            <button onClick={() => handleVerify(g.product_id!)} className="text-[11px] px-2 py-0.5 rounded bg-white border border-gray-300 text-gray-600 hover:bg-gray-50 cursor-pointer">확인 완료</button>
+                          {g.product_id && g.status !== "unmatched_product" && (
+                            <span className="text-[11px] px-2 py-0.5 rounded bg-green-100 text-green-700">연결완료</span>
                           )}
                         </div>
                       </td>
