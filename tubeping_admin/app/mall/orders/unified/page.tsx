@@ -116,9 +116,11 @@ function daysAgo(n: number) { return new Date(Date.now() - n * 86400000).toISOSt
 function normPhone(s: string) { return (s || "").replace(/[^0-9]/g, ""); }
 
 /* ── OrderRow (memo-ized) ── */
+type AddrVerifyResult = { id: string; status: "valid" | "invalid" | "suspect" | "unknown"; reason?: string | null; suggestion?: string | null; matched?: string; zipNo?: string | null };
+
 const OrderRow = memo(function OrderRow({
   o, idx, displayedCount, isSelected, toggleSelect, editingField, onStartEdit, saveCellEdit, stores, fetchOrders,
-  trackingEdit, onTrackingEdit, onSaveTracking, saving, onOpenCs,
+  trackingEdit, onTrackingEdit, onSaveTracking, saving, onOpenCs, addrStatus,
 }: {
   o: Order; idx: number; displayedCount: number; isSelected: boolean;
   toggleSelect: (id: string) => void;
@@ -132,6 +134,7 @@ const OrderRow = memo(function OrderRow({
   onSaveTracking: (orderId: string) => void;
   saving: boolean;
   onOpenCs: (order: Order) => void;
+  addrStatus?: AddrVerifyResult;
 }) {
   const noTrack = !o.tracking_number && o.shipping_status !== "cancelled" && o.shipping_status !== "delivered";
   const noSup = !o.supplier_id;
@@ -170,7 +173,21 @@ const OrderRow = memo(function OrderRow({
       </td>
       {/* 6. 배송주소 */}
       <td className="px-1.5 py-1.5 max-w-[180px]">
-        <div className="text-[11px] text-gray-600 truncate" title={o.receiver_address || ""}>{o.receiver_address || <span className="text-gray-300">-</span>}</div>
+        <div className="flex items-center gap-1">
+          {addrStatus && (
+            <span title={addrStatus.reason || addrStatus.suggestion || (addrStatus.status === "valid" ? "검증 완료" : "")} className={`shrink-0 w-1.5 h-1.5 rounded-full ${
+              addrStatus.status === "valid" ? "bg-green-500" :
+              addrStatus.status === "invalid" ? "bg-red-500" :
+              addrStatus.status === "suspect" ? "bg-yellow-500" :
+              "bg-gray-400"
+            }`} />
+          )}
+          <div className="text-[11px] text-gray-600 truncate" title={
+            (addrStatus?.status === "suspect" ? `[추천] ${addrStatus.suggestion}\n\n` : "") +
+            (addrStatus?.status === "invalid" ? `[오류] ${addrStatus.reason}\n\n` : "") +
+            (o.receiver_address || "")
+          }>{o.receiver_address || <span className="text-gray-300">-</span>}</div>
+        </div>
       </td>
       {/* 7. 판매방식 */}
       <td
@@ -188,13 +205,11 @@ const OrderRow = memo(function OrderRow({
             className="text-xs border border-gray-400 rounded px-1 py-0.5 bg-white"
           >
             <option value="">자사몰</option>
-            <option value="phone">전화주문</option>
             <option value="group">공구주문</option>
             <option value="sample">샘플</option>
             <option value="etc">기타</option>
           </select>
         ) : (() => {
-          if (o.sales_channel === "phone") return <span className="px-1.5 py-0.5 rounded bg-purple-100 text-purple-700 font-medium">전화주문</span>;
           if (o.sales_channel === "group") return <span className="px-1.5 py-0.5 rounded bg-pink-100 text-pink-700 font-medium">공구주문</span>;
           if (o.sales_channel === "sample") return <span className="px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 font-medium">샘플</span>;
           if (o.sales_channel === "etc") return <span className="px-1.5 py-0.5 rounded bg-gray-200 text-gray-700 font-medium">기타</span>;
@@ -222,7 +237,7 @@ const OrderRow = memo(function OrderRow({
           </select>
         ) : (() => {
           const name = o.stores?.name || "";
-          const isPseudo = name === "전화주문" || name === "공구주문";
+          const isPseudo = name === "공구주문";
           if (!name || isPseudo) return <span className="text-gray-400 italic">- (클릭해서 지정)</span>;
           const isManual = o.stores?.mall_id?.startsWith("manual_") || o.stores?.mall_id?.startsWith("excel_");
           return isManual
@@ -258,7 +273,6 @@ const OrderRow = memo(function OrderRow({
         {(() => {
           const isPaid = o.shipping_status !== "pending" && o.shipping_status !== "cancelled";
           const isCancelled = o.shipping_status === "cancelled";
-          const isPhone = o.sales_channel === "phone" || o.stores?.name === "전화주문";
           if (isCancelled) return <span className="text-[10px] text-gray-300">-</span>;
           return (
             <button
@@ -266,8 +280,7 @@ const OrderRow = memo(function OrderRow({
                 e.stopPropagation();
                 const newStatus = isPaid ? "pending" : "ordered";
                 const label = isPaid ? "입금전으로 되돌림" : "입금확인 처리";
-                const extra = isPhone && !isPaid ? "\n\n(전화주문 -- 계좌이체 입금 확인 후 진행)" : "";
-                if (!confirm(`${label}하시겠습니까?${extra}`)) return;
+                if (!confirm(`${label}하시겠습니까?`)) return;
                 await fetch("/admin/api/orders", {
                   method: "PATCH",
                   headers: { "Content-Type": "application/json" },
@@ -278,15 +291,11 @@ const OrderRow = memo(function OrderRow({
               className={`text-[11px] font-medium px-2 py-0.5 rounded-full border cursor-pointer transition-colors ${
                 isPaid
                   ? "bg-green-100 text-green-700 border-green-300 hover:bg-green-200"
-                  : isPhone
-                    ? "bg-amber-50 text-amber-700 border-amber-300 hover:bg-amber-100"
-                    : "bg-red-50 text-red-600 border-red-300 hover:bg-red-100"
+                  : "bg-red-50 text-red-600 border-red-300 hover:bg-red-100"
               }`}
-              title={isPhone
-                ? (isPaid ? "전화주문(계좌이체) -- 클릭 시 입금전으로 되돌림" : "전화주문(계좌이체) -- 입금 확인 후 클릭")
-                : (isPaid ? "클릭하면 입금전으로 되돌림" : "클릭하면 입금확인 처리")}
+              title={isPaid ? "클릭하면 입금전으로 되돌림" : "클릭하면 입금확인 처리"}
             >
-              {isPaid ? "완료" : isPhone ? "계좌이체" : "입금전"}
+              {isPaid ? "완료" : "입금전"}
             </button>
           );
         })()}
@@ -386,7 +395,6 @@ export default function UnifiedOrdersPage() {
   const [syncing, setSyncing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [ocrProcessing, setOcrProcessing] = useState(false);
-  const [ocrResults, setOcrResults] = useState<{ product_name: string; option_text?: string; quantity: number; unit_price?: number; order_amount?: number; buyer_name?: string; buyer_phone?: string; receiver_name?: string; receiver_phone?: string; receiver_address?: string; receiver_zipcode?: string; memo?: string }[] | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [editingCell, setEditingCell] = useState<{ orderId: string; field: "channel" | "store" } | null>(null);
   const onStartEdit = useCallback((orderId: string, field: "channel" | "store") => {
@@ -425,6 +433,10 @@ export default function UnifiedOrdersPage() {
   const [csModalOrder, setCsModalOrder] = useState<Order | null>(null);
   const [csAction, setCsAction] = useState<"refunded" | "returned" | "exchanged">("refunded");
   const [csNote, setCsNote] = useState("");
+
+  // Address verification
+  const [addrResults, setAddrResults] = useState<Record<string, AddrVerifyResult>>({});
+  const [addrVerifying, setAddrVerifying] = useState(false);
 
   // Drag & drop
   const [isDragging, setIsDragging] = useState(false);
@@ -495,6 +507,50 @@ export default function UnifiedOrdersPage() {
     fetchOrders();
   };
 
+  // Address verification
+  const handleAddressVerify = useCallback(async (scope: "selected" | "all") => {
+    const targets = scope === "selected"
+      ? orders.filter((o) => selected.has(o.id) && o.receiver_address)
+      : orders.filter((o) => o.receiver_address && o.shipping_status !== "cancelled" && o.shipping_status !== "delivered");
+
+    if (targets.length === 0) {
+      alert(scope === "selected" ? "선택한 주문에 주소가 없습니다." : "검증할 주소가 없습니다.");
+      return;
+    }
+
+    setAddrVerifying(true);
+    try {
+      // Process in batches of 50
+      const all: AddrVerifyResult[] = [];
+      for (let i = 0; i < targets.length; i += 50) {
+        const batch = targets.slice(i, i + 50);
+        const res = await fetch("/admin/api/address-verify", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            addresses: batch.map((o) => ({ id: o.id, address: o.receiver_address })),
+          }),
+        });
+        const data = await res.json();
+        if (!res.ok) { alert(`주소 검증 오류: ${data.error}`); break; }
+        all.push(...(data.results || []));
+      }
+      const map: Record<string, AddrVerifyResult> = { ...addrResults };
+      for (const r of all) map[r.id] = r;
+      setAddrResults(map);
+
+      const valid = all.filter((r) => r.status === "valid").length;
+      const invalid = all.filter((r) => r.status === "invalid").length;
+      const suspect = all.filter((r) => r.status === "suspect").length;
+      const unknown = all.filter((r) => r.status === "unknown").length;
+      alert(`주소 검증 완료 (${all.length}건)\n\n● 정상: ${valid}건\n● 오류: ${invalid}건\n● 의심: ${suspect}건\n● 확인불가: ${unknown}건`);
+    } catch (e) {
+      alert(`주소 검증 실패: ${(e as Error).message}`);
+    } finally {
+      setAddrVerifying(false);
+    }
+  }, [orders, selected, addrResults]);
+
   // File import
   const handleImportFile = useCallback(async (file: File) => {
     const ext = file.name.split(".").pop()?.toLowerCase();
@@ -508,7 +564,6 @@ export default function UnifiedOrdersPage() {
       return;
     }
     const sampleEl = document.getElementById("import-is-sample") as HTMLInputElement;
-    const phoneEl = document.getElementById("import-is-phone") as HTMLInputElement;
     const groupEl = document.getElementById("import-is-group") as HTMLInputElement;
     const etcEl = document.getElementById("import-is-etc") as HTMLInputElement;
     const fd = new FormData();
@@ -516,7 +571,7 @@ export default function UnifiedOrdersPage() {
     if (sel.value.startsWith("id:")) fd.append("store_id", sel.value.slice(3));
     else fd.append("store_name", sel.value.slice(5));
     if (sampleEl?.checked) fd.append("sales_channel", "sample");
-    else if (phoneEl?.checked) fd.append("sales_channel", "phone");
+
     else if (groupEl?.checked) fd.append("sales_channel", "group");
     else if (etcEl?.checked) fd.append("sales_channel", "etc");
     const res = await fetch("/admin/api/orders/import", { method: "POST", body: fd });
@@ -534,7 +589,6 @@ export default function UnifiedOrdersPage() {
       msg += "\n\n공급사 매칭은 '매핑 검증' 페이지에서 진행하세요.";
       alert(msg);
       fetchOrders();
-      if (phoneEl) phoneEl.checked = false;
       if (groupEl) groupEl.checked = false;
       if (sampleEl) sampleEl.checked = false;
       if (etcEl) etcEl.checked = false;
@@ -542,7 +596,7 @@ export default function UnifiedOrdersPage() {
     } else alert(`오류: ${data.error}`);
   }, [fetchOrders]);
 
-  // Image OCR
+  // Image OCR → 바로 등록
   const handleImageOCR = useCallback(async (file: File) => {
     setOcrProcessing(true);
     try {
@@ -552,46 +606,26 @@ export default function UnifiedOrdersPage() {
       const data = await res.json();
       if (!res.ok) { alert(`OCR 실패: ${data.error}`); return; }
       if (!data.orders?.length) { alert("이미지에서 주문 데이터를 찾지 못했습니다."); return; }
-      setOcrResults(data.orders);
+
+      // 바로 등록
+      const regRes = await fetch("/admin/api/orders/manual-register", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ orders: data.orders }),
+      });
+      const regData = await regRes.json();
+      if (regRes.ok) {
+        alert(`OCR 인식 ${data.orders.length}건 → ${regData.success}건 등록 완료${regData.errors?.length ? `\n\n실패:\n${regData.errors.slice(0, 5).join("\n")}` : ""}`);
+        fetchOrders();
+      } else {
+        alert(`등록 실패: ${regData.error}`);
+      }
     } catch (e) {
       alert(`OCR 오류: ${(e as Error).message}`);
     } finally {
       setOcrProcessing(false);
     }
-  }, []);
-
-  const handleOcrConfirm = useCallback(async () => {
-    if (!ocrResults?.length) return;
-    let success = 0;
-    const errors: string[] = [];
-    for (const o of ocrResults) {
-      const res = await fetch("/admin/api/orders/phone-order", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          product_name: o.product_name,
-          option_text: o.option_text || "",
-          quantity: o.quantity || 1,
-          unit_price: o.unit_price || o.order_amount || 0,
-          buyer_name: o.buyer_name || o.receiver_name || "",
-          buyer_phone: o.buyer_phone || o.receiver_phone || "",
-          receiver_name: o.receiver_name || o.buyer_name || "미입력",
-          receiver_phone: o.receiver_phone || o.buyer_phone || "미입력",
-          receiver_address: o.receiver_address || "미입력",
-          receiver_zipcode: o.receiver_zipcode || "",
-          memo: o.memo || "스크린샷 OCR 등록",
-        }),
-      });
-      if (res.ok) success++;
-      else {
-        const d = await res.json();
-        errors.push(`${o.product_name}: ${d.error}`);
-      }
-    }
-    alert(`${success}건 등록 완료${errors.length ? `\n\n실패 ${errors.length}건:\n${errors.slice(0, 5).join("\n")}` : ""}`);
-    setOcrResults(null);
-    fetchOrders();
-  }, [ocrResults, fetchOrders]);
+  }, [fetchOrders]);
 
   const handleFileDrop = useCallback(async (file: File) => {
     const ext = file.name?.split(".").pop()?.toLowerCase() || "";
@@ -634,7 +668,6 @@ export default function UnifiedOrdersPage() {
         if (!(o.buyer_name?.toLowerCase().includes(kCustomer) || o.receiver_name?.toLowerCase().includes(kCustomer) || phoneMatch)) return false;
       }
       if (kAddress && !o.receiver_address?.toLowerCase().includes(kAddress)) return false;
-      if (colFilterChannel === "phone" && o.sales_channel !== "phone") return false;
       if (colFilterChannel === "group" && o.sales_channel !== "group") return false;
       if (colFilterChannel === "sample" && o.sales_channel !== "sample") return false;
       if (colFilterChannel === "etc" && o.sales_channel !== "etc") return false;
@@ -666,7 +699,7 @@ export default function UnifiedOrdersPage() {
   const totalPages = Math.max(1, Math.ceil(orders.length / pageSize));
   const pagedOrders = useMemo(() => orders.slice(page * pageSize, (page + 1) * pageSize), [orders, page, pageSize]);
 
-  const PSEUDO_STORES = ["전화주문", "공구주문", "엑셀등록", "수기주문"];
+  const PSEUDO_STORES = ["공구주문", "엑셀등록", "수기주문"];
   const filteredStores = useMemo(() => stores.filter((s) => !PSEUDO_STORES.includes(s.name)), [stores]);
 
   const fetchStores = async () => { const r = await fetch("/admin/api/stores"); const d = await r.json(); setStores(d.stores || []); };
@@ -797,7 +830,7 @@ export default function UnifiedOrdersPage() {
 
   const bulkUpdateChannel = async (value: string) => {
     if (selected.size === 0) return;
-    const channelLabel = value === "" ? "자사몰" : value === "phone" ? "전화주문" : value === "group" ? "공구주문" : value === "etc" ? "기타" : "샘플";
+    const channelLabel = value === "" ? "자사몰" : value === "group" ? "공구주문" : value === "etc" ? "기타" : "샘플";
     if (!confirm(`선택한 ${selected.size}건의 판매방식을 '${channelLabel}'(으)로 일괄 변경합니다. 계속할까요?`)) return;
     const res = await fetch("/admin/api/orders", {
       method: "PATCH",
@@ -961,88 +994,6 @@ export default function UnifiedOrdersPage() {
         </div>
       )}
 
-      {/* OCR result modal */}
-      {ocrResults && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/40">
-          <div className="bg-white rounded-2xl shadow-2xl w-[90vw] max-w-[900px] max-h-[80vh] flex flex-col">
-            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200">
-              <div>
-                <h2 className="text-lg font-bold text-gray-900">스크린샷 OCR 결과</h2>
-                <p className="text-sm text-gray-500">{ocrResults.length}건 인식됨 -- 확인 후 전화주문으로 등록됩니다</p>
-              </div>
-              <button onClick={() => setOcrResults(null)} className="text-gray-400 hover:text-gray-600 text-2xl cursor-pointer">x</button>
-            </div>
-            <div className="flex-1 overflow-auto px-6 py-4">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="text-xs text-gray-500 border-b">
-                    <th className="text-left py-2 px-2">상품명</th>
-                    <th className="text-left py-2 px-2">옵션</th>
-                    <th className="text-right py-2 px-2">수량</th>
-                    <th className="text-right py-2 px-2">단가</th>
-                    <th className="text-left py-2 px-2">주문자</th>
-                    <th className="text-left py-2 px-2">수령인</th>
-                    <th className="text-left py-2 px-2">연락처</th>
-                    <th className="text-left py-2 px-2">주소</th>
-                    <th className="text-center py-2 px-2">삭제</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {ocrResults.map((o, i) => (
-                    <tr key={i} className="border-b border-gray-50 hover:bg-gray-50/50">
-                      <td className="py-2 px-2">
-                        <input className="w-full text-sm border border-gray-200 rounded px-2 py-1" value={o.product_name}
-                          onChange={(e) => setOcrResults((prev) => prev!.map((r, j) => j === i ? { ...r, product_name: e.target.value } : r))} />
-                      </td>
-                      <td className="py-2 px-2">
-                        <input className="w-full text-sm border border-gray-200 rounded px-2 py-1" value={o.option_text || ""}
-                          onChange={(e) => setOcrResults((prev) => prev!.map((r, j) => j === i ? { ...r, option_text: e.target.value } : r))} />
-                      </td>
-                      <td className="py-2 px-2">
-                        <input type="number" className="w-16 text-sm border border-gray-200 rounded px-2 py-1 text-right" value={o.quantity}
-                          onChange={(e) => setOcrResults((prev) => prev!.map((r, j) => j === i ? { ...r, quantity: Number(e.target.value) } : r))} />
-                      </td>
-                      <td className="py-2 px-2">
-                        <input type="number" className="w-20 text-sm border border-gray-200 rounded px-2 py-1 text-right" value={o.unit_price || 0}
-                          onChange={(e) => setOcrResults((prev) => prev!.map((r, j) => j === i ? { ...r, unit_price: Number(e.target.value) } : r))} />
-                      </td>
-                      <td className="py-2 px-2">
-                        <input className="w-20 text-sm border border-gray-200 rounded px-2 py-1" value={o.buyer_name || ""}
-                          onChange={(e) => setOcrResults((prev) => prev!.map((r, j) => j === i ? { ...r, buyer_name: e.target.value } : r))} />
-                      </td>
-                      <td className="py-2 px-2">
-                        <input className="w-20 text-sm border border-gray-200 rounded px-2 py-1" value={o.receiver_name || ""}
-                          onChange={(e) => setOcrResults((prev) => prev!.map((r, j) => j === i ? { ...r, receiver_name: e.target.value } : r))} />
-                      </td>
-                      <td className="py-2 px-2">
-                        <input className="w-28 text-sm border border-gray-200 rounded px-2 py-1" value={o.receiver_phone || ""}
-                          onChange={(e) => setOcrResults((prev) => prev!.map((r, j) => j === i ? { ...r, receiver_phone: e.target.value } : r))} />
-                      </td>
-                      <td className="py-2 px-2">
-                        <input className="w-40 text-sm border border-gray-200 rounded px-2 py-1" value={o.receiver_address || ""}
-                          onChange={(e) => setOcrResults((prev) => prev!.map((r, j) => j === i ? { ...r, receiver_address: e.target.value } : r))} />
-                      </td>
-                      <td className="py-2 px-2 text-center">
-                        <button onClick={() => setOcrResults((prev) => prev!.filter((_, j) => j !== i))}
-                          className="text-red-400 hover:text-red-600 cursor-pointer text-lg">x</button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-            <div className="flex items-center justify-between px-6 py-4 border-t border-gray-200">
-              <p className="text-xs text-gray-400">인식 결과를 수정한 후 등록해 주세요. Ctrl+V로 스크린샷 붙여넣기도 가능합니다.</p>
-              <div className="flex gap-2">
-                <button onClick={() => setOcrResults(null)} className="px-4 py-2 text-sm border border-gray-300 rounded-lg hover:bg-gray-50 cursor-pointer">취소</button>
-                <button onClick={handleOcrConfirm} className="px-4 py-2 text-sm bg-[#C41E1E] text-white rounded-lg hover:bg-[#A01818] cursor-pointer">
-                  전화주문으로 {ocrResults.length}건 등록
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* Header */}
       <div className="flex items-center justify-between mb-3">
@@ -1104,6 +1055,11 @@ export default function UnifiedOrdersPage() {
           { label: "공급사 미배정", value: `${stats.noSupplier}건`, hl: stats.noSupplier > 0 },
           { label: "송장 미입력", value: `${stats.noTracking}건`, hl: stats.noTracking > 0 },
           { label: "카페24 미연동", value: `${stats.unsynced}건`, hl: stats.unsynced > 0 },
+          ...(Object.keys(addrResults).length > 0 ? [{
+            label: "주소오류",
+            value: `${Object.values(addrResults).filter(r => r.status === "invalid" || r.status === "suspect").length}건`,
+            hl: Object.values(addrResults).some(r => r.status === "invalid" || r.status === "suspect"),
+          }] : []),
         ].map((s) => (
           <div key={s.label} className="bg-white rounded-lg border border-gray-200 px-2.5 py-2">
             <p className="text-[10px] text-gray-400">{s.label}</p>
@@ -1152,6 +1108,14 @@ export default function UnifiedOrdersPage() {
           엑셀 다운로드
         </button>
 
+        <button
+          onClick={() => handleAddressVerify(selected.size > 0 ? "selected" : "all")}
+          disabled={addrVerifying || orders.length === 0}
+          className="px-2.5 py-1 bg-purple-600 text-white text-xs font-medium rounded-lg hover:bg-purple-700 cursor-pointer disabled:opacity-50"
+        >
+          {addrVerifying ? "검증중..." : selected.size > 0 ? `주소검증 (${selected.size})` : "주소검증"}
+        </button>
+
         {/* Right side: Import area */}
         <div className="ml-auto flex items-center gap-2">
           <label className={`flex items-center gap-2 px-3 py-1.5 rounded-lg border-2 border-dashed cursor-pointer transition-colors ${
@@ -1177,14 +1141,13 @@ export default function UnifiedOrdersPage() {
           <div className="flex items-center gap-1.5">
             {[
               { id: "import-is-sample", label: "샘플", bg: "bg-amber-100 text-amber-700" },
-              { id: "import-is-phone", label: "전화", bg: "bg-purple-100 text-purple-700" },
               { id: "import-is-group", label: "공구", bg: "bg-pink-100 text-pink-700" },
               { id: "import-is-etc", label: "기타", bg: "bg-gray-200 text-gray-700" },
             ].map((opt) => (
               <label key={opt.id} className="flex items-center gap-0.5 text-[11px] text-gray-600 cursor-pointer select-none">
                 <input id={opt.id} type="checkbox" className="w-3 h-3 cursor-pointer" onChange={(e) => {
                   if (e.target.checked) {
-                    ["import-is-sample", "import-is-phone", "import-is-group", "import-is-etc"]
+                    ["import-is-sample", "import-is-group", "import-is-etc"]
                       .filter((x) => x !== opt.id)
                       .forEach((x) => { const el = document.getElementById(x) as HTMLInputElement; if (el) el.checked = false; });
                   }
@@ -1198,7 +1161,7 @@ export default function UnifiedOrdersPage() {
             <select id="import-store" className="text-[11px] border border-gray-300 rounded-lg px-1.5 py-1 pr-14 appearance-none bg-white" defaultValue="">
               <option value="" disabled>판매사 선택</option>
               {stores
-                .filter((s) => !["전화주문", "공구주문", "엑셀등록", "수기주문"].includes(s.name))
+                .filter((s) => !["공구주문", "엑셀등록", "수기주문"].includes(s.name))
                 .map((s) => (<option key={s.id} value={`id:${s.id}`}>{s.name}</option>))}
             </select>
             <label className="absolute right-0 top-0 h-full px-1.5 flex items-center bg-gray-100 border border-gray-300 rounded-r-lg text-[11px] font-medium text-gray-700 hover:bg-gray-200 cursor-pointer">
@@ -1217,7 +1180,7 @@ export default function UnifiedOrdersPage() {
               <option value="" disabled>판매사 선택</option>
               <option value="__all__">전체</option>
               {stores
-                .filter((s) => !["전화주문", "공구주문", "엑셀등록", "수기주문"].includes(s.name))
+                .filter((s) => !["공구주문", "엑셀등록", "수기주문"].includes(s.name))
                 .map((s) => (<option key={s.id} value={s.id} data-name={s.name}>{s.name}</option>))}
             </select>
             <div className="absolute right-0 top-0 h-full flex">
@@ -1247,7 +1210,6 @@ export default function UnifiedOrdersPage() {
             className="text-[11px] border border-blue-200 rounded px-1.5 py-0.5 bg-white">
             <option value="" disabled>판매방식 변경</option>
             <option value="__none__">자사몰</option>
-            <option value="phone">전화주문</option>
             <option value="group">공구주문</option>
             <option value="sample">샘플</option>
             <option value="etc">기타</option>
@@ -1257,7 +1219,7 @@ export default function UnifiedOrdersPage() {
             className="text-[11px] border border-blue-200 rounded px-1.5 py-0.5 bg-white">
             <option value="" disabled>판매사 변경</option>
             {stores
-              .filter((s) => !["전화주문", "공구주문", "엑셀등록", "수기주문"].includes(s.name))
+              .filter((s) => !["공구주문", "엑셀등록", "수기주문"].includes(s.name))
               .map((s) => (<option key={s.id} value={s.id}>{s.name}</option>))}
           </select>
           <select onChange={(e) => { if (e.target.value) handleAssignSupplier(e.target.value); e.target.value = ""; }}
@@ -1432,7 +1394,6 @@ export default function UnifiedOrdersPage() {
                   <select value={colFilterChannel} onChange={(e) => setColFilterChannel(e.target.value)}
                     className="w-full text-[10px] border border-gray-200 rounded px-0.5 py-px bg-white">
                     <option value="">전체</option>
-                    <option value="phone">전화</option>
                     <option value="group">공구</option>
                     <option value="sample">샘플</option>
                     <option value="etc">기타</option>
@@ -1445,7 +1406,7 @@ export default function UnifiedOrdersPage() {
                     className="w-full text-[10px] border border-gray-200 rounded px-0.5 py-px bg-white">
                     <option value="">전체</option>
                     {stores
-                      .filter((s) => !["전화주문", "공구주문", "엑셀등록", "수기주문"].includes(s.name))
+                      .filter((s) => !["공구주문", "엑셀등록", "수기주문"].includes(s.name))
                       .map((s) => (<option key={s.id} value={s.id}>{s.name}</option>))}
                   </select>
                 </th>
@@ -1550,6 +1511,7 @@ export default function UnifiedOrdersPage() {
                   onSaveTracking={saveTracking}
                   saving={saving}
                   onOpenCs={openCs}
+                  addrStatus={addrResults[o.id]}
                 />
               ))}
             </tbody>

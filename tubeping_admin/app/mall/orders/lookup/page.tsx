@@ -425,7 +425,7 @@ export default function OrdersLookupPage() {
                       className="w-full text-[11px] border border-gray-200 rounded px-1 py-0.5 bg-white">
                       <option value="">전체</option>
                       {stores
-                        .filter((s) => !["전화주문", "공구주문", "엑셀등록", "수기주문"].includes(s.name))
+                        .filter((s) => !["공구주문", "엑셀등록", "수기주문"].includes(s.name))
                         .map((s) => (<option key={s.id} value={s.id}>{s.name}</option>))}
                     </select>
                   </th>

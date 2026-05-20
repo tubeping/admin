@@ -8,7 +8,7 @@ import { env } from "@/lib/env.server";
  * FormData: image (File — 이미지/PDF/DOCX/XLSX/HWP/TXT 등)
  *
  * Gemini로 테이블/주문 정보를 읽어 JSON 배열로 반환.
- * 클라이언트에서 확인 후 /api/orders/import 또는 /api/orders/phone-order로 등록.
+ * 클라이언트에서 /api/orders/manual-register로 바로 등록.
  */
 
 const genAI = new GoogleGenerativeAI(env.GEMINI_API_KEY);
