@@ -8,6 +8,10 @@
     {
       "path": "/admin/api/cron/collect-orders",
       "schedule": "0 22 * * *"
+    },
+    {
+      "path": "/admin/api/cron/sync-shipments",
+      "schedule": "0 12 * * *"
     }
   ],
   "functions": {
