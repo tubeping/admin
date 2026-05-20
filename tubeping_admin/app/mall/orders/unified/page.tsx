@@ -16,6 +16,9 @@ interface Order {
   quantity: number;
   product_price: number;
   order_amount: number;
+  shipping_fee: number;
+  supply_price: number;
+  supply_shipping_fee: number;
   buyer_name: string;
   buyer_phone: string;
   receiver_name: string;
@@ -242,8 +245,14 @@ const OrderRow = memo(function OrderRow({
       </td>
       {/* 10. 수량 */}
       <td className="px-2 py-2.5 text-right text-gray-700">{o.quantity}</td>
-      {/* 11. 금액 */}
+      {/* 11. 공급가 */}
+      <td className="px-2 py-2.5 text-right text-gray-700 whitespace-nowrap">{(o.supply_price * o.quantity).toLocaleString()}</td>
+      {/* 12. 공급배송비 */}
+      <td className="px-2 py-2.5 text-right text-gray-700 whitespace-nowrap">{o.supply_shipping_fee.toLocaleString()}</td>
+      {/* 13. 판매가 */}
       <td className="px-2 py-2.5 text-right text-gray-700 whitespace-nowrap">{o.order_amount.toLocaleString()}</td>
+      {/* 14. 판매배송비 */}
+      <td className="px-2 py-2.5 text-right text-gray-700 whitespace-nowrap">{(o.shipping_fee || 0).toLocaleString()}</td>
       {/* 12. 입금 */}
       <td className="px-2 py-2.5 text-center">
         {(() => {
@@ -1089,7 +1098,7 @@ export default function UnifiedOrdersPage() {
       <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3 mb-4">
         {[
           { label: "주문수량", value: `${stats.totalQty}개` },
-          { label: "주문금액", value: `${stats.totalAmount.toLocaleString()}원` },
+          { label: "판매금액", value: `${stats.totalAmount.toLocaleString()}원` },
           { label: "처리대기", value: `${stats.pending}건`, hl: stats.pending > 0 },
           { label: "미발주", value: `${stats.noPO}건`, hl: stats.noPO > 0 },
           { label: "공급사 미배정", value: `${stats.noSupplier}건`, hl: stats.noSupplier > 0 },
@@ -1336,7 +1345,10 @@ export default function UnifiedOrdersPage() {
                 <th className="text-left px-2 py-2.5 font-medium">판매사</th>
                 <th className="text-left px-2 py-2.5 font-medium">공급사/출고지</th>
                 <th className="text-right px-2 py-2.5 font-medium">수량</th>
-                <th className="text-right px-2 py-2.5 font-medium">금액</th>
+                <th className="text-right px-2 py-2.5 font-medium">공급가</th>
+                <th className="text-right px-2 py-2.5 font-medium">공급배송비</th>
+                <th className="text-right px-2 py-2.5 font-medium">판매가</th>
+                <th className="text-right px-2 py-2.5 font-medium">판매배송비</th>
                 <th className="text-center px-2 py-2.5 font-medium">입금</th>
                 <th className="text-left px-2 py-2.5 font-medium">송장</th>
                 <th className="text-center px-2 py-2.5 font-medium">발주상태</th>
@@ -1423,7 +1435,11 @@ export default function UnifiedOrdersPage() {
                     <option value="2+">2개이상</option>
                   </select>
                 </th>
-                {/* 11. 금액 select */}
+                {/* 11. 공급가 */}
+                <th></th>
+                {/* 12. 공급배송비 */}
+                <th></th>
+                {/* 13. 판매가 select */}
                 <th className="px-1 py-1">
                   <select value={colFilterAmount} onChange={(e) => setColFilterAmount(e.target.value)}
                     className="w-full text-[11px] border border-gray-200 rounded px-1 py-0.5 bg-white">
@@ -1434,7 +1450,9 @@ export default function UnifiedOrdersPage() {
                     <option value="over100k">10만~</option>
                   </select>
                 </th>
-                {/* 12. 입금 select */}
+                {/* 14. 판매배송비 */}
+                <th></th>
+                {/* 15. 입금 select */}
                 <th className="px-1 py-1 text-center">
                   <select value={colFilterPayment} onChange={(e) => setColFilterPayment(e.target.value)}
                     className="w-full text-[11px] border border-gray-200 rounded px-1 py-0.5 bg-white">
@@ -1552,7 +1570,7 @@ export default function UnifiedOrdersPage() {
         <div className="mt-3 flex items-center gap-6 text-sm text-gray-500">
           <span>조회: <b className="text-gray-900">{stats.displayed}건</b></span>
           <span>수량 합계: <b className="text-gray-900">{stats.totalQty}개</b></span>
-          <span>금액 합계: <b className="text-gray-900">{stats.totalAmount.toLocaleString()}원</b></span>
+          <span>판매금액: <b className="text-gray-900">{stats.totalAmount.toLocaleString()}원</b></span>
         </div>
       )}
 

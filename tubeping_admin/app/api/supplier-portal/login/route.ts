@@ -59,13 +59,40 @@ export async function POST(request: NextRequest) {
   }
 
   // 주문 목록 조회
-  const { data: orders } = await sb
+  const { data: rawOrders } = await sb
     .from("orders")
     .select(
-      "id, cafe24_order_id, cafe24_order_item_code, product_name, option_text, quantity, product_price, order_amount, receiver_name, receiver_address, receiver_zipcode, shipping_company, tracking_number, shipping_status"
+      "id, store_id, cafe24_order_id, cafe24_order_item_code, cafe24_product_no, product_name, option_text, quantity, product_price, order_amount, receiver_name, receiver_address, receiver_zipcode, shipping_company, tracking_number, shipping_status"
     )
     .eq("purchase_order_id", po.id)
     .order("cafe24_order_id", { ascending: true });
+
+  // supply pricing enrichment
+  const orderList = rawOrders || [];
+  const productNos = [...new Set(orderList.map((o: any) => o.cafe24_product_no).filter((n: any) => n > 0))];
+  const pidMap: Record<string, string> = {};
+  if (productNos.length > 0) {
+    const { data: mappings } = await sb.from("product_cafe24_mappings").select("store_id, cafe24_product_no, product_id").in("cafe24_product_no", productNos);
+    for (const m of mappings || []) pidMap[`${m.store_id}::${m.cafe24_product_no}`] = m.product_id;
+  }
+  const names = [...new Set(orderList.map((o: any) => o.product_name?.trim()).filter(Boolean))];
+  const nameMap: Record<string, string> = {};
+  if (names.length > 0) {
+    const { data: byName } = await sb.from("products").select("id, product_name").in("product_name", names);
+    for (const p of byName || []) { if (p.product_name) nameMap[p.product_name.trim()] = p.id; }
+  }
+  const allPids = [...new Set([...Object.values(pidMap), ...Object.values(nameMap)])];
+  const supplyMap: Record<string, { sp: number; ssf: number }> = {};
+  if (allPids.length > 0) {
+    const { data: products } = await sb.from("products").select("id, supply_price, supply_shipping_fee").in("id", allPids);
+    for (const p of products || []) supplyMap[p.id] = { sp: p.supply_price || 0, ssf: p.supply_shipping_fee || 0 };
+  }
+  const orders = orderList.map((o: any) => {
+    let pid = o.store_id && o.cafe24_product_no > 0 ? pidMap[`${o.store_id}::${o.cafe24_product_no}`] : undefined;
+    if (!pid && o.product_name) pid = nameMap[o.product_name.trim()];
+    const s = pid ? supplyMap[pid] : undefined;
+    return { ...o, supply_price: s?.sp || 0, supply_shipping_fee: s?.ssf || 0 };
+  });
 
   return NextResponse.json({
     purchase_order: {
@@ -77,6 +104,6 @@ export async function POST(request: NextRequest) {
       total_amount: po.total_amount,
       status: po.status,
     },
-    orders: orders || [],
+    orders,
   });
 }

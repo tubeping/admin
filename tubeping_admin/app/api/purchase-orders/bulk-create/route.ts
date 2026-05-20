@@ -66,16 +66,20 @@ export async function POST(request: NextRequest) {
     }
   }
 
-  // product_id → warehouse_supplier_id
+  // product_id → warehouse_supplier_id + supply pricing
   const allProductIds = [...new Set([...Object.values(storeNoKeyToProductId), ...Object.values(nameToProductId)])];
   const productIdToWarehouse: Record<string, string | null> = {};
+  const productIdToSupplyPrice: Record<string, number> = {};
+  const productIdToSupplyShipping: Record<string, number> = {};
   if (allProductIds.length > 0) {
     const { data: products } = await sb
       .from("products")
-      .select("id, fulfillment_warehouse_supplier_id")
+      .select("id, fulfillment_warehouse_supplier_id, supply_price, supply_shipping_fee")
       .in("id", allProductIds);
     for (const p of products || []) {
       productIdToWarehouse[p.id] = p.fulfillment_warehouse_supplier_id || null;
+      productIdToSupplyPrice[p.id] = p.supply_price || 0;
+      productIdToSupplyShipping[p.id] = p.supply_shipping_fee || 0;
     }
   }
 
@@ -93,6 +97,18 @@ export async function POST(request: NextRequest) {
       if (pid && productIdToWarehouse[pid]) return productIdToWarehouse[pid];
     }
     return null;
+  }
+
+  function resolveProductId(o: OrderRow): string | undefined {
+    if (o.store_id && o.cafe24_product_no > 0) {
+      const pid = storeNoKeyToProductId[`${o.store_id}::${o.cafe24_product_no}`];
+      if (pid) return pid;
+    }
+    if (o.product_name) {
+      const pid = nameToProductId[o.product_name.trim()];
+      if (pid) return pid;
+    }
+    return undefined;
   }
 
   // 3. fulfillment target 결정 + 그룹핑
@@ -150,7 +166,12 @@ export async function POST(request: NextRequest) {
     const poNumber = poNum || `PO-${new Date().toISOString().slice(0, 10).replace(/-/g, "")}-001`;
 
     const totalItems = grpOrders.reduce((sum, o) => sum + (o.quantity || 0), 0);
-    const totalAmount = grpOrders.reduce((sum, o) => sum + (o.quantity || 0) * (o.product_price || 0), 0);
+    const totalAmount = grpOrders.reduce((sum, o) => {
+      const pid = resolveProductId(o);
+      const supplyPrice = pid ? productIdToSupplyPrice[pid] || 0 : 0;
+      const supplyShipping = pid ? productIdToSupplyShipping[pid] || 0 : 0;
+      return sum + (o.quantity || 0) * supplyPrice + supplyShipping;
+    }, 0);
     const password = generatePassword();
     const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
 

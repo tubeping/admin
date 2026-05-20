@@ -438,6 +438,9 @@ export default function SupplierPortal() {
                 <th className="text-left px-3 py-3 font-medium">상품명</th>
                 <th className="text-left px-3 py-3 font-medium">옵션</th>
                 <th className="text-right px-3 py-3 font-medium">수량</th>
+                <th className="text-right px-3 py-3 font-medium">공급단가</th>
+                <th className="text-right px-3 py-3 font-medium">공급금액</th>
+                <th className="text-right px-3 py-3 font-medium">공급배송비</th>
                 <th className="text-left px-3 py-3 font-medium">수령자</th>
                 <th className="text-left px-3 py-3 font-medium">택배사</th>
                 <th className="text-left px-3 py-3 font-medium">송장번호</th>
@@ -453,6 +456,9 @@ export default function SupplierPortal() {
                   <td className="px-3 py-3 text-sm text-gray-700">{o.product_name}</td>
                   <td className="px-3 py-3 text-sm text-gray-500">{o.option_text || "-"}</td>
                   <td className="px-3 py-3 text-sm text-gray-700 text-right">{o.quantity}</td>
+                  <td className="px-3 py-3 text-sm text-gray-700 text-right">{(o.supply_price || 0).toLocaleString()}</td>
+                  <td className="px-3 py-3 text-sm text-gray-700 text-right">{((o.supply_price || 0) * (o.quantity || 1)).toLocaleString()}</td>
+                  <td className="px-3 py-3 text-sm text-gray-700 text-right">{(o.supply_shipping_fee || 0).toLocaleString()}</td>
                   <td className="px-3 py-3 text-sm text-gray-700">{o.receiver_name}</td>
                   <td className="px-3 py-3">
                     <select
