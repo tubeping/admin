@@ -124,7 +124,8 @@ export async function autoAssignSuppliers(
     return tpCode ? supplierIdFromTpCode(tpCode) : null;
   };
 
-  // 경로 C: 학습 캐시 — 같은 상품명의 다른 주문이 이미 supplier_id를 가지고 있으면 그대로 사용
+  // 경로 C: 학습 캐시 — 같은 상품명의 다른 주문에서 가장 많이 배정된 공급사 사용
+  // (수동 배정 1건이 잘못 전파되는 것을 방지하기 위해 다수결 방식)
   const learnNames = [...new Set(orders.map((o) => o.product_name?.trim()).filter(Boolean) as string[])];
   const nameToLearnedSupplier: Record<string, string> = {};
   if (learnNames.length > 0) {
@@ -133,12 +134,18 @@ export async function autoAssignSuppliers(
       .select("product_name, supplier_id")
       .not("supplier_id", "is", null)
       .in("product_name", learnNames)
-      .limit(2000);
+      .limit(5000);
+    // 상품명별로 가장 많이 등장하는 supplier_id 선택
+    const nameSupplierCounts: Record<string, Record<string, number>> = {};
     for (const row of learned || []) {
       const key = row.product_name?.trim();
-      if (key && row.supplier_id && !nameToLearnedSupplier[key]) {
-        nameToLearnedSupplier[key] = row.supplier_id;
-      }
+      if (!key || !row.supplier_id) continue;
+      if (!nameSupplierCounts[key]) nameSupplierCounts[key] = {};
+      nameSupplierCounts[key][row.supplier_id] = (nameSupplierCounts[key][row.supplier_id] || 0) + 1;
+    }
+    for (const [name, counts] of Object.entries(nameSupplierCounts)) {
+      const best = Object.entries(counts).sort((a, b) => b[1] - a[1])[0];
+      if (best) nameToLearnedSupplier[name] = best[0];
     }
   }
 
