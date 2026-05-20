@@ -147,6 +147,24 @@ export async function GET(request: NextRequest) {
     });
   }
 
+  // 5.5. unmatched 상품명으로 products.supplier 미리 조회
+  const unmatchedNames = [...new Set(
+    Object.values(groupMap)
+      .filter((g) => !g.cafe24_product_no || !keyToProductId.has(`${g.store_id}::${g.cafe24_product_no}`))
+      .map((g) => g.rows[0]?.product_name?.trim())
+      .filter(Boolean) as string[]
+  )];
+  const nameToProductSupplier: Record<string, string> = {};
+  if (unmatchedNames.length > 0) {
+    const { data: byNames } = await sb
+      .from("products")
+      .select("product_name, supplier")
+      .in("product_name", unmatchedNames);
+    for (const p of byNames || []) {
+      if (p.product_name && p.supplier) nameToProductSupplier[p.product_name.trim()] = p.supplier.trim();
+    }
+  }
+
   // 6. 각 group 상태 계산
   type Status = "match" | "mismatch" | "unmatched_product" | "invalid_tp_code" | "unknown_supplier_code";
   const groups = Object.entries(groupMap).map(([key, g]) => {
@@ -186,21 +204,12 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    // unmatched_product이지만 상품명으로 products에서 공급사를 찾을 수 있는 경우
+    // unmatched_product이지만 상품명으로 products.supplier를 찾을 수 있는 경우
     if (!prod && !expectedSupplierName) {
       const nameKey = (g.rows[0]?.product_name || "").trim();
-      // product_name 직접 매칭 시도
-      if (nameKey) {
-        const { data: byName } = await sb
-          .from("products")
-          .select("id, supplier")
-          .eq("product_name", nameKey)
-          .limit(1)
-          .maybeSingle();
-        if (byName?.supplier && nameToSupplier[byName.supplier.trim()]) {
-          const s = nameToSupplier[byName.supplier.trim()];
-          expectedSupplierName = s.name;
-        }
+      const supplierName = nameToProductSupplier[nameKey];
+      if (supplierName && nameToSupplier[supplierName]) {
+        expectedSupplierName = nameToSupplier[supplierName].name;
       }
     }
 
