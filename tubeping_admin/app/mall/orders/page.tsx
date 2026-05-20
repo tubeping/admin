@@ -33,6 +33,7 @@ interface Order {
   sales_channel: string | null;
   stores: { name: string; mall_id: string } | null;
   suppliers: { name: string; email: string } | null;
+  warehouse_name: string | null;
   purchase_orders: { id: string; po_number: string; status: string; sent_at: string | null; viewed_at: string | null; completed_at: string | null } | null;
 }
 
@@ -70,7 +71,7 @@ function derivePOStatus(o: Order): { label: string; style: string } {
     return { label: "메일미발송", style: "text-red-500" };
   }
   if (o.supplier_id) return { label: "미발주", style: "text-orange-500" };
-  return { label: "공급사미배정", style: "text-red-400" };
+  return { label: "", style: "" };
 }
 
 function toKST(d: string): Date {
@@ -190,6 +191,11 @@ const OrderRow = memo(function OrderRow({
           <span className="text-[11px] text-red-400 font-medium">미배정</span>
         )}
       </td>
+      <td className="px-2 py-2.5 whitespace-nowrap">
+        {o.warehouse_name ? (
+          <span className="text-[11px] px-1.5 py-0.5 rounded bg-blue-50 text-blue-700 font-medium">{o.warehouse_name}</span>
+        ) : null}
+      </td>
       <td className="px-2 py-2.5 text-right text-gray-700">{o.quantity}</td>
       <td className="px-2 py-2.5 text-right text-gray-700 whitespace-nowrap">₩{o.order_amount.toLocaleString()}</td>
       <td className="px-2 py-2.5 text-center">
@@ -293,6 +299,7 @@ export default function OrdersPage() {
   const [colFilterCustomer, setColFilterCustomer] = useState("");
   const [colFilterChannel, setColFilterChannel] = useState(""); // "" | "phone" | "group" | "sample" | "domestic"
   const [colFilterPayment, setColFilterPayment] = useState(""); // "" | "paid" | "unpaid"
+  const [colFilterPOStatus, setColFilterPOStatus] = useState(""); // "" | "no_po" | "mail_not_sent" | "mail_sent" | "mail_read" | "tracking"
   // 기본값: 이번 달 1일 ~ 오늘
   const [dateFrom, setDateFrom] = useState(() => {
     const d = new Date();
@@ -454,12 +461,20 @@ export default function OrdersPage() {
       if (colFilterChannel === "domestic" && (o.sales_channel || !o.stores?.name)) return false;
       if (colFilterPayment === "paid" && (o.shipping_status === "pending" || o.shipping_status === "cancelled")) return false;
       if (colFilterPayment === "unpaid" && o.shipping_status !== "pending") return false;
+      if (colFilterPOStatus) {
+        const ps = derivePOStatus(o);
+        if (colFilterPOStatus === "no_po" && ps.label !== "미발주") return false;
+        if (colFilterPOStatus === "mail_not_sent" && ps.label !== "메일미발송") return false;
+        if (colFilterPOStatus === "mail_sent" && ps.label !== "메일발송") return false;
+        if (colFilterPOStatus === "mail_read" && ps.label !== "메일열람") return false;
+        if (colFilterPOStatus === "tracking" && ps.label !== "송장등록" && ps.label !== "송장완료") return false;
+      }
       return true;
     });
-  }, [rawOrders, filterSupplier, filterNoTracking, filterNoSupplier, poTab, searchKeyword, colFilterOrderNo, colFilterProduct, colFilterCustomer, colFilterChannel, colFilterPayment]);
+  }, [rawOrders, filterSupplier, filterNoTracking, filterNoSupplier, poTab, searchKeyword, colFilterOrderNo, colFilterProduct, colFilterCustomer, colFilterChannel, colFilterPayment, colFilterPOStatus]);
 
   // 필터 변경 시 페이지 리셋
-  useEffect(() => { setPage((p) => p === 0 ? p : 0); }, [rawOrders, filterSupplier, filterNoTracking, filterNoSupplier, poTab, searchKeyword, colFilterOrderNo, colFilterProduct, colFilterCustomer, colFilterChannel, colFilterPayment]);
+  useEffect(() => { setPage((p) => p === 0 ? p : 0); }, [rawOrders, filterSupplier, filterNoTracking, filterNoSupplier, poTab, searchKeyword, colFilterOrderNo, colFilterProduct, colFilterCustomer, colFilterChannel, colFilterPayment, colFilterPOStatus]);
 
   // 현재 페이지에 표시할 주문만 슬라이스
   const totalPages = Math.max(1, Math.ceil(orders.length / PAGE_SIZE));
@@ -838,7 +853,7 @@ export default function OrdersPage() {
           </div>
           {/* 상태 */}
           <div>
-            <label className="text-xs text-gray-500 block mb-1">주문상태</label>
+            <label className="text-xs text-gray-500 block mb-1">배송상태</label>
             <select value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)} className="w-full text-sm border border-gray-300 rounded-lg px-3 py-2">
               <option value="">전체</option>
               {Object.entries(STATUS_LABEL).map(([k, v]) => (<option key={k} value={k}>{v}</option>))}
@@ -1157,22 +1172,23 @@ export default function OrdersPage() {
                 <th className="text-left px-2 py-2.5 font-medium">판매방식</th>
                 <th className="text-left px-2 py-2.5 font-medium">판매사</th>
                 <th className="text-left px-2 py-2.5 font-medium">공급사</th>
+                <th className="text-left px-2 py-2.5 font-medium">출고지</th>
                 <th className="text-right px-2 py-2.5 font-medium">수량</th>
                 <th className="text-right px-2 py-2.5 font-medium">금액</th>
                 <th className="text-center px-2 py-2.5 font-medium">입금</th>
                 <th className="text-left px-2 py-2.5 font-medium">택배사/송장</th>
-                <th className="text-center px-2 py-2.5 font-medium">발주</th>
-                <th className="text-center px-2 py-2.5 font-medium">상태</th>
+                <th className="text-center px-2 py-2.5 font-medium">발주상태</th>
+                <th className="text-center px-2 py-2.5 font-medium">배송상태</th>
                 <th className="text-right px-3 py-2.5 font-medium">주문일</th>
               </tr>
               {/* 컬럼별 필터 행 */}
               <tr className="text-xs border-b border-gray-200 bg-white">
                 <th className="px-2 py-1.5">
-                  {(colFilterOrderNo || colFilterProduct || colFilterCustomer || colFilterChannel || colFilterPayment || filterStore || filterSupplier || filterStatus) && (
+                  {(colFilterOrderNo || colFilterProduct || colFilterCustomer || colFilterChannel || colFilterPayment || colFilterPOStatus || filterStore || filterSupplier || filterStatus) && (
                     <button
                       onClick={() => {
                         setColFilterOrderNo(""); setColFilterProduct(""); setColFilterCustomer("");
-                        setColFilterChannel(""); setColFilterPayment("");
+                        setColFilterChannel(""); setColFilterPayment(""); setColFilterPOStatus("");
                         setFilterStore(""); setFilterSupplier(""); setFilterStatus("");
                       }}
                       title="필터 초기화"
@@ -1222,6 +1238,7 @@ export default function OrdersPage() {
                 </th>
                 <th></th>
                 <th></th>
+                <th></th>
                 <th className="px-1 py-1 text-center">
                   <select value={colFilterPayment} onChange={(e) => setColFilterPayment(e.target.value)}
                     className="w-full text-[11px] border border-gray-200 rounded px-1 py-0.5 bg-white">
@@ -1237,7 +1254,17 @@ export default function OrdersPage() {
                     <option value="missing">송장 미입력</option>
                   </select>
                 </th>
-                <th></th>
+                <th className="px-1 py-1 text-center">
+                  <select value={colFilterPOStatus} onChange={(e) => setColFilterPOStatus(e.target.value)}
+                    className="w-full text-[11px] border border-gray-200 rounded px-1 py-0.5 bg-white">
+                    <option value="">전체</option>
+                    <option value="no_po">미발주</option>
+                    <option value="mail_not_sent">메일미발송</option>
+                    <option value="mail_sent">메일발송</option>
+                    <option value="mail_read">메일열람</option>
+                    <option value="tracking">송장등록</option>
+                  </select>
+                </th>
                 <th className="px-1 py-1 text-center">
                   <select value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)}
                     className="w-full text-[11px] border border-gray-200 rounded px-1 py-0.5 bg-white">

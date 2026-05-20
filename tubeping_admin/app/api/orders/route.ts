@@ -41,7 +41,52 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
-  return NextResponse.json({ orders: data, total: count });
+  // 출고지(창고) 정보 enrichment
+  const orders = data || [];
+  if (orders.length > 0) {
+    // cafe24_product_no → product_id 매핑
+    const productNos = [...new Set(orders.map((o: any) => o.cafe24_product_no).filter((n: any) => n > 0))];
+    const storeProductToProductId: Record<string, string> = {};
+    if (productNos.length > 0) {
+      const { data: mappings } = await sb
+        .from("product_cafe24_mappings")
+        .select("store_id, cafe24_product_no, product_id")
+        .in("cafe24_product_no", productNos);
+      for (const m of mappings || []) {
+        storeProductToProductId[`${m.store_id}::${m.cafe24_product_no}`] = m.product_id;
+      }
+    }
+    // product_name → product_id 매핑 (cafe24_product_no 없는 경우)
+    const productNames = [...new Set(orders.map((o: any) => o.product_name?.trim()).filter(Boolean))];
+    const nameToProductId: Record<string, string> = {};
+    if (productNames.length > 0) {
+      const { data: byName } = await sb.from("products").select("id, product_name").in("product_name", productNames);
+      for (const p of byName || []) { if (p.product_name) nameToProductId[p.product_name.trim()] = p.id; }
+    }
+    // product_id → fulfillment_warehouse_supplier_id
+    const allPids = [...new Set([...Object.values(storeProductToProductId), ...Object.values(nameToProductId)])];
+    const pidToWarehouse: Record<string, string> = {};
+    if (allPids.length > 0) {
+      const { data: products } = await sb.from("products").select("id, fulfillment_warehouse_supplier_id").in("id", allPids).not("fulfillment_warehouse_supplier_id", "is", null);
+      for (const p of products || []) { if (p.fulfillment_warehouse_supplier_id) pidToWarehouse[p.id] = p.fulfillment_warehouse_supplier_id; }
+    }
+    // warehouse supplier_id → name
+    const warehouseIds = [...new Set(Object.values(pidToWarehouse))];
+    const warehouseNames: Record<string, string> = {};
+    if (warehouseIds.length > 0) {
+      const { data: wSuppliers } = await sb.from("suppliers").select("id, name").in("id", warehouseIds);
+      for (const s of wSuppliers || []) { warehouseNames[s.id] = s.name; }
+    }
+    // 각 주문에 warehouse_name 추가
+    for (const o of orders as any[]) {
+      let pid = o.store_id && o.cafe24_product_no > 0 ? storeProductToProductId[`${o.store_id}::${o.cafe24_product_no}`] : undefined;
+      if (!pid && o.product_name) pid = nameToProductId[o.product_name.trim()];
+      const wId = pid ? pidToWarehouse[pid] : undefined;
+      o.warehouse_name = wId ? warehouseNames[wId] || null : null;
+    }
+  }
+
+  return NextResponse.json({ orders, total: count });
 }
 
 /**
