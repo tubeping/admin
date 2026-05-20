@@ -39,7 +39,7 @@ interface Order {
   purchase_orders: { id: string; po_number: string; status: string; sent_at: string | null; viewed_at: string | null; completed_at: string | null } | null;
 }
 
-/* ── Ops mode status helpers ── */
+/* ── Status helpers ── */
 const STATUS_LABEL: Record<string, string> = {
   pending: "입금전",
   ordered: "상품준비중",
@@ -50,7 +50,7 @@ const STATUS_LABEL: Record<string, string> = {
   returned: "반품완료",
   exchanged: "교환완료",
 };
-const STATUS_STYLE_OPS: Record<string, string> = {
+const STATUS_STYLE: Record<string, string> = {
   pending: "bg-gray-100 text-gray-600",
   ordered: "bg-blue-100 text-blue-700",
   shipping: "bg-yellow-100 text-yellow-700",
@@ -61,7 +61,6 @@ const STATUS_STYLE_OPS: Record<string, string> = {
   exchanged: "bg-purple-50 text-purple-600",
 };
 
-// 발주 상태 derive (ops mode)
 function derivePOStatus(o: Order): { label: string; style: string } {
   if (o.shipping_status === "cancelled") return { label: "", style: "" };
   if (o.tracking_number) return { label: "송장등록", style: "text-green-600" };
@@ -75,39 +74,6 @@ function derivePOStatus(o: Order): { label: string; style: string } {
   if (o.supplier_id) return { label: "미발주", style: "text-orange-500" };
   return { label: "", style: "" };
 }
-
-/* ── CS mode status helpers ── */
-const TERMINAL_LABEL: Record<string, string> = {
-  cancelled: "취소",
-  refunded: "환불완료",
-  returned: "반품완료",
-  exchanged: "교환완료",
-};
-const STATUS_STYLE_CS: Record<string, string> = {
-  발주대기: "bg-gray-100 text-gray-600",
-  발주완료: "bg-blue-100 text-blue-700",
-  수신완료: "bg-indigo-100 text-indigo-700",
-  송장미입력: "bg-yellow-100 text-yellow-700",
-  송장입력: "bg-green-100 text-green-700",
-  취소: "bg-red-100 text-red-600",
-  환불완료: "bg-red-50 text-red-600 border border-red-200",
-  반품완료: "bg-orange-50 text-orange-600 border border-orange-200",
-  교환완료: "bg-purple-50 text-purple-600 border border-purple-200",
-};
-
-function deriveOrderStatus(o: Order): string {
-  if (TERMINAL_LABEL[o.shipping_status]) return TERMINAL_LABEL[o.shipping_status];
-  const hasTracking = !!(o.tracking_number && o.tracking_number.trim());
-  if (hasTracking) return "송장입력";
-  const po = o.purchase_orders;
-  if (!o.purchase_order_id || !po) return "발주대기";
-  if (po.status === "completed" || po.completed_at) return "송장미입력";
-  if (po.viewed_at || po.status === "viewed") return "수신완료";
-  if (po.sent_at || po.status === "sent") return "발주완료";
-  return "발주대기";
-}
-
-const CS_STATUS_OPTIONS = ["발주대기", "발주완료", "수신완료", "송장미입력", "송장입력", "취소", "환불완료", "반품완료", "교환완료"];
 
 const SHIPPING_COMPANIES = ["CJ대한통운", "한진택배", "롯데택배", "우체국택배", "로젠택배", "경동택배", "대신택배"];
 
@@ -147,9 +113,10 @@ function today() { return new Date().toISOString().slice(0, 10); }
 function daysAgo(n: number) { return new Date(Date.now() - n * 86400000).toISOString().slice(0, 10); }
 function normPhone(s: string) { return (s || "").replace(/[^0-9]/g, ""); }
 
-/* ── Ops Mode OrderRow (memo-ized) ── */
+/* ── OrderRow (memo-ized) ── */
 const OrderRow = memo(function OrderRow({
   o, idx, displayedCount, isSelected, toggleSelect, editingField, onStartEdit, saveCellEdit, stores, fetchOrders,
+  trackingEdit, onTrackingEdit, onSaveTracking, saving, onOpenCs,
 }: {
   o: Order; idx: number; displayedCount: number; isSelected: boolean;
   toggleSelect: (id: string) => void;
@@ -158,10 +125,16 @@ const OrderRow = memo(function OrderRow({
   saveCellEdit: (orderId: string, field: "channel" | "store", value: string) => void;
   stores: Store[];
   fetchOrders: () => void;
+  trackingEdit: { company: string; number: string } | undefined;
+  onTrackingEdit: (orderId: string, edit: { company: string; number: string } | null) => void;
+  onSaveTracking: (orderId: string) => void;
+  saving: boolean;
+  onOpenCs: (order: Order) => void;
 }) {
   const noTrack = !o.tracking_number && o.shipping_status !== "cancelled" && o.shipping_status !== "delivered";
   const noSup = !o.supplier_id;
   const noPO = !o.purchase_order_id && o.shipping_status !== "cancelled" && o.shipping_status !== "delivered";
+  const editing = !!trackingEdit;
   return (
     <tr
       className={`border-b border-gray-50 last:border-0 hover:bg-gray-50/50 cursor-pointer ${
@@ -169,24 +142,35 @@ const OrderRow = memo(function OrderRow({
       }`}
       onClick={() => toggleSelect(o.id)}
     >
+      {/* 1. Checkbox */}
       <td className="px-3 py-2.5">
         <input type="checkbox" checked={isSelected} onChange={() => toggleSelect(o.id)} onClick={(e) => e.stopPropagation()} className="rounded" />
       </td>
+      {/* 2. No */}
       <td className="px-2 py-2.5 text-xs text-gray-400">{displayedCount - idx}</td>
+      {/* 3. 주문번호 */}
       <td className="px-2 py-2.5 whitespace-nowrap">
         <div className="text-xs font-medium text-gray-900">{o.cafe24_order_id}</div>
         <div className="text-[11px] text-gray-400">{formatDateTime(o.order_date)}</div>
       </td>
+      {/* 4. 상품/옵션 */}
       <td className="px-2 py-2.5 max-w-[220px]">
         <div className="text-sm text-gray-900 truncate">{o.product_name}</div>
         {o.option_text && <div className="text-[11px] text-gray-400 truncate">{o.option_text}</div>}
       </td>
+      {/* 5. 주문자/수취인/연락처 */}
       <td className="px-2 py-2.5 whitespace-nowrap">
         <div className="text-xs text-gray-700">{o.buyer_name || o.receiver_name || "-"}</div>
         {o.receiver_name && o.buyer_name && o.receiver_name !== o.buyer_name && (
-          <div className="text-[11px] text-gray-400">→ {o.receiver_name}</div>
+          <div className="text-[11px] text-gray-400">&rarr; {o.receiver_name}</div>
         )}
+        <div className="text-[10px] font-mono text-gray-400">{o.receiver_phone || o.buyer_phone || ""}</div>
       </td>
+      {/* 6. 배송주소 */}
+      <td className="px-2 py-2.5 max-w-[200px]">
+        <div className="text-[11px] text-gray-600 truncate" title={o.receiver_address || ""}>{o.receiver_address || <span className="text-gray-300">-</span>}</div>
+      </td>
+      {/* 7. 판매방식 */}
       <td
         className="px-2 py-2.5 text-xs whitespace-nowrap cursor-pointer hover:bg-gray-100/60"
         onClick={(e) => { e.stopPropagation(); if (editingField !== "channel") onStartEdit(o.id, "channel"); }}
@@ -214,6 +198,7 @@ const OrderRow = memo(function OrderRow({
           return <span className="px-1.5 py-0.5 rounded bg-blue-100 text-blue-700 font-medium">자사몰</span>;
         })()}
       </td>
+      {/* 8. 판매사 */}
       <td
         className="px-2 py-2.5 text-xs whitespace-nowrap cursor-pointer hover:bg-gray-100/60"
         onClick={(e) => { e.stopPropagation(); if (editingField !== "store") onStartEdit(o.id, "store"); }}
@@ -241,20 +226,24 @@ const OrderRow = memo(function OrderRow({
             : <span className="text-gray-500">{name}</span>;
         })()}
       </td>
+      {/* 9. 공급사/출고지 */}
       <td className="px-2 py-2.5 whitespace-nowrap">
         {o.suppliers?.name ? (
-          <span className="text-xs text-gray-700">{o.suppliers.name}</span>
+          <div>
+            <span className="text-xs text-gray-700">{o.suppliers.name}</span>
+            {o.warehouse_name && (
+              <div><span className="text-[10px] px-1 py-px rounded bg-blue-50 text-blue-700 font-medium">{o.warehouse_name}</span></div>
+            )}
+          </div>
         ) : (
           <span className="text-[11px] text-red-400 font-medium">미배정</span>
         )}
       </td>
-      <td className="px-2 py-2.5 whitespace-nowrap">
-        {o.warehouse_name ? (
-          <span className="text-[11px] px-1.5 py-0.5 rounded bg-blue-50 text-blue-700 font-medium">{o.warehouse_name}</span>
-        ) : null}
-      </td>
+      {/* 10. 수량 */}
       <td className="px-2 py-2.5 text-right text-gray-700">{o.quantity}</td>
-      <td className="px-2 py-2.5 text-right text-gray-700 whitespace-nowrap">₩{o.order_amount.toLocaleString()}</td>
+      {/* 11. 금액 */}
+      <td className="px-2 py-2.5 text-right text-gray-700 whitespace-nowrap">{o.order_amount.toLocaleString()}</td>
+      {/* 12. 입금 */}
       <td className="px-2 py-2.5 text-center">
         {(() => {
           const isPaid = o.shipping_status !== "pending" && o.shipping_status !== "cancelled";
@@ -267,7 +256,7 @@ const OrderRow = memo(function OrderRow({
                 e.stopPropagation();
                 const newStatus = isPaid ? "pending" : "ordered";
                 const label = isPaid ? "입금전으로 되돌림" : "입금확인 처리";
-                const extra = isPhone && !isPaid ? "\n\n(전화주문 — 계좌이체 입금 확인 후 진행)" : "";
+                const extra = isPhone && !isPaid ? "\n\n(전화주문 -- 계좌이체 입금 확인 후 진행)" : "";
                 if (!confirm(`${label}하시겠습니까?${extra}`)) return;
                 await fetch("/admin/api/orders", {
                   method: "PATCH",
@@ -284,38 +273,60 @@ const OrderRow = memo(function OrderRow({
                     : "bg-red-50 text-red-600 border-red-300 hover:bg-red-100"
               }`}
               title={isPhone
-                ? (isPaid ? "전화주문(계좌이체) — 클릭 시 입금전으로 되돌림" : "전화주문(계좌이체) — 입금 확인 후 클릭")
+                ? (isPaid ? "전화주문(계좌이체) -- 클릭 시 입금전으로 되돌림" : "전화주문(계좌이체) -- 입금 확인 후 클릭")
                 : (isPaid ? "클릭하면 입금전으로 되돌림" : "클릭하면 입금확인 처리")}
             >
-              {isPaid ? "✓ 완료" : isPhone ? "💰 계좌이체 대기" : "✗ 입금전"}
+              {isPaid ? "완료" : isPhone ? "계좌이체" : "입금전"}
             </button>
           );
         })()}
       </td>
-      <td className="px-2 py-2.5 whitespace-nowrap">
-        {o.tracking_number ? (
-          <div>
-            <span className="text-[11px] text-gray-500">{o.shipping_company}</span>
-            {(() => {
-              const url = getTrackingUrl(o.shipping_company, o.tracking_number);
-              return url ? (
-                <a href={url} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()}
-                  className="text-xs text-blue-600 hover:text-blue-800 hover:underline font-mono ml-1"
-                  title="배송추적 열기">
-                  {o.tracking_number}
-                </a>
-              ) : (
-                <span className="text-xs text-gray-700 ml-1">{o.tracking_number}</span>
-              );
-            })()}
-            {!o.cafe24_shipping_synced && <span className="text-[10px] text-orange-500 ml-1">미연동</span>}
+      {/* 13. 송장 (inline editable) */}
+      <td className="px-2 py-2.5 text-xs" onClick={(e) => e.stopPropagation()}>
+        {editing ? (
+          <div className="flex flex-col gap-1 min-w-[150px]">
+            <select value={trackingEdit!.company} onChange={(e) => onTrackingEdit(o.id, { ...trackingEdit!, company: e.target.value })}
+              className="border border-gray-300 rounded px-1 py-0.5 text-xs">
+              {SHIPPING_COMPANIES.map((c) => <option key={c} value={c}>{c}</option>)}
+            </select>
+            <input type="text" value={trackingEdit!.number} onChange={(e) => onTrackingEdit(o.id, { ...trackingEdit!, number: e.target.value })}
+              placeholder="송장번호" className="border border-gray-300 rounded px-1 py-0.5 text-xs font-mono" autoFocus />
+            <div className="flex gap-1">
+              <button disabled={saving} onClick={() => onSaveTracking(o.id)} className="flex-1 bg-gray-900 text-white text-[10px] py-0.5 rounded hover:bg-black cursor-pointer disabled:opacity-50">저장</button>
+              <button onClick={() => onTrackingEdit(o.id, null)} className="flex-1 bg-white border border-gray-300 text-[10px] py-0.5 rounded hover:bg-gray-50 cursor-pointer">취소</button>
+            </div>
+          </div>
+        ) : o.tracking_number ? (
+          <div className="flex flex-col gap-0.5">
+            <div className="flex items-center gap-1">
+              {(() => {
+                const url = getTrackingUrl(o.shipping_company, o.tracking_number);
+                return url ? (
+                  <a href={url} target="_blank" rel="noopener noreferrer"
+                    className="text-blue-600 hover:text-blue-800 hover:underline font-mono text-xs"
+                    title="배송추적 열기">
+                    {o.tracking_number}
+                  </a>
+                ) : (
+                  <span className="font-mono text-gray-700 text-xs">{o.tracking_number}</span>
+                );
+              })()}
+              <button onClick={() => onTrackingEdit(o.id, { company: o.shipping_company || "CJ대한통운", number: o.tracking_number })}
+                className="text-gray-400 hover:text-gray-600 cursor-pointer" title="수정">
+                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>
+              </button>
+            </div>
+            <span className="text-[10px] text-gray-400">{o.shipping_company}</span>
+            {!o.cafe24_shipping_synced && <span className="text-[10px] text-orange-500">미연동</span>}
           </div>
         ) : noTrack ? (
-          <span className="text-[11px] text-red-400">미입력</span>
+          <button onClick={() => onTrackingEdit(o.id, { company: "CJ대한통운", number: "" })}
+            className="text-[11px] text-blue-600 hover:underline cursor-pointer">+ 송장 입력</button>
         ) : (
           <span className="text-gray-300">-</span>
         )}
       </td>
+      {/* 14. 발주상태 */}
       <td className="px-2 py-2.5 text-center">
         {(() => {
           const ps = derivePOStatus(o);
@@ -326,11 +337,19 @@ const OrderRow = memo(function OrderRow({
           );
         })()}
       </td>
+      {/* 15. 배송상태 */}
       <td className="px-2 py-2.5 text-center">
-        <span className={`text-[11px] font-medium px-1.5 py-0.5 rounded-full ${STATUS_STYLE_OPS[o.shipping_status] || STATUS_STYLE_OPS.pending}`}>
+        <span className={`text-[11px] font-medium px-1.5 py-0.5 rounded-full ${STATUS_STYLE[o.shipping_status] || STATUS_STYLE.pending}`}>
           {STATUS_LABEL[o.shipping_status] || o.shipping_status}
         </span>
       </td>
+      {/* 16. CS */}
+      <td className="px-2 py-2.5 text-center" onClick={(e) => e.stopPropagation()}>
+        <button onClick={() => onOpenCs(o)} className="text-[11px] px-2 py-1 rounded border border-gray-300 text-gray-700 hover:bg-gray-50 cursor-pointer">
+          CS
+        </button>
+      </td>
+      {/* 17. 주문일 */}
       <td className="px-3 py-2.5 text-xs text-gray-400 text-right whitespace-nowrap">{formatDate(o.order_date)}</td>
     </tr>
   );
@@ -341,8 +360,7 @@ const OrderRow = memo(function OrderRow({
    ═══════════════════════════════════════════════════ */
 
 export default function UnifiedOrdersPage() {
-  const [mode, setMode] = useState<"ops" | "cs">("ops");
-  const pageSize = mode === "ops" ? 50 : 100;
+  const pageSize = 50;
 
   const [rawOrders, setRawOrders] = useState<Order[]>([]);
   const [stores, setStores] = useState<Store[]>([]);
@@ -361,7 +379,7 @@ export default function UnifiedOrdersPage() {
     setEditingCell(orderId ? { orderId, field } : null);
   }, []);
 
-  // Shared filters
+  // Filters
   const [filterStatus, setFilterStatus] = useState("");
   const [filterStore, setFilterStore] = useState("");
   const [filterSupplier, setFilterSupplier] = useState("");
@@ -371,32 +389,22 @@ export default function UnifiedOrdersPage() {
   });
   const [dateTo, setDateTo] = useState(today());
   const [searchKeyword, setSearchKeyword] = useState("");
-  const [appliedKeyword, setAppliedKeyword] = useState(""); // CS mode uses applied keyword
 
-  // Ops-only filters
   const [filterNoTracking, setFilterNoTracking] = useState(false);
   const [filterNoSupplier, setFilterNoSupplier] = useState(false);
   const [colFilterOrderNo, setColFilterOrderNo] = useState("");
   const [colFilterProduct, setColFilterProduct] = useState("");
   const [colFilterCustomer, setColFilterCustomer] = useState("");
+  const [colFilterAddress, setColFilterAddress] = useState("");
   const [colFilterChannel, setColFilterChannel] = useState("");
   const [colFilterPayment, setColFilterPayment] = useState("");
   const [colFilterPOStatus, setColFilterPOStatus] = useState("");
-  const [colFilterWarehouse, setColFilterWarehouse] = useState("");
   const [colFilterQty, setColFilterQty] = useState("");
   const [colFilterAmount, setColFilterAmount] = useState("");
+  const [colFilterTracking, setColFilterTracking] = useState("");
   const [poTab, setPoTab] = useState<"all" | "no_po" | "has_po">("all");
 
-  // CS-only column filters
-  const [csColFilterOrderNo, setCsColFilterOrderNo] = useState("");
-  const [csColFilterProduct, setCsColFilterProduct] = useState("");
-  const [csColFilterBuyer, setCsColFilterBuyer] = useState("");
-  const [csColFilterReceiver, setCsColFilterReceiver] = useState("");
-  const [csColFilterPhone, setCsColFilterPhone] = useState("");
-  const [csColFilterAddress, setCsColFilterAddress] = useState("");
-  const [csColFilterTracking, setCsColFilterTracking] = useState("");
-
-  // CS tracking inline edit
+  // Tracking inline edit
   const [trackingEdit, setTrackingEdit] = useState<Record<string, { company: string; number: string }>>({});
 
   // CS modal
@@ -404,7 +412,7 @@ export default function UnifiedOrdersPage() {
   const [csAction, setCsAction] = useState<"refunded" | "returned" | "exchanged">("refunded");
   const [csNote, setCsNote] = useState("");
 
-  // Drag & drop (ops only)
+  // Drag & drop
   const [isDragging, setIsDragging] = useState(false);
   const dragCounterRef = useRef(0);
 
@@ -417,7 +425,7 @@ export default function UnifiedOrdersPage() {
     return res.ok;
   };
 
-  const saveTracking = async (id: string) => {
+  const saveTracking = useCallback(async (id: string) => {
     const edit = trackingEdit[id];
     if (!edit || !edit.number.trim()) return;
     setSaving(true);
@@ -425,13 +433,21 @@ export default function UnifiedOrdersPage() {
     setTrackingEdit((p) => { const n = { ...p }; delete n[id]; return n; });
     setSaving(false);
     fetchOrders();
-  };
+  }, [trackingEdit]);
 
-  const openCs = (o: Order) => {
+  const handleTrackingEdit = useCallback((orderId: string, edit: { company: string; number: string } | null) => {
+    if (edit === null) {
+      setTrackingEdit((p) => { const n = { ...p }; delete n[orderId]; return n; });
+    } else {
+      setTrackingEdit((p) => ({ ...p, [orderId]: edit }));
+    }
+  }, []);
+
+  const openCs = useCallback((o: Order) => {
     setCsModalOrder(o);
     setCsAction("refunded");
     setCsNote("");
-  };
+  }, []);
 
   const submitCs = async () => {
     if (!csModalOrder) return;
@@ -450,12 +466,12 @@ export default function UnifiedOrdersPage() {
   const fetchOrders = useCallback(async () => {
     setLoading(true);
     const params = new URLSearchParams();
-    if (filterStatus && mode === "ops") params.set("status", filterStatus);
+    if (filterStatus) params.set("status", filterStatus);
     if (filterStore) params.set("store_id", filterStore);
     if (filterSupplier && filterSupplier !== "__none__") params.set("supplier_id", filterSupplier);
     if (dateFrom) params.set("start_date", dateFrom);
     if (dateTo) params.set("end_date", dateTo);
-    params.set("limit", mode === "ops" ? "500" : "1000");
+    params.set("limit", "500");
 
     const res = await fetch(`/admin/api/orders?${params}`);
     if (!res.ok) { setLoading(false); return; }
@@ -463,9 +479,9 @@ export default function UnifiedOrdersPage() {
     setRawOrders(data.orders || []);
     setTotal(data.total || 0);
     setLoading(false);
-  }, [filterStatus, filterStore, filterSupplier, dateFrom, dateTo, mode]);
+  }, [filterStatus, filterStore, filterSupplier, dateFrom, dateTo]);
 
-  // File import (ops only)
+  // File import
   const handleImportFile = useCallback(async (file: File) => {
     const ext = file.name.split(".").pop()?.toLowerCase();
     if (!["csv", "xlsx", "xls"].includes(ext || "")) {
@@ -497,7 +513,7 @@ export default function UnifiedOrdersPage() {
       const critical = ["receiver_name", "receiver_phone", "receiver_address"];
       const missing = critical.filter((k) => !mc[k]);
       if (missing.length > 0) {
-        msg += `\n\n⚠ 수령인 정보 일부가 매칭 안됨: ${missing.join(", ")}\n헤더명을 확인해주세요.\n(인식 못한 헤더: ${(data.unmatched_headers || []).join(", ") || "없음"})`;
+        msg += `\n\n주의: 수령인 정보 일부가 매칭 안됨: ${missing.join(", ")}\n헤더명을 확인해주세요.\n(인식 못한 헤더: ${(data.unmatched_headers || []).join(", ") || "없음"})`;
       }
       msg += "\n\n공급사 매칭은 '매핑 검증' 페이지에서 진행하세요.";
       alert(msg);
@@ -509,7 +525,7 @@ export default function UnifiedOrdersPage() {
     } else alert(`오류: ${data.error}`);
   }, [fetchOrders]);
 
-  // Image OCR (ops only)
+  // Image OCR
   const handleImageOCR = useCallback(async (file: File) => {
     setOcrProcessing(true);
     try {
@@ -572,110 +588,62 @@ export default function UnifiedOrdersPage() {
 
   // Client-side filter
   const orders = useMemo(() => {
-    if (mode === "ops") {
-      // Ops mode filter (from 주문집계)
-      const kw = searchKeyword?.toLowerCase();
-      const kwDigits = normPhone(searchKeyword);
-      const kOrderNo = colFilterOrderNo?.toLowerCase();
-      const kProduct = colFilterProduct?.toLowerCase();
-      const kCustomer = colFilterCustomer?.toLowerCase();
-      return rawOrders.filter((o) => {
-        if (filterNoTracking && (o.tracking_number || o.shipping_status === "cancelled" || o.shipping_status === "delivered")) return false;
-        if ((filterNoSupplier || filterSupplier === "__none__") && o.supplier_id) return false;
-        if (poTab === "no_po" && (!o.supplier_id || o.purchase_order_id || o.tracking_number || o.shipping_status === "cancelled" || o.shipping_status === "delivered" || o.shipping_status === "pending")) return false;
-        if (poTab === "has_po" && !o.purchase_order_id) return false;
-        if (kw) {
-          const phoneMatch = kwDigits.length >= 4 && (
-            normPhone(o.buyer_phone).includes(kwDigits) ||
-            normPhone(o.receiver_phone).includes(kwDigits)
-          );
-          if (!(phoneMatch || o.product_name?.toLowerCase().includes(kw) || o.cafe24_order_id?.toLowerCase().includes(kw) || o.buyer_name?.toLowerCase().includes(kw) || o.receiver_name?.toLowerCase().includes(kw))) return false;
-        }
-        if (kOrderNo && !o.cafe24_order_id?.toLowerCase().includes(kOrderNo)) return false;
-        if (kProduct && !(o.product_name?.toLowerCase().includes(kProduct) || o.option_text?.toLowerCase().includes(kProduct))) return false;
-        if (kCustomer && !(o.buyer_name?.toLowerCase().includes(kCustomer) || o.receiver_name?.toLowerCase().includes(kCustomer))) return false;
-        if (colFilterChannel === "phone" && o.sales_channel !== "phone") return false;
-        if (colFilterChannel === "group" && o.sales_channel !== "group") return false;
-        if (colFilterChannel === "sample" && o.sales_channel !== "sample") return false;
-        if (colFilterChannel === "domestic" && (o.sales_channel || !o.stores?.name)) return false;
-        if (colFilterPayment === "paid" && (o.shipping_status === "pending" || o.shipping_status === "cancelled")) return false;
-        if (colFilterPayment === "unpaid" && o.shipping_status !== "pending") return false;
-        if (colFilterWarehouse && !(o.warehouse_name || "").toLowerCase().includes(colFilterWarehouse.toLowerCase())) return false;
-        if (colFilterQty === "1" && o.quantity !== 1) return false;
-        if (colFilterQty === "2+" && o.quantity < 2) return false;
-        if (colFilterAmount === "under10k" && o.order_amount >= 10000) return false;
-        if (colFilterAmount === "10k_50k" && (o.order_amount < 10000 || o.order_amount >= 50000)) return false;
-        if (colFilterAmount === "50k_100k" && (o.order_amount < 50000 || o.order_amount >= 100000)) return false;
-        if (colFilterAmount === "over100k" && o.order_amount < 100000) return false;
-        if (colFilterPOStatus) {
-          const ps = derivePOStatus(o);
-          if (colFilterPOStatus === "no_po" && ps.label !== "미발주") return false;
-          if (colFilterPOStatus === "mail_not_sent" && ps.label !== "메일미발송") return false;
-          if (colFilterPOStatus === "mail_sent" && ps.label !== "메일발송") return false;
-          if (colFilterPOStatus === "mail_read" && ps.label !== "메일열람") return false;
-          if (colFilterPOStatus === "tracking" && ps.label !== "송장등록" && ps.label !== "송장완료") return false;
-        }
-        return true;
-      });
-    } else {
-      // CS mode filter (from 주문조회)
-      let list = rawOrders;
-      if (filterStatus) list = list.filter((o) => deriveOrderStatus(o) === filterStatus);
-      if (appliedKeyword) {
-        const kw = appliedKeyword.toLowerCase().trim();
-        const kwDigits = normPhone(appliedKeyword);
-        list = list.filter((o) => {
-          const phoneMatch = kwDigits.length >= 4 && (
-            normPhone(o.buyer_phone).includes(kwDigits) ||
-            normPhone(o.receiver_phone).includes(kwDigits)
-          );
-          return phoneMatch ||
-            o.product_name?.toLowerCase().includes(kw) ||
-            o.cafe24_order_id?.toLowerCase().includes(kw) ||
-            o.buyer_name?.toLowerCase().includes(kw) ||
-            o.receiver_name?.toLowerCase().includes(kw) ||
-            o.tracking_number?.toLowerCase().includes(kw);
-        });
+    const kw = searchKeyword?.toLowerCase();
+    const kwDigits = normPhone(searchKeyword);
+    const kOrderNo = colFilterOrderNo?.toLowerCase();
+    const kProduct = colFilterProduct?.toLowerCase();
+    const kCustomer = colFilterCustomer?.toLowerCase();
+    const kAddress = colFilterAddress?.toLowerCase();
+    return rawOrders.filter((o) => {
+      if (filterNoTracking && (o.tracking_number || o.shipping_status === "cancelled" || o.shipping_status === "delivered")) return false;
+      if ((filterNoSupplier || filterSupplier === "__none__") && o.supplier_id) return false;
+      if (poTab === "no_po" && (!o.supplier_id || o.purchase_order_id || o.tracking_number || o.shipping_status === "cancelled" || o.shipping_status === "delivered" || o.shipping_status === "pending")) return false;
+      if (poTab === "has_po" && !o.purchase_order_id) return false;
+      if (kw) {
+        const phoneMatch = kwDigits.length >= 4 && (
+          normPhone(o.buyer_phone).includes(kwDigits) ||
+          normPhone(o.receiver_phone).includes(kwDigits)
+        );
+        if (!(phoneMatch || o.product_name?.toLowerCase().includes(kw) || o.cafe24_order_id?.toLowerCase().includes(kw) || o.buyer_name?.toLowerCase().includes(kw) || o.receiver_name?.toLowerCase().includes(kw) || o.tracking_number?.toLowerCase().includes(kw))) return false;
       }
-      if (csColFilterOrderNo) {
-        const k = csColFilterOrderNo.toLowerCase();
-        list = list.filter((o) => o.cafe24_order_id?.toLowerCase().includes(k));
+      if (kOrderNo && !o.cafe24_order_id?.toLowerCase().includes(kOrderNo)) return false;
+      if (kProduct && !(o.product_name?.toLowerCase().includes(kProduct) || o.option_text?.toLowerCase().includes(kProduct))) return false;
+      if (kCustomer) {
+        const phoneDigits = normPhone(colFilterCustomer);
+        const phoneMatch = phoneDigits.length >= 4 && (
+          normPhone(o.buyer_phone).includes(phoneDigits) ||
+          normPhone(o.receiver_phone).includes(phoneDigits)
+        );
+        if (!(o.buyer_name?.toLowerCase().includes(kCustomer) || o.receiver_name?.toLowerCase().includes(kCustomer) || phoneMatch)) return false;
       }
-      if (csColFilterProduct) {
-        const k = csColFilterProduct.toLowerCase();
-        list = list.filter((o) => o.product_name?.toLowerCase().includes(k) || o.option_text?.toLowerCase().includes(k));
+      if (kAddress && !o.receiver_address?.toLowerCase().includes(kAddress)) return false;
+      if (colFilterChannel === "phone" && o.sales_channel !== "phone") return false;
+      if (colFilterChannel === "group" && o.sales_channel !== "group") return false;
+      if (colFilterChannel === "sample" && o.sales_channel !== "sample") return false;
+      if (colFilterChannel === "domestic" && (o.sales_channel || !o.stores?.name)) return false;
+      if (colFilterPayment === "paid" && (o.shipping_status === "pending" || o.shipping_status === "cancelled")) return false;
+      if (colFilterPayment === "unpaid" && o.shipping_status !== "pending") return false;
+      if (colFilterQty === "1" && o.quantity !== 1) return false;
+      if (colFilterQty === "2+" && o.quantity < 2) return false;
+      if (colFilterAmount === "under10k" && o.order_amount >= 10000) return false;
+      if (colFilterAmount === "10k_50k" && (o.order_amount < 10000 || o.order_amount >= 50000)) return false;
+      if (colFilterAmount === "50k_100k" && (o.order_amount < 50000 || o.order_amount >= 100000)) return false;
+      if (colFilterAmount === "over100k" && o.order_amount < 100000) return false;
+      if (colFilterTracking === "missing" && (o.tracking_number || o.shipping_status === "cancelled" || o.shipping_status === "delivered")) return false;
+      if (colFilterPOStatus) {
+        const ps = derivePOStatus(o);
+        if (colFilterPOStatus === "no_po" && ps.label !== "미발주") return false;
+        if (colFilterPOStatus === "mail_not_sent" && ps.label !== "메일미발송") return false;
+        if (colFilterPOStatus === "mail_sent" && ps.label !== "메일발송") return false;
+        if (colFilterPOStatus === "mail_read" && ps.label !== "메일열람") return false;
+        if (colFilterPOStatus === "tracking" && ps.label !== "송장등록" && ps.label !== "송장완료") return false;
       }
-      if (csColFilterBuyer) {
-        const k = csColFilterBuyer.toLowerCase();
-        list = list.filter((o) => o.buyer_name?.toLowerCase().includes(k));
-      }
-      if (csColFilterReceiver) {
-        const k = csColFilterReceiver.toLowerCase();
-        list = list.filter((o) => o.receiver_name?.toLowerCase().includes(k));
-      }
-      if (csColFilterPhone) {
-        const kDigits = normPhone(csColFilterPhone);
-        if (kDigits.length >= 4) {
-          list = list.filter((o) =>
-            normPhone(o.buyer_phone).includes(kDigits) ||
-            normPhone(o.receiver_phone).includes(kDigits)
-          );
-        }
-      }
-      if (csColFilterAddress) {
-        const k = csColFilterAddress.toLowerCase();
-        list = list.filter((o) => o.receiver_address?.toLowerCase().includes(k));
-      }
-      if (csColFilterTracking) {
-        const k = csColFilterTracking.toLowerCase();
-        list = list.filter((o) => o.tracking_number?.toLowerCase().includes(k));
-      }
-      return list;
-    }
-  }, [mode, rawOrders, filterStatus, filterStore, filterSupplier, filterNoTracking, filterNoSupplier, poTab, searchKeyword, appliedKeyword, colFilterOrderNo, colFilterProduct, colFilterCustomer, colFilterChannel, colFilterPayment, colFilterPOStatus, colFilterWarehouse, colFilterQty, colFilterAmount, csColFilterOrderNo, csColFilterProduct, csColFilterBuyer, csColFilterReceiver, csColFilterPhone, csColFilterAddress, csColFilterTracking]);
+      return true;
+    });
+  }, [rawOrders, filterSupplier, filterNoTracking, filterNoSupplier, poTab, searchKeyword, colFilterOrderNo, colFilterProduct, colFilterCustomer, colFilterAddress, colFilterChannel, colFilterPayment, colFilterPOStatus, colFilterQty, colFilterAmount, colFilterTracking]);
 
   // Reset page on filter change
-  useEffect(() => { setPage(0); }, [mode, rawOrders, filterSupplier, filterNoTracking, filterNoSupplier, poTab, searchKeyword, appliedKeyword, colFilterOrderNo, colFilterProduct, colFilterCustomer, colFilterChannel, colFilterPayment, colFilterPOStatus, colFilterWarehouse, colFilterQty, colFilterAmount, csColFilterOrderNo, csColFilterProduct, csColFilterBuyer, csColFilterReceiver, csColFilterPhone, csColFilterAddress, csColFilterTracking]);
+  useEffect(() => { setPage(0); }, [rawOrders, filterSupplier, filterNoTracking, filterNoSupplier, poTab, searchKeyword, colFilterOrderNo, colFilterProduct, colFilterCustomer, colFilterAddress, colFilterChannel, colFilterPayment, colFilterPOStatus, colFilterQty, colFilterAmount, colFilterTracking]);
 
   const totalPages = Math.max(1, Math.ceil(orders.length / pageSize));
   const pagedOrders = useMemo(() => orders.slice(page * pageSize, (page + 1) * pageSize), [orders, page, pageSize]);
@@ -688,9 +656,8 @@ export default function UnifiedOrdersPage() {
 
   useEffect(() => { fetchOrders(); fetchStores(); fetchSuppliers(); }, [fetchOrders]);
 
-  // Clipboard paste (ops only)
+  // Clipboard paste
   useEffect(() => {
-    if (mode !== "ops") return;
     const handlePaste = (e: ClipboardEvent) => {
       const tag = (e.target as HTMLElement)?.tagName;
       if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
@@ -720,9 +687,9 @@ export default function UnifiedOrdersPage() {
     };
     document.addEventListener("paste", handlePaste);
     return () => document.removeEventListener("paste", handlePaste);
-  }, [mode, handleImageOCR, handleImportFile]);
+  }, [handleImageOCR, handleImportFile]);
 
-  // Cafe24 sync (ops)
+  // Cafe24 sync
   const handleSync = async () => {
     setSyncing(true);
     await fetch(`/admin/api/cafe24/orders?start_date=${dateFrom}&end_date=${dateTo}`);
@@ -765,7 +732,7 @@ export default function UnifiedOrdersPage() {
     if (!res.ok) { alert(`발주 실패: ${data.error || res.status}`); return; }
     const lines = (data.results || []).map((r: { supplier_name: string; po_number?: string; order_count: number; is_warehouse: boolean; email_sent: boolean; error?: string }) => {
       const tag = r.is_warehouse ? "[창고] " : "";
-      const status = r.email_sent ? "✓" : "✗";
+      const status = r.email_sent ? "v" : "x";
       const err = r.error ? ` (${r.error})` : "";
       return `${status} ${tag}${r.supplier_name}: ${r.po_number || "?"} (${r.order_count}건)${err}`;
     });
@@ -889,25 +856,43 @@ export default function UnifiedOrdersPage() {
     return { total, displayed: orders.length, pending, noTracking, noSupplier, noPO, unsynced, totalQty, totalAmount, sample: sampleCount };
   }, [orders, total, sampleCount]);
 
-  // CS mode search handler
-  const handleSearch = () => setAppliedKeyword(searchKeyword);
   const handleReset = () => {
-    if (mode === "ops") {
-      const d = new Date();
-      setFilterStatus(""); setFilterStore(""); setFilterSupplier(""); setFilterNoTracking(false); setFilterNoSupplier(false);
-      setDateFrom(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-01`); setDateTo(today());
-      setSearchKeyword(""); setPoTab("no_po");
-      setColFilterOrderNo(""); setColFilterProduct(""); setColFilterCustomer("");
-      setColFilterChannel(""); setColFilterPayment(""); setColFilterPOStatus("");
-      setColFilterWarehouse(""); setColFilterQty(""); setColFilterAmount("");
-    } else {
-      setFilterStatus(""); setFilterStore(""); setFilterSupplier("");
-      setDateFrom(daysAgo(90)); setDateTo(today());
-      setSearchKeyword(""); setAppliedKeyword("");
-      setCsColFilterOrderNo(""); setCsColFilterProduct(""); setCsColFilterBuyer("");
-      setCsColFilterReceiver(""); setCsColFilterPhone(""); setCsColFilterAddress("");
-      setCsColFilterTracking("");
-    }
+    const d = new Date();
+    setFilterStatus(""); setFilterStore(""); setFilterSupplier(""); setFilterNoTracking(false); setFilterNoSupplier(false);
+    setDateFrom(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-01`); setDateTo(today());
+    setSearchKeyword(""); setPoTab("all");
+    setColFilterOrderNo(""); setColFilterProduct(""); setColFilterCustomer(""); setColFilterAddress("");
+    setColFilterChannel(""); setColFilterPayment(""); setColFilterPOStatus("");
+    setColFilterQty(""); setColFilterAmount(""); setColFilterTracking("");
+  };
+
+  // Excel download
+  const handleExcelDownload = () => {
+    if (orders.length === 0) { alert("다운로드할 주문이 없습니다."); return; }
+    const rows = orders.map((o) => ({
+      "주문일": formatDate(o.order_date),
+      "판매처": o.stores?.name || "",
+      "주문번호": o.cafe24_order_id,
+      "상품주문고유번호": o.cafe24_order_item_code,
+      "상품명": o.product_name,
+      "옵션": o.option_text || "",
+      "수량": o.quantity,
+      "구매자": o.buyer_name,
+      "구매자연락처": o.buyer_phone || "",
+      "수령인": o.receiver_name,
+      "수령인연락처": o.receiver_phone || "",
+      "배송지": o.receiver_address || "",
+      "배송메시지": o.memo || "",
+      "공급사": o.suppliers?.name || "",
+      "상태": STATUS_LABEL[o.shipping_status] || o.shipping_status,
+      "택배사": o.shipping_company || "",
+      "송장번호": o.tracking_number || "",
+    }));
+    const ws = XLSX.utils.json_to_sheet(rows);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "주문조회");
+    const storeName = stores.find((s) => s.id === filterStore)?.name || "전체";
+    XLSX.writeFile(wb, `주문조회_${storeName}_${dateFrom}~${dateTo}.xlsx`);
   };
 
   /* ═══════════════════════════ RENDER ═══════════════════════════ */
@@ -915,20 +900,17 @@ export default function UnifiedOrdersPage() {
   return (
     <div className="p-6 relative"
       onDragEnter={(e) => {
-        if (mode !== "ops") return;
         e.preventDefault(); e.stopPropagation();
         dragCounterRef.current++;
         if (dragCounterRef.current === 1) setIsDragging(true);
       }}
-      onDragOver={(e) => { if (mode !== "ops") return; e.preventDefault(); e.stopPropagation(); }}
+      onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }}
       onDragLeave={(e) => {
-        if (mode !== "ops") return;
         e.preventDefault(); e.stopPropagation();
         dragCounterRef.current--;
         if (dragCounterRef.current === 0) setIsDragging(false);
       }}
       onDrop={async (e) => {
-        if (mode !== "ops") return;
         e.preventDefault(); e.stopPropagation();
         dragCounterRef.current = 0;
         setIsDragging(false);
@@ -936,21 +918,21 @@ export default function UnifiedOrdersPage() {
         if (file) await handleFileDrop(file);
       }}
     >
-      {/* Drag overlay (ops only) */}
-      {mode === "ops" && isDragging && (
+      {/* Drag overlay */}
+      {isDragging && (
         <div className="absolute inset-0 z-50 flex items-center justify-center bg-blue-50/80 border-2 border-dashed border-blue-400 rounded-xl pointer-events-none">
           <div className="text-center">
             <svg className="mx-auto mb-2 w-12 h-12 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
             </svg>
             <p className="text-lg font-semibold text-blue-700">파일을 여기에 놓으세요</p>
-            <p className="text-sm text-blue-500 mt-1">엑셀/CSV → 주문등록 | 이미지·PDF·한글·워드 → AI 자동 인식</p>
+            <p className="text-sm text-blue-500 mt-1">{"엑셀/CSV → 주문등록 | 이미지/PDF/한글/워드 → AI 자동 인식"}</p>
           </div>
         </div>
       )}
 
-      {/* OCR processing overlay (ops only) */}
-      {mode === "ops" && ocrProcessing && (
+      {/* OCR processing overlay */}
+      {ocrProcessing && (
         <div className="absolute inset-0 z-50 flex items-center justify-center bg-white/80 rounded-xl">
           <div className="text-center">
             <div className="animate-spin mx-auto mb-3 w-10 h-10 border-4 border-blue-500 border-t-transparent rounded-full" />
@@ -960,16 +942,16 @@ export default function UnifiedOrdersPage() {
         </div>
       )}
 
-      {/* OCR result modal (ops only) */}
-      {mode === "ops" && ocrResults && (
+      {/* OCR result modal */}
+      {ocrResults && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/40">
           <div className="bg-white rounded-2xl shadow-2xl w-[90vw] max-w-[900px] max-h-[80vh] flex flex-col">
             <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200">
               <div>
                 <h2 className="text-lg font-bold text-gray-900">스크린샷 OCR 결과</h2>
-                <p className="text-sm text-gray-500">{ocrResults.length}건 인식됨 — 확인 후 전화주문으로 등록됩니다</p>
+                <p className="text-sm text-gray-500">{ocrResults.length}건 인식됨 -- 확인 후 전화주문으로 등록됩니다</p>
               </div>
-              <button onClick={() => setOcrResults(null)} className="text-gray-400 hover:text-gray-600 text-2xl cursor-pointer">×</button>
+              <button onClick={() => setOcrResults(null)} className="text-gray-400 hover:text-gray-600 text-2xl cursor-pointer">x</button>
             </div>
             <div className="flex-1 overflow-auto px-6 py-4">
               <table className="w-full text-sm">
@@ -1023,7 +1005,7 @@ export default function UnifiedOrdersPage() {
                       </td>
                       <td className="py-2 px-2 text-center">
                         <button onClick={() => setOcrResults((prev) => prev!.filter((_, j) => j !== i))}
-                          className="text-red-400 hover:text-red-600 cursor-pointer text-lg">×</button>
+                          className="text-red-400 hover:text-red-600 cursor-pointer text-lg">x</button>
                       </td>
                     </tr>
                   ))}
@@ -1047,147 +1029,91 @@ export default function UnifiedOrdersPage() {
       <div className="flex items-center justify-between mb-5">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">주문수집 및 조회</h1>
-          <p className="text-xs text-gray-500 mt-1">
-            {mode === "ops"
-              ? "주문 수집·발주·송장 연동 — 운영 업무 관리"
-              : "고객 CS 응대용 — 구매자명·연락처·주문번호로 상품 단위로 검색합니다."}
-          </p>
+          <p className="text-xs text-gray-500 mt-1">주문 수집 / 발주 / 송장 연동 / CS 처리 -- 통합 관리</p>
         </div>
         <div className="text-sm text-gray-500">
           전체 <span className="font-bold text-gray-900">{stats.total}</span>건
-          {stats.displayed !== stats.total && <> · 필터 <span className="font-bold text-blue-600">{stats.displayed}</span>건</>}
+          {stats.displayed !== stats.total && <> / 필터 <span className="font-bold text-blue-600">{stats.displayed}</span>건</>}
         </div>
       </div>
 
       {/* Filter Area */}
       <div className="bg-white rounded-xl border border-gray-200 p-5 mb-4">
-        {mode === "ops" ? (
-          /* ── Ops Mode Filters ── */
-          <>
-            <div className="grid grid-cols-6 gap-3 mb-3">
-              <div>
-                <label className="text-xs text-gray-500 block mb-1">판매사</label>
-                <select value={filterStore} onChange={(e) => setFilterStore(e.target.value)} className="w-full text-sm border border-gray-300 rounded-lg px-3 py-2">
-                  <option value="">전체</option>
-                  {stores.filter((s) => s.status === "active").map((s) => (<option key={s.id} value={s.id}>{s.name}</option>))}
-                </select>
-              </div>
-              <div>
-                <label className="text-xs text-gray-500 block mb-1">공급사</label>
-                <select value={filterSupplier} onChange={(e) => setFilterSupplier(e.target.value)} className="w-full text-sm border border-gray-300 rounded-lg px-3 py-2">
-                  <option value="">전체</option>
-                  <option value="__none__">미배정</option>
-                  {suppliers.map((s) => (<option key={s.id} value={s.id}>{s.name}</option>))}
-                </select>
-              </div>
-              <div>
-                <label className="text-xs text-gray-500 block mb-1">배송상태</label>
-                <select value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)} className="w-full text-sm border border-gray-300 rounded-lg px-3 py-2">
-                  <option value="">전체</option>
-                  {Object.entries(STATUS_LABEL).map(([k, v]) => (<option key={k} value={k}>{v}</option>))}
-                </select>
-              </div>
-              <div>
-                <label className="text-xs text-gray-500 block mb-1">시작일</label>
-                <input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} className="w-full text-sm border border-gray-300 rounded-lg px-3 py-2" />
-              </div>
-              <div>
-                <label className="text-xs text-gray-500 block mb-1">종료일</label>
-                <input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} className="w-full text-sm border border-gray-300 rounded-lg px-3 py-2" />
-              </div>
-              <div>
-                <label className="text-xs text-gray-500 block mb-1">빠른선택</label>
-                <div className="flex gap-1 flex-wrap">
-                  {[
-                    { label: "이번달", from: (() => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-01`; })(), to: today() },
-                    { label: "오늘", from: today(), to: today() },
-                    { label: "7일", from: daysAgo(7), to: today() },
-                    { label: "15일", from: daysAgo(15), to: today() },
-                    { label: "30일", from: daysAgo(30), to: today() },
-                    { label: "60일", from: daysAgo(60), to: today() },
-                  ].map((p) => (
-                    <button key={p.label} onClick={() => { setDateFrom(p.from); setDateTo(p.to); }}
-                      className={`text-xs px-2 py-1 rounded border cursor-pointer ${dateFrom === p.from ? "bg-[#C41E1E] text-white border-[#C41E1E]" : "border-gray-300 hover:bg-gray-50"}`}
-                    >{p.label}</button>
-                  ))}
-                </div>
-              </div>
+        <div className="grid grid-cols-6 gap-3 mb-3">
+          <div>
+            <label className="text-xs text-gray-500 block mb-1">판매사</label>
+            <select value={filterStore} onChange={(e) => setFilterStore(e.target.value)} className="w-full text-sm border border-gray-300 rounded-lg px-3 py-2">
+              <option value="">전체</option>
+              {stores.filter((s) => s.status === "active").map((s) => (<option key={s.id} value={s.id}>{s.name}</option>))}
+            </select>
+          </div>
+          <div>
+            <label className="text-xs text-gray-500 block mb-1">공급사</label>
+            <select value={filterSupplier} onChange={(e) => setFilterSupplier(e.target.value)} className="w-full text-sm border border-gray-300 rounded-lg px-3 py-2">
+              <option value="">전체</option>
+              <option value="__none__">미배정</option>
+              {suppliers.map((s) => (<option key={s.id} value={s.id}>{s.name}</option>))}
+            </select>
+          </div>
+          <div>
+            <label className="text-xs text-gray-500 block mb-1">배송상태</label>
+            <select value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)} className="w-full text-sm border border-gray-300 rounded-lg px-3 py-2">
+              <option value="">전체</option>
+              {Object.entries(STATUS_LABEL).map(([k, v]) => (<option key={k} value={k}>{v}</option>))}
+            </select>
+          </div>
+          <div>
+            <label className="text-xs text-gray-500 block mb-1">시작일</label>
+            <input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} className="w-full text-sm border border-gray-300 rounded-lg px-3 py-2" />
+          </div>
+          <div>
+            <label className="text-xs text-gray-500 block mb-1">종료일</label>
+            <input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} className="w-full text-sm border border-gray-300 rounded-lg px-3 py-2" />
+          </div>
+          <div>
+            <label className="text-xs text-gray-500 block mb-1">빠른선택</label>
+            <div className="flex gap-1 flex-wrap">
+              {[
+                { label: "이번달", from: (() => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-01`; })(), to: today() },
+                { label: "오늘", from: today(), to: today() },
+                { label: "7일", from: daysAgo(7), to: today() },
+                { label: "15일", from: daysAgo(15), to: today() },
+                { label: "30일", from: daysAgo(30), to: today() },
+                { label: "60일", from: daysAgo(60), to: today() },
+              ].map((p) => (
+                <button key={p.label} onClick={() => { setDateFrom(p.from); setDateTo(p.to); }}
+                  className={`text-xs px-2 py-1 rounded border cursor-pointer ${dateFrom === p.from ? "bg-[#C41E1E] text-white border-[#C41E1E]" : "border-gray-300 hover:bg-gray-50"}`}
+                >{p.label}</button>
+              ))}
             </div>
-            <div className="flex items-center gap-4">
-              <input
-                value={searchKeyword} onChange={(e) => setSearchKeyword(e.target.value)}
-                className="text-sm border border-gray-300 rounded-lg px-3 py-2 w-64"
-                placeholder="상품명, 주문번호, 주문자, 연락처 검색"
-              />
-              <label className="flex items-center gap-1.5 text-sm text-gray-600 cursor-pointer">
-                <input type="checkbox" checked={filterNoTracking} onChange={(e) => setFilterNoTracking(e.target.checked)} className="rounded" />
-                송장 미입력
-              </label>
-              <label className="flex items-center gap-1.5 text-sm text-gray-600 cursor-pointer">
-                <input type="checkbox" checked={filterNoSupplier} onChange={(e) => setFilterNoSupplier(e.target.checked)} className="rounded" />
-                공급사 미배정
-              </label>
-              <div className="ml-auto flex gap-2">
-                <button onClick={() => fetchOrders()} className="px-3 py-2 bg-gray-900 text-white text-sm rounded-lg hover:bg-gray-700 cursor-pointer">검색</button>
-                <button onClick={handleReset} className="px-3 py-2 border border-gray-300 text-sm rounded-lg hover:bg-gray-50 cursor-pointer">초기화</button>
-              </div>
-            </div>
-          </>
-        ) : (
-          /* ── CS Mode Filters ── */
-          <>
-            <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
-              <div>
-                <label className="block text-xs text-gray-500 mb-1">판매처</label>
-                <select value={filterStore} onChange={(e) => setFilterStore(e.target.value)} className="w-full border border-gray-200 rounded px-2 py-1.5 text-sm">
-                  <option value="">전체</option>
-                  {stores.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
-                </select>
-              </div>
-              <div>
-                <label className="block text-xs text-gray-500 mb-1">공급사</label>
-                <select value={filterSupplier} onChange={(e) => setFilterSupplier(e.target.value)} className="w-full border border-gray-200 rounded px-2 py-1.5 text-sm">
-                  <option value="">전체</option>
-                  {suppliers.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
-                </select>
-              </div>
-              <div>
-                <label className="block text-xs text-gray-500 mb-1">주문상태</label>
-                <select value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)} className="w-full border border-gray-200 rounded px-2 py-1.5 text-sm">
-                  <option value="">전체</option>
-                  {CS_STATUS_OPTIONS.map((s) => <option key={s} value={s}>{s}</option>)}
-                </select>
-              </div>
-              <div>
-                <label className="block text-xs text-gray-500 mb-1">시작일</label>
-                <input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} className="w-full border border-gray-200 rounded px-2 py-1.5 text-sm" />
-              </div>
-              <div>
-                <label className="block text-xs text-gray-500 mb-1">종료일</label>
-                <input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} className="w-full border border-gray-200 rounded px-2 py-1.5 text-sm" />
-              </div>
-            </div>
-            <div className="flex gap-2 mt-3">
-              <input
-                type="text"
-                value={searchKeyword}
-                onChange={(e) => setSearchKeyword(e.target.value)}
-                onKeyDown={(e) => { if (e.key === "Enter") handleSearch(); }}
-                placeholder="구매자명, 연락처, 주문번호, 상품명, 송장번호"
-                className="flex-1 border border-gray-200 rounded px-3 py-2 text-sm"
-              />
-              <button onClick={handleSearch} className="px-4 py-2 bg-gray-900 text-white text-sm rounded hover:bg-black cursor-pointer">검색</button>
-              <button onClick={handleReset} className="px-4 py-2 bg-white border border-gray-200 text-sm rounded hover:bg-gray-50 cursor-pointer">초기화</button>
-            </div>
-          </>
-        )}
+          </div>
+        </div>
+        <div className="flex items-center gap-4">
+          <input
+            value={searchKeyword} onChange={(e) => setSearchKeyword(e.target.value)}
+            className="text-sm border border-gray-300 rounded-lg px-3 py-2 w-64"
+            placeholder="상품명, 주문번호, 주문자, 연락처, 송장번호"
+          />
+          <label className="flex items-center gap-1.5 text-sm text-gray-600 cursor-pointer">
+            <input type="checkbox" checked={filterNoTracking} onChange={(e) => setFilterNoTracking(e.target.checked)} className="rounded" />
+            송장 미입력
+          </label>
+          <label className="flex items-center gap-1.5 text-sm text-gray-600 cursor-pointer">
+            <input type="checkbox" checked={filterNoSupplier} onChange={(e) => setFilterNoSupplier(e.target.checked)} className="rounded" />
+            공급사 미배정
+          </label>
+          <div className="ml-auto flex gap-2">
+            <button onClick={() => fetchOrders()} className="px-3 py-2 bg-gray-900 text-white text-sm rounded-lg hover:bg-gray-700 cursor-pointer">검색</button>
+            <button onClick={handleReset} className="px-3 py-2 border border-gray-300 text-sm rounded-lg hover:bg-gray-50 cursor-pointer">초기화</button>
+          </div>
+        </div>
       </div>
 
       {/* Summary Cards */}
       <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3 mb-4">
         {[
           { label: "주문수량", value: `${stats.totalQty}개` },
-          { label: "주문금액", value: `₩${stats.totalAmount.toLocaleString()}` },
+          { label: "주문금액", value: `${stats.totalAmount.toLocaleString()}원` },
           { label: "처리대기", value: `${stats.pending}건`, hl: stats.pending > 0 },
           { label: "미발주", value: `${stats.noPO}건`, hl: stats.noPO > 0 },
           { label: "공급사 미배정", value: `${stats.noSupplier}건`, hl: stats.noSupplier > 0 },
@@ -1203,282 +1129,224 @@ export default function UnifiedOrdersPage() {
 
       {/* Action Bar */}
       <div className="flex items-center gap-2 mb-3 flex-wrap">
-        {/* Mode Toggle */}
+        {/* PO Tabs */}
         <div className="flex border border-gray-300 rounded-lg overflow-hidden mr-2">
-          <button onClick={() => setMode("ops")} className={`px-3 py-1.5 text-xs font-medium cursor-pointer ${mode === "ops" ? "bg-gray-900 text-white" : "bg-white text-gray-600 hover:bg-gray-50"}`}>운영 모드</button>
-          <button onClick={() => setMode("cs")} className={`px-3 py-1.5 text-xs font-medium cursor-pointer ${mode === "cs" ? "bg-gray-900 text-white" : "bg-white text-gray-600 hover:bg-gray-50"}`}>CS 모드</button>
+          {([["all", "전체"], ["no_po", "미발주"], ["has_po", "발주완료"]] as const).map(([key, label]) => (
+            <button key={key} onClick={() => setPoTab(key)}
+              className={`px-3 py-1.5 text-xs font-medium cursor-pointer ${poTab === key ? "bg-[#C41E1E] text-white" : "bg-white text-gray-600 hover:bg-gray-50"}`}
+            >{label}{key === "no_po" && stats.noPO > 0 ? ` (${stats.noPO})` : ""}</button>
+          ))}
         </div>
 
-        {mode === "ops" ? (
-          /* ── Ops Action Bar ── */
-          <>
-            {/* PO Tabs */}
-            <div className="flex border border-gray-300 rounded-lg overflow-hidden mr-2">
-              {([["all", "전체"], ["no_po", "미발주"], ["has_po", "발주완료"]] as const).map(([key, label]) => (
-                <button key={key} onClick={() => setPoTab(key)}
-                  className={`px-3 py-1.5 text-xs font-medium cursor-pointer ${poTab === key ? "bg-[#C41E1E] text-white" : "bg-white text-gray-600 hover:bg-gray-50"}`}
-                >{label}{key === "no_po" && stats.noPO > 0 ? ` (${stats.noPO})` : ""}</button>
-              ))}
-            </div>
+        <button onClick={handleSync} disabled={syncing}
+          className="px-3 py-1.5 bg-white border border-gray-300 text-xs font-medium rounded-lg hover:bg-gray-50 cursor-pointer disabled:opacity-50">
+          {syncing ? "수집중..." : "주문수집"}
+        </button>
 
-            <button onClick={handleSync} disabled={syncing}
-              className="px-3 py-1.5 bg-white border border-gray-300 text-xs font-medium rounded-lg hover:bg-gray-50 cursor-pointer disabled:opacity-50">
-              {syncing ? "수집중..." : "주문수집"}
+        {stats.noPO > 0 && (
+          <button onClick={handleBulkPO} disabled={syncing}
+            className="px-3 py-1.5 bg-blue-600 text-white text-xs font-medium rounded-lg hover:bg-blue-700 cursor-pointer disabled:opacity-50">
+            일괄발주 ({stats.noPO})
+          </button>
+        )}
+
+        {stats.unsynced > 0 && (
+          <button onClick={handleShipmentSync} disabled={syncing}
+            className="px-3 py-1.5 bg-[#C41E1E] text-white text-xs font-medium rounded-lg hover:bg-[#A01818] cursor-pointer disabled:opacity-50">
+            송장연동 ({stats.unsynced})
+          </button>
+        )}
+
+        {/* Excel download */}
+        <button
+          onClick={handleExcelDownload}
+          disabled={orders.length === 0}
+          className="px-3 py-1.5 bg-green-700 text-white text-xs font-medium rounded-lg hover:bg-green-800 cursor-pointer disabled:opacity-50"
+        >
+          엑셀 다운로드 ({orders.length})
+        </button>
+
+        {/* File upload */}
+        <label className={`ml-auto flex items-center gap-3 px-4 py-2 rounded-lg border-2 border-dashed cursor-pointer transition-colors ${
+          ocrProcessing ? "border-gray-200 bg-gray-50 text-gray-400" : "border-gray-300 bg-white hover:border-blue-400 hover:bg-blue-50/50"
+        }`}>
+          <svg className="w-5 h-5 text-gray-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 16V4m0 0l-4 4m4-4l4 4M4 14v4a2 2 0 002 2h12a2 2 0 002-2v-4" />
+          </svg>
+          <div className="text-xs leading-relaxed">
+            <span className="font-medium text-gray-700">{ocrProcessing ? "분석중..." : "파일 드래그 또는 클릭"}</span>
+            <span className="flex items-center gap-1.5 text-[11px] text-gray-400 mt-0.5">
+              이미지 / PDF / 엑셀 / 한글 / <kbd className="px-1 py-px rounded bg-gray-100 text-[10px] font-mono">Ctrl</kbd>+<kbd className="px-1 py-px rounded bg-gray-100 text-[10px] font-mono">V</kbd> 붙여넣기
+            </span>
+          </div>
+          <input type="file" accept="image/*,.csv,.xlsx,.xls,.pdf,.doc,.docx,.hwp,.hwpx,.txt" className="hidden" disabled={ocrProcessing} onChange={async (e) => {
+            const file = e.target.files?.[0];
+            if (!file) return;
+            await handleFileDrop(file);
+            e.target.value = "";
+          }} />
+        </label>
+
+        {/* Import options */}
+        <div className="flex items-center gap-2">
+          <label className="flex items-center gap-1 text-xs text-gray-600 cursor-pointer select-none">
+            <input id="import-is-sample" type="checkbox" className="w-3.5 h-3.5 cursor-pointer" onChange={(e) => {
+              if (e.target.checked) {
+                const phoneEl = document.getElementById("import-is-phone") as HTMLInputElement;
+                const groupEl = document.getElementById("import-is-group") as HTMLInputElement;
+                if (phoneEl) phoneEl.checked = false;
+                if (groupEl) groupEl.checked = false;
+              }
+            }} />
+            <span className="px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 font-medium">샘플</span>
+          </label>
+          <label className="flex items-center gap-1 text-xs text-gray-600 cursor-pointer select-none">
+            <input id="import-is-phone" type="checkbox" className="w-3.5 h-3.5 cursor-pointer" onChange={(e) => {
+              if (e.target.checked) {
+                const sampleEl = document.getElementById("import-is-sample") as HTMLInputElement;
+                const groupEl = document.getElementById("import-is-group") as HTMLInputElement;
+                if (sampleEl) sampleEl.checked = false;
+                if (groupEl) groupEl.checked = false;
+              }
+            }} />
+            <span className="px-1.5 py-0.5 rounded bg-purple-100 text-purple-700 font-medium">전화</span>
+          </label>
+          <label className="flex items-center gap-1 text-xs text-gray-600 cursor-pointer select-none">
+            <input id="import-is-group" type="checkbox" className="w-3.5 h-3.5 cursor-pointer" onChange={(e) => {
+              if (e.target.checked) {
+                const sampleEl = document.getElementById("import-is-sample") as HTMLInputElement;
+                const phoneEl = document.getElementById("import-is-phone") as HTMLInputElement;
+                if (sampleEl) sampleEl.checked = false;
+                if (phoneEl) phoneEl.checked = false;
+              }
+            }} />
+            <span className="px-1.5 py-0.5 rounded bg-pink-100 text-pink-700 font-medium">공구</span>
+          </label>
+        </div>
+        <div className="relative">
+          <select id="import-store" className="text-xs border border-gray-300 rounded-lg px-2 py-1.5 pr-16 appearance-none bg-white" defaultValue="">
+            <option value="" disabled>판매사 선택</option>
+            {stores
+              .filter((s) => !["전화주문", "공구주문", "엑셀등록", "수기주문"].includes(s.name))
+              .map((s) => (<option key={s.id} value={`id:${s.id}`}>{s.name}</option>))}
+          </select>
+          <label className="absolute right-0 top-0 h-full px-2 flex items-center bg-gray-100 border border-gray-300 rounded-r-lg text-xs font-medium text-gray-700 hover:bg-gray-200 cursor-pointer">
+            파일선택
+            <input type="file" accept=".csv,.xlsx,.xls" className="hidden" onChange={async (e) => {
+              const file = e.target.files?.[0]; if (!file) return;
+              await handleImportFile(file);
+              e.target.value = "";
+            }} />
+          </label>
+        </div>
+
+        {/* Export tracking */}
+        <div className="relative">
+          <select id="export-store" className="text-xs border border-gray-300 rounded-lg px-2 py-1.5 pr-24 appearance-none bg-white" defaultValue="">
+            <option value="" disabled>판매사 선택</option>
+            <option value="__all__">전체</option>
+            {stores
+              .filter((s) => !["전화주문", "공구주문", "엑셀등록", "수기주문"].includes(s.name))
+              .map((s) => (<option key={s.id} value={s.id} data-name={s.name}>{s.name}</option>))}
+          </select>
+          <div className="absolute right-0 top-0 h-full flex">
+            <button onClick={() => {
+              const sel = document.getElementById("export-store") as HTMLSelectElement;
+              const storeId = sel.value;
+              if (!storeId) { alert("판매사를 선택해주세요"); return; }
+              const params = new URLSearchParams({ tracking_only: "true", format: "acts" });
+              if (storeId !== "__all__") params.set("store_id", storeId);
+              window.open(`/admin/api/orders/export?${params}`, "_blank");
+            }}
+              className="h-full px-2 flex items-center bg-green-100 border border-green-300 rounded-r-lg text-xs font-medium text-green-700 hover:bg-green-200 cursor-pointer">
+              송장번호조회
             </button>
+          </div>
+        </div>
 
-            {stats.noPO > 0 && (
-              <button onClick={handleBulkPO} disabled={syncing}
-                className="px-3 py-1.5 bg-blue-600 text-white text-xs font-medium rounded-lg hover:bg-blue-700 cursor-pointer disabled:opacity-50">
-                일괄발주 ({stats.noPO})
-              </button>
-            )}
-
-            {stats.unsynced > 0 && (
-              <button onClick={handleShipmentSync} disabled={syncing}
-                className="px-3 py-1.5 bg-[#C41E1E] text-white text-xs font-medium rounded-lg hover:bg-[#A01818] cursor-pointer disabled:opacity-50">
-                송장연동 ({stats.unsynced})
-              </button>
-            )}
-
-            {/* File upload */}
-            <label className={`ml-auto flex items-center gap-3 px-4 py-2 rounded-lg border-2 border-dashed cursor-pointer transition-colors ${
-              ocrProcessing ? "border-gray-200 bg-gray-50 text-gray-400" : "border-gray-300 bg-white hover:border-blue-400 hover:bg-blue-50/50"
-            }`}>
-              <svg className="w-5 h-5 text-gray-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 16V4m0 0l-4 4m4-4l4 4M4 14v4a2 2 0 002 2h12a2 2 0 002-2v-4" />
-              </svg>
-              <div className="text-xs leading-relaxed">
-                <span className="font-medium text-gray-700">{ocrProcessing ? "분석중..." : "파일 드래그 또는 클릭"}</span>
-                <span className="flex items-center gap-1.5 text-[11px] text-gray-400 mt-0.5">
-                  이미지 · PDF · 엑셀 · 한글 · <kbd className="px-1 py-px rounded bg-gray-100 text-[10px] font-mono">Ctrl</kbd>+<kbd className="px-1 py-px rounded bg-gray-100 text-[10px] font-mono">V</kbd> 붙여넣기
-                </span>
-              </div>
-              <input type="file" accept="image/*,.csv,.xlsx,.xls,.pdf,.doc,.docx,.hwp,.hwpx,.txt" className="hidden" disabled={ocrProcessing} onChange={async (e) => {
-                const file = e.target.files?.[0];
-                if (!file) return;
-                await handleFileDrop(file);
-                e.target.value = "";
-              }} />
-            </label>
-
-            {/* Import options */}
-            <div className="flex items-center gap-2">
-              <label className="flex items-center gap-1 text-xs text-gray-600 cursor-pointer select-none">
-                <input id="import-is-sample" type="checkbox" className="w-3.5 h-3.5 cursor-pointer" onChange={(e) => {
-                  if (e.target.checked) {
-                    const phoneEl = document.getElementById("import-is-phone") as HTMLInputElement;
-                    const groupEl = document.getElementById("import-is-group") as HTMLInputElement;
-                    if (phoneEl) phoneEl.checked = false;
-                    if (groupEl) groupEl.checked = false;
-                  }
-                }} />
-                <span className="px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 font-medium">샘플주문</span>
-              </label>
-              <label className="flex items-center gap-1 text-xs text-gray-600 cursor-pointer select-none">
-                <input id="import-is-phone" type="checkbox" className="w-3.5 h-3.5 cursor-pointer" onChange={(e) => {
-                  if (e.target.checked) {
-                    const sampleEl = document.getElementById("import-is-sample") as HTMLInputElement;
-                    const groupEl = document.getElementById("import-is-group") as HTMLInputElement;
-                    if (sampleEl) sampleEl.checked = false;
-                    if (groupEl) groupEl.checked = false;
-                  }
-                }} />
-                <span className="px-1.5 py-0.5 rounded bg-purple-100 text-purple-700 font-medium">전화주문</span>
-              </label>
-              <label className="flex items-center gap-1 text-xs text-gray-600 cursor-pointer select-none">
-                <input id="import-is-group" type="checkbox" className="w-3.5 h-3.5 cursor-pointer" onChange={(e) => {
-                  if (e.target.checked) {
-                    const sampleEl = document.getElementById("import-is-sample") as HTMLInputElement;
-                    const phoneEl = document.getElementById("import-is-phone") as HTMLInputElement;
-                    if (sampleEl) sampleEl.checked = false;
-                    if (phoneEl) phoneEl.checked = false;
-                  }
-                }} />
-                <span className="px-1.5 py-0.5 rounded bg-pink-100 text-pink-700 font-medium">공구주문</span>
-              </label>
-            </div>
-            <div className="relative">
-              <select id="import-store" className="text-xs border border-gray-300 rounded-lg px-2 py-1.5 pr-16 appearance-none bg-white" defaultValue="">
-                <option value="" disabled>판매사 선택</option>
-                {stores
-                  .filter((s) => !["전화주문", "공구주문", "엑셀등록", "수기주문"].includes(s.name))
-                  .map((s) => (<option key={s.id} value={`id:${s.id}`}>{s.name}</option>))}
-              </select>
-              <label className="absolute right-0 top-0 h-full px-2 flex items-center bg-gray-100 border border-gray-300 rounded-r-lg text-xs font-medium text-gray-700 hover:bg-gray-200 cursor-pointer">
-                파일선택
-                <input type="file" accept=".csv,.xlsx,.xls" className="hidden" onChange={async (e) => {
-                  const file = e.target.files?.[0]; if (!file) return;
-                  await handleImportFile(file);
-                  e.target.value = "";
-                }} />
-              </label>
-            </div>
-
-            {/* Export */}
-            <div className="relative">
-              <select id="export-store" className="text-xs border border-gray-300 rounded-lg px-2 py-1.5 pr-24 appearance-none bg-white" defaultValue="">
-                <option value="" disabled>판매사 선택</option>
-                <option value="__all__">전체</option>
-                {stores
-                  .filter((s) => !["전화주문", "공구주문", "엑셀등록", "수기주문"].includes(s.name))
-                  .map((s) => (<option key={s.id} value={s.id} data-name={s.name}>{s.name}</option>))}
-              </select>
-              <div className="absolute right-0 top-0 h-full flex">
-                <button onClick={() => {
-                  const sel = document.getElementById("export-store") as HTMLSelectElement;
-                  const storeId = sel.value;
-                  if (!storeId) { alert("판매사를 선택해주세요"); return; }
-                  const params = new URLSearchParams({ tracking_only: "true", format: "acts" });
-                  if (storeId !== "__all__") params.set("store_id", storeId);
-                  window.open(`/admin/api/orders/export?${params}`, "_blank");
-                }}
-                  className="h-full px-2 flex items-center bg-green-100 border border-green-300 rounded-r-lg text-xs font-medium text-green-700 hover:bg-green-200 cursor-pointer">
-                  송장번호조회
-                </button>
-              </div>
-            </div>
-
-            {/* Selection actions */}
-            {selected.size > 0 && (
-              <>
-                <div className="w-px h-5 bg-gray-300" />
-                <span className="text-xs font-bold text-blue-600">{selected.size}건</span>
-                <select onChange={(e) => { const v = e.target.value; e.target.value = ""; if (v !== "") bulkUpdateChannel(v === "__none__" ? "" : v); }}
-                  defaultValue=""
-                  className="text-xs border border-gray-300 rounded-lg px-2 py-1.5">
-                  <option value="" disabled>판매방식 일괄변경</option>
-                  <option value="__none__">자사몰</option>
-                  <option value="phone">전화주문</option>
-                  <option value="group">공구주문</option>
-                  <option value="sample">샘플</option>
-                </select>
-                <select onChange={(e) => { const v = e.target.value; e.target.value = ""; if (v) bulkUpdateStore(v); }}
-                  defaultValue=""
-                  className="text-xs border border-gray-300 rounded-lg px-2 py-1.5">
-                  <option value="" disabled>판매사 일괄변경</option>
-                  {stores
-                    .filter((s) => !["전화주문", "공구주문", "엑셀등록", "수기주문"].includes(s.name))
-                    .map((s) => (<option key={s.id} value={s.id}>{s.name}</option>))}
-                </select>
-                <select onChange={(e) => { if (e.target.value) handleAssignSupplier(e.target.value); e.target.value = ""; }}
-                  className="text-xs border border-gray-300 rounded-lg px-2 py-1.5">
-                  <option value="">공급사 배정</option>
-                  {suppliers.map((s) => (<option key={s.id} value={s.id}>{s.name}</option>))}
-                </select>
-                <button
-                  onClick={async () => {
-                    const selectedOrders = orders.filter(o => selected.has(o.id));
-                    const withSupplier = selectedOrders.filter(o => o.supplier_id);
-                    if (withSupplier.length === 0) {
-                      alert("선택한 주문에 배정된 공급사가 없습니다.\n먼저 공급사를 배정해주세요.");
-                      return;
-                    }
-                    if (!confirm(`선택한 ${withSupplier.length}건의 발주서를 생성하고 메일을 발송합니다.\n(창고발주 상품은 자동으로 창고로 라우팅됩니다)\n\n진행하시겠습니까?`)) return;
-
-                    const res = await fetch("/admin/api/purchase-orders/bulk-create", {
-                      method: "POST",
-                      headers: { "Content-Type": "application/json" },
-                      body: JSON.stringify({ order_ids: withSupplier.map(o => o.id) }),
-                    });
-                    const data = await res.json();
-                    if (!res.ok) {
-                      alert(`발주 실패: ${data.error || res.status}`);
-                      return;
-                    }
-                    const lines = (data.results || []).map((r: { supplier_name: string; po_number?: string; order_count: number; is_warehouse: boolean; email_sent: boolean; error?: string }) => {
-                      const tag = r.is_warehouse ? "[창고] " : "";
-                      const status = r.email_sent ? "✓" : "✗";
-                      const err = r.error ? ` (${r.error})` : "";
-                      return `${status} ${tag}${r.supplier_name}: ${r.po_number || "?"} (${r.order_count}건)${err}`;
-                    });
-                    let msg = `발주 결과: PO ${data.created_count}건 생성, 메일 ${data.email_success}건 발송\n\n` + lines.join("\n");
-                    if (data.skipped?.length) msg += `\n\n건너뜀 ${data.skipped.length}건`;
-                    alert(msg);
-                    setSelected(new Set());
-                    fetchOrders();
-                  }}
-                  className="px-3 py-1.5 bg-blue-600 text-white text-xs font-medium rounded-lg hover:bg-blue-700 cursor-pointer"
-                >
-                  선택 발주 ({selected.size})
-                </button>
-                <button
-                  onClick={async () => {
-                    if (!confirm(`선택한 ${selected.size}건을 삭제합니다.\n관련 정산 항목도 함께 삭제됩니다. 계속할까요?`)) return;
-                    const res = await fetch("/admin/api/orders", {
-                      method: "DELETE",
-                      headers: { "Content-Type": "application/json" },
-                      body: JSON.stringify({ ids: Array.from(selected) }),
-                    });
-                    const data = await res.json();
-                    if (res.ok) {
-                      alert(`${data.deleted}건 삭제 완료`);
-                      setSelected(new Set());
-                      fetchOrders();
-                    } else {
-                      alert(`삭제 실패: ${data.error}`);
-                    }
-                  }}
-                  className="px-3 py-1.5 bg-red-600 text-white text-xs font-medium rounded-lg hover:bg-red-700 cursor-pointer"
-                >
-                  선택 삭제 ({selected.size})
-                </button>
-              </>
-            )}
-          </>
-        ) : (
-          /* ── CS Action Bar ── */
+        {/* Selection actions */}
+        {selected.size > 0 && (
           <>
+            <div className="w-px h-5 bg-gray-300" />
+            <span className="text-xs font-bold text-blue-600">{selected.size}건</span>
+            <select onChange={(e) => { const v = e.target.value; e.target.value = ""; if (v !== "") bulkUpdateChannel(v === "__none__" ? "" : v); }}
+              defaultValue=""
+              className="text-xs border border-gray-300 rounded-lg px-2 py-1.5">
+              <option value="" disabled>판매방식 일괄변경</option>
+              <option value="__none__">자사몰</option>
+              <option value="phone">전화주문</option>
+              <option value="group">공구주문</option>
+              <option value="sample">샘플</option>
+            </select>
+            <select onChange={(e) => { const v = e.target.value; e.target.value = ""; if (v) bulkUpdateStore(v); }}
+              defaultValue=""
+              className="text-xs border border-gray-300 rounded-lg px-2 py-1.5">
+              <option value="" disabled>판매사 일괄변경</option>
+              {stores
+                .filter((s) => !["전화주문", "공구주문", "엑셀등록", "수기주문"].includes(s.name))
+                .map((s) => (<option key={s.id} value={s.id}>{s.name}</option>))}
+            </select>
+            <select onChange={(e) => { if (e.target.value) handleAssignSupplier(e.target.value); e.target.value = ""; }}
+              className="text-xs border border-gray-300 rounded-lg px-2 py-1.5">
+              <option value="">공급사 배정</option>
+              {suppliers.map((s) => (<option key={s.id} value={s.id}>{s.name}</option>))}
+            </select>
             <button
-              onClick={() => {
-                if (orders.length === 0) { alert("다운로드할 주문이 없습니다."); return; }
-                const rows = orders.map((o) => ({
-                  "주문일": formatDate(o.order_date),
-                  "판매처": o.stores?.name || "",
-                  "주문번호": o.cafe24_order_id,
-                  "주문상품고유번호": o.cafe24_order_item_code,
-                  "상품명": o.product_name,
-                  "옵션": o.option_text || "",
-                  "수량": o.quantity,
-                  "구매자": o.buyer_name,
-                  "구매자연락처": o.buyer_phone || "",
-                  "수령인": o.receiver_name,
-                  "수령인연락처": o.receiver_phone || "",
-                  "배송지": o.receiver_address || "",
-                  "배송메시지": o.memo || "",
-                  "공급사": o.suppliers?.name || "",
-                  "상태": deriveOrderStatus(o),
-                  "택배사": o.shipping_company || "",
-                  "송장번호": o.tracking_number || "",
-                }));
-                const ws = XLSX.utils.json_to_sheet(rows);
-                const wb = XLSX.utils.book_new();
-                XLSX.utils.book_append_sheet(wb, ws, "주문조회");
-                const storeName = stores.find((s) => s.id === filterStore)?.name || "전체";
-                XLSX.writeFile(wb, `주문조회_${storeName}_${dateFrom}~${dateTo}.xlsx`);
+              onClick={async () => {
+                const selectedOrders = orders.filter(o => selected.has(o.id));
+                const withSupplier = selectedOrders.filter(o => o.supplier_id);
+                if (withSupplier.length === 0) {
+                  alert("선택한 주문에 배정된 공급사가 없습니다.\n먼저 공급사를 배정해주세요.");
+                  return;
+                }
+                if (!confirm(`선택한 ${withSupplier.length}건의 발주서를 생성하고 메일을 발송합니다.\n(창고발주 상품은 자동으로 창고로 라우팅됩니다)\n\n진행하시겠습니까?`)) return;
+
+                const res = await fetch("/admin/api/purchase-orders/bulk-create", {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ order_ids: withSupplier.map(o => o.id) }),
+                });
+                const data = await res.json();
+                if (!res.ok) {
+                  alert(`발주 실패: ${data.error || res.status}`);
+                  return;
+                }
+                const lines = (data.results || []).map((r: { supplier_name: string; po_number?: string; order_count: number; is_warehouse: boolean; email_sent: boolean; error?: string }) => {
+                  const tag = r.is_warehouse ? "[창고] " : "";
+                  const status = r.email_sent ? "v" : "x";
+                  const err = r.error ? ` (${r.error})` : "";
+                  return `${status} ${tag}${r.supplier_name}: ${r.po_number || "?"} (${r.order_count}건)${err}`;
+                });
+                let msg = `발주 결과: PO ${data.created_count}건 생성, 메일 ${data.email_success}건 발송\n\n` + lines.join("\n");
+                if (data.skipped?.length) msg += `\n\n건너뜀 ${data.skipped.length}건`;
+                alert(msg);
+                setSelected(new Set());
+                fetchOrders();
               }}
-              disabled={orders.length === 0}
-              className="px-4 py-1.5 bg-green-700 text-white text-xs font-medium rounded-lg hover:bg-green-800 cursor-pointer disabled:opacity-50"
+              className="px-3 py-1.5 bg-blue-600 text-white text-xs font-medium rounded-lg hover:bg-blue-700 cursor-pointer"
             >
-              엑셀 다운로드 ({orders.length})
+              선택 발주 ({selected.size})
             </button>
             <button
-              onClick={() => {
-                if (orders.length === 0) { alert("다운로드할 주문이 없습니다."); return; }
-                const rows = orders.map((o) => ({
-                  "상품주문번호": o.cafe24_order_item_code || o.cafe24_order_id || "",
-                  "택배사": o.shipping_company || "",
-                  "송장번호": o.tracking_number || "",
-                }));
-                const ws = XLSX.utils.json_to_sheet(rows);
-                const wb = XLSX.utils.book_new();
-                XLSX.utils.book_append_sheet(wb, ws, "발송처리");
-                const storeName = stores.find((s) => s.id === filterStore)?.name || "전체";
-                XLSX.writeFile(wb, `acts_송장_발송처리_${storeName}_${today()}.xlsx`);
+              onClick={async () => {
+                if (!confirm(`선택한 ${selected.size}건을 삭제합니다.\n관련 정산 항목도 함께 삭제됩니다. 계속할까요?`)) return;
+                const res = await fetch("/admin/api/orders", {
+                  method: "DELETE",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ ids: Array.from(selected) }),
+                });
+                const data = await res.json();
+                if (res.ok) {
+                  alert(`${data.deleted}건 삭제 완료`);
+                  setSelected(new Set());
+                  fetchOrders();
+                } else {
+                  alert(`삭제 실패: ${data.error}`);
+                }
               }}
-              disabled={orders.length === 0}
-              className="px-4 py-1.5 bg-purple-700 text-white text-xs font-medium rounded-lg hover:bg-purple-800 cursor-pointer disabled:opacity-50"
+              className="px-3 py-1.5 bg-red-600 text-white text-xs font-medium rounded-lg hover:bg-red-700 cursor-pointer"
             >
-              ACTs 양식
+              선택 삭제 ({selected.size})
             </button>
           </>
         )}
@@ -1490,8 +1358,7 @@ export default function UnifiedOrdersPage() {
           <div className="p-12 text-center text-gray-400">불러오는 중...</div>
         ) : orders.length === 0 ? (
           <div className="p-12 text-center text-gray-400">조건에 맞는 주문이 없습니다.</div>
-        ) : mode === "ops" ? (
-          /* ── Ops Mode Table ── */
+        ) : (
           <>
           <table className="w-full text-sm">
             <thead>
@@ -1501,49 +1368,61 @@ export default function UnifiedOrdersPage() {
                 </th>
                 <th className="text-left px-2 py-2.5 font-medium">No</th>
                 <th className="text-left px-2 py-2.5 font-medium">주문번호</th>
-                <th className="text-left px-2 py-2.5 font-medium">상품정보</th>
-                <th className="text-left px-2 py-2.5 font-medium">주문자/수령인</th>
+                <th className="text-left px-2 py-2.5 font-medium">상품/옵션</th>
+                <th className="text-left px-2 py-2.5 font-medium">주문자/수취인/연락처</th>
+                <th className="text-left px-2 py-2.5 font-medium">배송주소</th>
                 <th className="text-left px-2 py-2.5 font-medium">판매방식</th>
                 <th className="text-left px-2 py-2.5 font-medium">판매사</th>
-                <th className="text-left px-2 py-2.5 font-medium">공급사</th>
-                <th className="text-left px-2 py-2.5 font-medium">출고지</th>
+                <th className="text-left px-2 py-2.5 font-medium">공급사/출고지</th>
                 <th className="text-right px-2 py-2.5 font-medium">수량</th>
                 <th className="text-right px-2 py-2.5 font-medium">금액</th>
                 <th className="text-center px-2 py-2.5 font-medium">입금</th>
-                <th className="text-left px-2 py-2.5 font-medium">택배사/송장</th>
+                <th className="text-left px-2 py-2.5 font-medium">송장</th>
                 <th className="text-center px-2 py-2.5 font-medium">발주상태</th>
                 <th className="text-center px-2 py-2.5 font-medium">배송상태</th>
+                <th className="text-center px-2 py-2.5 font-medium">CS</th>
                 <th className="text-right px-3 py-2.5 font-medium">주문일</th>
               </tr>
-              {/* Column filters */}
+              {/* Column filters — 17 <th> elements */}
               <tr className="text-xs border-b border-gray-200 bg-white">
+                {/* 1. Reset button */}
                 <th className="px-2 py-1.5">
-                  {(colFilterOrderNo || colFilterProduct || colFilterCustomer || colFilterChannel || colFilterPayment || colFilterPOStatus || colFilterWarehouse || colFilterQty || colFilterAmount || filterStore || filterSupplier || filterStatus) && (
+                  {(colFilterOrderNo || colFilterProduct || colFilterCustomer || colFilterAddress || colFilterChannel || colFilterPayment || colFilterPOStatus || colFilterQty || colFilterAmount || colFilterTracking || filterStore || filterSupplier || filterStatus) && (
                     <button
                       onClick={() => {
-                        setColFilterOrderNo(""); setColFilterProduct(""); setColFilterCustomer("");
+                        setColFilterOrderNo(""); setColFilterProduct(""); setColFilterCustomer(""); setColFilterAddress("");
                         setColFilterChannel(""); setColFilterPayment(""); setColFilterPOStatus("");
-                        setColFilterWarehouse(""); setColFilterQty(""); setColFilterAmount("");
+                        setColFilterQty(""); setColFilterAmount(""); setColFilterTracking("");
                         setFilterStore(""); setFilterSupplier(""); setFilterStatus("");
                       }}
                       title="필터 초기화"
                       className="text-[10px] text-red-500 hover:text-red-700 cursor-pointer"
-                    >✕</button>
+                    >X</button>
                   )}
                 </th>
+                {/* 2. empty (No) */}
                 <th></th>
+                {/* 3. 주문번호 input */}
                 <th className="px-1 py-1">
                   <input type="text" value={colFilterOrderNo} onChange={(e) => setColFilterOrderNo(e.target.value)}
                     placeholder="주문번호" className="w-full text-[11px] border border-gray-200 rounded px-1.5 py-0.5 bg-white" />
                 </th>
+                {/* 4. 상품/옵션 input */}
                 <th className="px-1 py-1">
                   <input type="text" value={colFilterProduct} onChange={(e) => setColFilterProduct(e.target.value)}
                     placeholder="상품/옵션" className="w-full text-[11px] border border-gray-200 rounded px-1.5 py-0.5 bg-white" />
                 </th>
+                {/* 5. 이름/연락처 input */}
                 <th className="px-1 py-1">
                   <input type="text" value={colFilterCustomer} onChange={(e) => setColFilterCustomer(e.target.value)}
-                    placeholder="이름" className="w-full text-[11px] border border-gray-200 rounded px-1.5 py-0.5 bg-white" />
+                    placeholder="이름/연락처" className="w-full text-[11px] border border-gray-200 rounded px-1.5 py-0.5 bg-white" />
                 </th>
+                {/* 6. 주소 input */}
+                <th className="px-1 py-1">
+                  <input type="text" value={colFilterAddress} onChange={(e) => setColFilterAddress(e.target.value)}
+                    placeholder="주소" className="w-full text-[11px] border border-gray-200 rounded px-1.5 py-0.5 bg-white" />
+                </th>
+                {/* 7. 판매방식 select */}
                 <th className="px-1 py-1">
                   <select value={colFilterChannel} onChange={(e) => setColFilterChannel(e.target.value)}
                     className="w-full text-[11px] border border-gray-200 rounded px-1 py-0.5 bg-white">
@@ -1554,6 +1433,7 @@ export default function UnifiedOrdersPage() {
                     <option value="domestic">자사몰</option>
                   </select>
                 </th>
+                {/* 8. 판매사 select */}
                 <th className="px-1 py-1">
                   <select value={filterStore} onChange={(e) => setFilterStore(e.target.value)}
                     className="w-full text-[11px] border border-gray-200 rounded px-1 py-0.5 bg-white">
@@ -1563,6 +1443,7 @@ export default function UnifiedOrdersPage() {
                       .map((s) => (<option key={s.id} value={s.id}>{s.name}</option>))}
                   </select>
                 </th>
+                {/* 9. 공급사 select */}
                 <th className="px-1 py-1">
                   <select value={filterSupplier} onChange={(e) => setFilterSupplier(e.target.value)}
                     className="w-full text-[11px] border border-gray-200 rounded px-1 py-0.5 bg-white">
@@ -1571,10 +1452,7 @@ export default function UnifiedOrdersPage() {
                     {suppliers.map((s) => (<option key={s.id} value={s.id}>{s.name}</option>))}
                   </select>
                 </th>
-                <th className="px-1 py-1">
-                  <input type="text" value={colFilterWarehouse} onChange={(e) => setColFilterWarehouse(e.target.value)}
-                    placeholder="출고지" className="w-full text-[11px] border border-gray-200 rounded px-1.5 py-0.5 bg-white" />
-                </th>
+                {/* 10. 수량 select */}
                 <th className="px-1 py-1">
                   <select value={colFilterQty} onChange={(e) => setColFilterQty(e.target.value)}
                     className="w-full text-[11px] border border-gray-200 rounded px-1 py-0.5 bg-white">
@@ -1583,6 +1461,7 @@ export default function UnifiedOrdersPage() {
                     <option value="2+">2개이상</option>
                   </select>
                 </th>
+                {/* 11. 금액 select */}
                 <th className="px-1 py-1">
                   <select value={colFilterAmount} onChange={(e) => setColFilterAmount(e.target.value)}
                     className="w-full text-[11px] border border-gray-200 rounded px-1 py-0.5 bg-white">
@@ -1593,21 +1472,24 @@ export default function UnifiedOrdersPage() {
                     <option value="over100k">10만~</option>
                   </select>
                 </th>
+                {/* 12. 입금 select */}
                 <th className="px-1 py-1 text-center">
                   <select value={colFilterPayment} onChange={(e) => setColFilterPayment(e.target.value)}
                     className="w-full text-[11px] border border-gray-200 rounded px-1 py-0.5 bg-white">
                     <option value="">전체</option>
                     <option value="paid">완료</option>
-                    <option value="unpaid">미입력</option>
+                    <option value="unpaid">미입금</option>
                   </select>
                 </th>
+                {/* 13. 송장 tracking filter select */}
                 <th className="px-1 py-1">
-                  <select value={filterNoTracking ? "missing" : ""} onChange={(e) => setFilterNoTracking(e.target.value === "missing")}
+                  <select value={colFilterTracking} onChange={(e) => setColFilterTracking(e.target.value)}
                     className="w-full text-[11px] border border-gray-200 rounded px-1 py-0.5 bg-white">
                     <option value="">전체</option>
-                    <option value="missing">송장 미입력</option>
+                    <option value="missing">송장미입력</option>
                   </select>
                 </th>
+                {/* 14. 발주상태 select */}
                 <th className="px-1 py-1 text-center">
                   <select value={colFilterPOStatus} onChange={(e) => setColFilterPOStatus(e.target.value)}
                     className="w-full text-[11px] border border-gray-200 rounded px-1 py-0.5 bg-white">
@@ -1619,6 +1501,7 @@ export default function UnifiedOrdersPage() {
                     <option value="tracking">송장등록</option>
                   </select>
                 </th>
+                {/* 15. 배송상태 select */}
                 <th className="px-1 py-1 text-center">
                   <select value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)}
                     className="w-full text-[11px] border border-gray-200 rounded px-1 py-0.5 bg-white">
@@ -1630,6 +1513,9 @@ export default function UnifiedOrdersPage() {
                     <option value="cancelled">취소</option>
                   </select>
                 </th>
+                {/* 16. empty (CS) */}
+                <th></th>
+                {/* 17. empty (주문일) */}
                 <th></th>
               </tr>
             </thead>
@@ -1647,6 +1533,11 @@ export default function UnifiedOrdersPage() {
                   saveCellEdit={saveCellEdit}
                   stores={filteredStores}
                   fetchOrders={fetchOrders}
+                  trackingEdit={trackingEdit[o.id]}
+                  onTrackingEdit={handleTrackingEdit}
+                  onSaveTracking={saveTracking}
+                  saving={saving}
+                  onOpenCs={openCs}
                 />
               ))}
             </tbody>
@@ -1660,9 +1551,9 @@ export default function UnifiedOrdersPage() {
               </span>
               <div className="flex items-center gap-1">
                 <button onClick={() => setPage(0)} disabled={page === 0}
-                  className="px-2 py-1 text-xs border border-gray-300 rounded hover:bg-gray-50 disabled:opacity-30 disabled:cursor-default cursor-pointer">«</button>
+                  className="px-2 py-1 text-xs border border-gray-300 rounded hover:bg-gray-50 disabled:opacity-30 disabled:cursor-default cursor-pointer">&#171;</button>
                 <button onClick={() => setPage((p) => Math.max(0, p - 1))} disabled={page === 0}
-                  className="px-2 py-1 text-xs border border-gray-300 rounded hover:bg-gray-50 disabled:opacity-30 disabled:cursor-default cursor-pointer">‹</button>
+                  className="px-2 py-1 text-xs border border-gray-300 rounded hover:bg-gray-50 disabled:opacity-30 disabled:cursor-default cursor-pointer">&#8249;</button>
                 {Array.from({ length: totalPages }, (_, i) => i)
                   .filter((i) => i === 0 || i === totalPages - 1 || Math.abs(i - page) <= 2)
                   .reduce<(number | "...")[]>((acc, i, idx, arr) => {
@@ -1672,7 +1563,7 @@ export default function UnifiedOrdersPage() {
                   }, [])
                   .map((item, i) =>
                     item === "..." ? (
-                      <span key={`dot-${i}`} className="px-1 text-xs text-gray-400">…</span>
+                      <span key={`dot-${i}`} className="px-1 text-xs text-gray-400">...</span>
                     ) : (
                       <button
                         key={item}
@@ -1684,231 +1575,9 @@ export default function UnifiedOrdersPage() {
                     )
                   )}
                 <button onClick={() => setPage((p) => Math.min(totalPages - 1, p + 1))} disabled={page === totalPages - 1}
-                  className="px-2 py-1 text-xs border border-gray-300 rounded hover:bg-gray-50 disabled:opacity-30 disabled:cursor-default cursor-pointer">›</button>
+                  className="px-2 py-1 text-xs border border-gray-300 rounded hover:bg-gray-50 disabled:opacity-30 disabled:cursor-default cursor-pointer">&#8250;</button>
                 <button onClick={() => setPage(totalPages - 1)} disabled={page === totalPages - 1}
-                  className="px-2 py-1 text-xs border border-gray-300 rounded hover:bg-gray-50 disabled:opacity-30 disabled:cursor-default cursor-pointer">»</button>
-              </div>
-            </div>
-          )}
-          </>
-        ) : (
-          /* ── CS Mode Table ── */
-          <>
-          <table className="w-full text-sm">
-            <thead className="bg-gray-50 text-gray-600 text-xs">
-              <tr>
-                <th className="px-3 py-2 text-left font-medium">주문일</th>
-                <th className="px-3 py-2 text-left font-medium">판매처</th>
-                <th className="px-3 py-2 text-left font-medium">주문번호</th>
-                <th className="px-3 py-2 text-left font-medium">상품 / 옵션</th>
-                <th className="px-3 py-2 text-right font-medium">수량</th>
-                <th className="px-3 py-2 text-left font-medium">구매자</th>
-                <th className="px-3 py-2 text-left font-medium">수취인</th>
-                <th className="px-3 py-2 text-left font-medium">연락처</th>
-                <th className="px-3 py-2 text-left font-medium">배송주소</th>
-                <th className="px-3 py-2 text-left font-medium">상태</th>
-                <th className="px-3 py-2 text-left font-medium">공급사</th>
-                <th className="px-3 py-2 text-left font-medium">송장</th>
-                <th className="px-3 py-2 text-center font-medium">CS</th>
-              </tr>
-              {/* Column filters */}
-              <tr className="bg-white border-b border-gray-200">
-                <th className="px-2 py-1.5">
-                  {(csColFilterOrderNo || csColFilterProduct || csColFilterBuyer || csColFilterReceiver || csColFilterPhone || csColFilterAddress || csColFilterTracking || filterStore || filterSupplier || filterStatus) && (
-                    <button
-                      onClick={() => {
-                        setCsColFilterOrderNo(""); setCsColFilterProduct("");
-                        setCsColFilterBuyer(""); setCsColFilterReceiver(""); setCsColFilterPhone(""); setCsColFilterAddress("");
-                        setCsColFilterTracking("");
-                        setFilterStore(""); setFilterSupplier(""); setFilterStatus("");
-                      }}
-                      title="필터 초기화"
-                      className="text-[10px] text-red-500 hover:text-red-700 cursor-pointer"
-                    >✕</button>
-                  )}
-                </th>
-                <th className="px-1 py-1">
-                  <select value={filterStore} onChange={(e) => setFilterStore(e.target.value)}
-                    className="w-full text-[11px] border border-gray-200 rounded px-1 py-0.5 bg-white">
-                    <option value="">전체</option>
-                    {stores
-                      .filter((s) => !["전화주문", "공구주문", "엑셀등록", "수기주문"].includes(s.name))
-                      .map((s) => (<option key={s.id} value={s.id}>{s.name}</option>))}
-                  </select>
-                </th>
-                <th className="px-1 py-1">
-                  <input type="text" value={csColFilterOrderNo} onChange={(e) => setCsColFilterOrderNo(e.target.value)}
-                    placeholder="주문번호" className="w-full text-[11px] border border-gray-200 rounded px-1.5 py-0.5 bg-white" />
-                </th>
-                <th className="px-1 py-1">
-                  <input type="text" value={csColFilterProduct} onChange={(e) => setCsColFilterProduct(e.target.value)}
-                    placeholder="상품/옵션" className="w-full text-[11px] border border-gray-200 rounded px-1.5 py-0.5 bg-white" />
-                </th>
-                <th></th>
-                <th className="px-1 py-1">
-                  <input type="text" value={csColFilterBuyer} onChange={(e) => setCsColFilterBuyer(e.target.value)}
-                    placeholder="구매자명" className="w-full text-[11px] border border-gray-200 rounded px-1.5 py-0.5 bg-white" />
-                </th>
-                <th className="px-1 py-1">
-                  <input type="text" value={csColFilterReceiver} onChange={(e) => setCsColFilterReceiver(e.target.value)}
-                    placeholder="수취인명" className="w-full text-[11px] border border-gray-200 rounded px-1.5 py-0.5 bg-white" />
-                </th>
-                <th className="px-1 py-1">
-                  <input type="text" value={csColFilterPhone} onChange={(e) => setCsColFilterPhone(e.target.value)}
-                    placeholder="연락처" className="w-full text-[11px] border border-gray-200 rounded px-1.5 py-0.5 bg-white" />
-                </th>
-                <th className="px-1 py-1">
-                  <input type="text" value={csColFilterAddress} onChange={(e) => setCsColFilterAddress(e.target.value)}
-                    placeholder="주소" className="w-full text-[11px] border border-gray-200 rounded px-1.5 py-0.5 bg-white" />
-                </th>
-                <th className="px-1 py-1">
-                  <select value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)}
-                    className="w-full text-[11px] border border-gray-200 rounded px-1 py-0.5 bg-white">
-                    <option value="">전체</option>
-                    {CS_STATUS_OPTIONS.map((s) => <option key={s} value={s}>{s}</option>)}
-                  </select>
-                </th>
-                <th className="px-1 py-1">
-                  <select value={filterSupplier} onChange={(e) => setFilterSupplier(e.target.value)}
-                    className="w-full text-[11px] border border-gray-200 rounded px-1 py-0.5 bg-white">
-                    <option value="">전체</option>
-                    {suppliers.map((s) => (<option key={s.id} value={s.id}>{s.name}</option>))}
-                  </select>
-                </th>
-                <th className="px-1 py-1">
-                  <input type="text" value={csColFilterTracking} onChange={(e) => setCsColFilterTracking(e.target.value)}
-                    placeholder="송장번호" className="w-full text-[11px] border border-gray-200 rounded px-1.5 py-0.5 bg-white" />
-                </th>
-                <th></th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-100">
-              {pagedOrders.map((o) => {
-                const edit = trackingEdit[o.id];
-                const editing = !!edit;
-                return (
-                <tr key={o.id} className="hover:bg-gray-50 align-top">
-                  <td className="px-3 py-2 whitespace-nowrap text-gray-700">{formatDate(o.order_date)}</td>
-                  <td className="px-3 py-2 whitespace-nowrap text-gray-700">{o.stores?.name || "-"}</td>
-                  <td className="px-3 py-2 whitespace-nowrap font-mono text-xs text-gray-600">{o.cafe24_order_id}</td>
-                  <td className="px-3 py-2 max-w-[280px]">
-                    <div className="text-gray-900 line-clamp-2">{o.product_name}</div>
-                    {o.option_text && <div className="text-xs text-gray-500 mt-0.5">{o.option_text}</div>}
-                  </td>
-                  <td className="px-3 py-2 text-right text-gray-700">{o.quantity}</td>
-                  <td className="px-3 py-2 whitespace-nowrap">
-                    <div className="text-gray-900">{o.buyer_name || <span className="text-gray-300">-</span>}</div>
-                  </td>
-                  <td className="px-3 py-2 whitespace-nowrap">
-                    <div className="text-gray-900">{o.receiver_name || <span className="text-gray-300">-</span>}</div>
-                  </td>
-                  <td className="px-3 py-2 whitespace-nowrap">
-                    <div className="text-xs font-mono text-gray-700">
-                      {o.receiver_phone || o.buyer_phone || <span className="text-gray-300">-</span>}
-                    </div>
-                    {o.buyer_phone && o.receiver_phone && o.buyer_phone !== o.receiver_phone && (
-                      <div className="text-[10px] font-mono text-gray-400">구매: {o.buyer_phone}</div>
-                    )}
-                  </td>
-                  <td className="px-3 py-2 max-w-[280px]">
-                    <div className="text-xs text-gray-700 line-clamp-2">{o.receiver_address || <span className="text-gray-300">-</span>}</div>
-                  </td>
-                  <td className="px-3 py-2 whitespace-nowrap">
-                    {(() => {
-                      const label = deriveOrderStatus(o);
-                      const cls = STATUS_STYLE_CS[label] || "bg-gray-100 text-gray-600";
-                      const full = label === "발주완료" ? "발주완료 (발주메일 발송)" : label;
-                      return <span className={`text-xs px-2 py-0.5 rounded ${cls}`}>{full}</span>;
-                    })()}
-                  </td>
-                  <td className="px-3 py-2 whitespace-nowrap text-gray-700">{o.suppliers?.name || "-"}</td>
-                  <td className="px-3 py-2 text-xs">
-                    {editing ? (
-                      <div className="flex flex-col gap-1 min-w-[160px]">
-                        <select value={edit.company} onChange={(e) => setTrackingEdit((p) => ({ ...p, [o.id]: { ...edit, company: e.target.value } }))}
-                          className="border border-gray-300 rounded px-1 py-0.5 text-xs">
-                          {SHIPPING_COMPANIES.map((c) => <option key={c} value={c}>{c}</option>)}
-                        </select>
-                        <input type="text" value={edit.number} onChange={(e) => setTrackingEdit((p) => ({ ...p, [o.id]: { ...edit, number: e.target.value } }))}
-                          placeholder="송장번호" className="border border-gray-300 rounded px-1 py-0.5 text-xs font-mono" autoFocus />
-                        <div className="flex gap-1">
-                          <button disabled={saving} onClick={() => saveTracking(o.id)} className="flex-1 bg-gray-900 text-white text-[10px] py-0.5 rounded hover:bg-black cursor-pointer disabled:opacity-50">저장</button>
-                          <button onClick={() => setTrackingEdit((p) => { const n = { ...p }; delete n[o.id]; return n; })} className="flex-1 bg-white border border-gray-300 text-[10px] py-0.5 rounded hover:bg-gray-50 cursor-pointer">취소</button>
-                        </div>
-                      </div>
-                    ) : o.tracking_number ? (
-                      <div className="flex flex-col gap-0.5">
-                        <div className="flex items-center gap-1">
-                          {(() => {
-                            const url = getTrackingUrl(o.shipping_company, o.tracking_number);
-                            return url ? (
-                              <a href={url} target="_blank" rel="noopener noreferrer"
-                                className="text-blue-600 hover:text-blue-800 hover:underline font-mono text-xs"
-                                title="배송추적 열기">
-                                {o.tracking_number}
-                              </a>
-                            ) : (
-                              <span className="font-mono text-gray-700 text-xs">{o.tracking_number}</span>
-                            );
-                          })()}
-                          <button onClick={() => setTrackingEdit((p) => ({ ...p, [o.id]: { company: o.shipping_company || "CJ대한통운", number: o.tracking_number } }))}
-                            className="text-gray-400 hover:text-gray-600 cursor-pointer" title="수정">
-                            <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>
-                          </button>
-                        </div>
-                        <span className="text-[10px] text-gray-400">{o.shipping_company}</span>
-                      </div>
-                    ) : (
-                      <button onClick={() => setTrackingEdit((p) => ({ ...p, [o.id]: { company: "CJ대한통운", number: "" } }))}
-                        className="text-[11px] text-blue-600 hover:underline cursor-pointer">+ 송장 입력</button>
-                    )}
-                  </td>
-                  <td className="px-3 py-2 text-center whitespace-nowrap">
-                    <button onClick={() => openCs(o)} className="text-[11px] px-2 py-1 rounded border border-gray-300 text-gray-700 hover:bg-gray-50 cursor-pointer">
-                      CS 처리
-                    </button>
-                  </td>
-                </tr>
-                );
-              })}
-            </tbody>
-          </table>
-
-          {/* CS Pagination */}
-          {totalPages > 1 && (
-            <div className="flex items-center justify-between px-4 py-3 border-t border-gray-100">
-              <span className="text-xs text-gray-500">
-                {page * pageSize + 1}~{Math.min((page + 1) * pageSize, orders.length)} / {orders.length}건
-              </span>
-              <div className="flex items-center gap-1">
-                <button onClick={() => setPage(0)} disabled={page === 0}
-                  className="px-2 py-1 text-xs border border-gray-300 rounded hover:bg-gray-50 disabled:opacity-30 disabled:cursor-default cursor-pointer">«</button>
-                <button onClick={() => setPage((p) => Math.max(0, p - 1))} disabled={page === 0}
-                  className="px-2 py-1 text-xs border border-gray-300 rounded hover:bg-gray-50 disabled:opacity-30 disabled:cursor-default cursor-pointer">‹</button>
-                {Array.from({ length: totalPages }, (_, i) => i)
-                  .filter((i) => i === 0 || i === totalPages - 1 || Math.abs(i - page) <= 2)
-                  .reduce<(number | "...")[]>((acc, i, idx, arr) => {
-                    if (idx > 0 && i - (arr[idx - 1] as number) > 1) acc.push("...");
-                    acc.push(i);
-                    return acc;
-                  }, [])
-                  .map((item, i) =>
-                    item === "..." ? (
-                      <span key={`dot-${i}`} className="px-1 text-xs text-gray-400">…</span>
-                    ) : (
-                      <button
-                        key={item}
-                        onClick={() => setPage(item as number)}
-                        className={`px-2.5 py-1 text-xs rounded cursor-pointer ${
-                          page === item ? "bg-[#C41E1E] text-white" : "border border-gray-300 hover:bg-gray-50"
-                        }`}
-                      >{(item as number) + 1}</button>
-                    )
-                  )}
-                <button onClick={() => setPage((p) => Math.min(totalPages - 1, p + 1))} disabled={page === totalPages - 1}
-                  className="px-2 py-1 text-xs border border-gray-300 rounded hover:bg-gray-50 disabled:opacity-30 disabled:cursor-default cursor-pointer">›</button>
-                <button onClick={() => setPage(totalPages - 1)} disabled={page === totalPages - 1}
-                  className="px-2 py-1 text-xs border border-gray-300 rounded hover:bg-gray-50 disabled:opacity-30 disabled:cursor-default cursor-pointer">»</button>
+                  className="px-2 py-1 text-xs border border-gray-300 rounded hover:bg-gray-50 disabled:opacity-30 disabled:cursor-default cursor-pointer">&#187;</button>
               </div>
             </div>
           )}
@@ -1921,7 +1590,7 @@ export default function UnifiedOrdersPage() {
         <div className="mt-3 flex items-center gap-6 text-sm text-gray-500">
           <span>조회: <b className="text-gray-900">{stats.displayed}건</b></span>
           <span>수량 합계: <b className="text-gray-900">{stats.totalQty}개</b></span>
-          <span>금액 합계: <b className="text-gray-900">₩{stats.totalAmount.toLocaleString()}</b></span>
+          <span>금액 합계: <b className="text-gray-900">{stats.totalAmount.toLocaleString()}원</b></span>
         </div>
       )}
 
@@ -1931,8 +1600,8 @@ export default function UnifiedOrdersPage() {
           <div className="bg-white rounded-2xl w-[520px] max-h-[90vh] overflow-y-auto shadow-xl" onClick={(e) => e.stopPropagation()}>
             <div className="p-5 border-b border-gray-100">
               <h2 className="text-lg font-bold text-gray-900">CS 처리</h2>
-              <p className="text-xs text-gray-500 mt-1">주문번호 {csModalOrder.cafe24_order_id} · {csModalOrder.product_name}</p>
-              <p className="text-xs text-gray-500">구매자: {csModalOrder.buyer_name || "-"} · {csModalOrder.buyer_phone || "-"}</p>
+              <p className="text-xs text-gray-500 mt-1">주문번호 {csModalOrder.cafe24_order_id} / {csModalOrder.product_name}</p>
+              <p className="text-xs text-gray-500">구매자: {csModalOrder.buyer_name || "-"} / {csModalOrder.buyer_phone || "-"}</p>
             </div>
             <div className="p-5 space-y-4">
               <div>
