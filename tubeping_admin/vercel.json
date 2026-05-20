@@ -12,10 +12,17 @@
     {
       "path": "/admin/api/cron/sync-shipments",
       "schedule": "0 12 * * *"
+    },
+    {
+      "path": "/admin/api/cron/update-delivery-status",
+      "schedule": "0 1 * * *"
     }
   ],
   "functions": {
     "app/api/products/import-cafe24/route.ts": {
+      "maxDuration": 300
+    },
+    "app/api/cron/update-delivery-status/route.ts": {
       "maxDuration": 300
     }
   }
