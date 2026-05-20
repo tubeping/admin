@@ -1,9 +1,12 @@
 "use client";
 
+export const dynamic = "force-dynamic";
+
 import { useState, useEffect, useCallback, useMemo, memo, useRef } from "react";
 
 interface Store { id: string; name: string; mall_id: string; status: string; }
 interface Supplier { id: string; name: string; email: string; }
+type AddrVerifyResult = { id: string; status: "valid" | "invalid" | "suspect" | "unknown"; reason?: string | null; suggestion?: string | null; matched?: string; zipNo?: string | null };
 
 interface Order {
   id: string;
@@ -116,8 +119,6 @@ function daysAgo(n: number) { return new Date(Date.now() - n * 86400000).toISOSt
 function normPhone(s: string) { return (s || "").replace(/[^0-9]/g, ""); }
 
 /* ── OrderRow (memo-ized) ── */
-type AddrVerifyResult = { id: string; status: "valid" | "invalid" | "suspect" | "unknown"; reason?: string | null; suggestion?: string | null; matched?: string; zipNo?: string | null };
-
 const OrderRow = memo(function OrderRow({
   o, idx, displayedCount, isSelected, toggleSelect, editingField, onStartEdit, saveCellEdit, stores, fetchOrders,
   trackingEdit, onTrackingEdit, onSaveTracking, saving, onOpenCs, addrStatus,
