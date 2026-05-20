@@ -43,6 +43,10 @@ export default function PurchaseOrdersPage() {
   const [syncingId, setSyncingId] = useState<string | null>(null);
   const [bulkSyncing, setBulkSyncing] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [filterSupplier, setFilterSupplier] = useState("");
+  const [filterStore, setFilterStore] = useState("");
+  const [filterStatus, setFilterStatus] = useState("");
+  const [filterDate, setFilterDate] = useState("");
 
   const toggleSelect = (id: string) => {
     setSelected((prev) => { const n = new Set(prev); if (n.has(id)) n.delete(id); else n.add(id); return n; });
@@ -147,6 +151,22 @@ export default function PurchaseOrdersPage() {
       setBulkSyncing(false);
     }
   };
+
+  // 필터 옵션 목록
+  const supplierOptions = [...new Set(pos.map((p) => p.suppliers?.name).filter(Boolean))].sort() as string[];
+  const storeOptions = [...new Set(pos.flatMap((p) => p.store_names || []))].sort();
+  const dateOptions = [...new Set(pos.map((p) => p.order_date))].sort().reverse();
+
+  // 필터 적용
+  const filtered = pos.filter((p) => {
+    if (filterSupplier && p.suppliers?.name !== filterSupplier) return false;
+    if (filterStore && !(p.store_names || []).includes(filterStore)) return false;
+    if (filterStatus && p.status !== filterStatus) return false;
+    if (filterDate && p.order_date !== filterDate) return false;
+    return true;
+  });
+
+  const hasFilter = filterSupplier || filterStore || filterStatus || filterDate;
 
   // 통계
   const stats = {
@@ -307,9 +327,53 @@ export default function PurchaseOrdersPage() {
                 <th className="text-right px-6 py-3 font-medium">발주일</th>
                 <th className="text-center px-3 py-3 font-medium">액션</th>
               </tr>
+              {/* 필터 행 */}
+              <tr className="border-b border-gray-200 bg-gray-50/80">
+                <th />
+                <th />
+                <th className="px-3 py-2">
+                  <select value={filterSupplier} onChange={(e) => setFilterSupplier(e.target.value)} className="w-full text-xs border border-gray-200 rounded px-1.5 py-1 bg-white cursor-pointer">
+                    <option value="">전체 공급사</option>
+                    {supplierOptions.map((s) => <option key={s} value={s}>{s}</option>)}
+                  </select>
+                </th>
+                <th className="px-3 py-2">
+                  <select value={filterStore} onChange={(e) => setFilterStore(e.target.value)} className="w-full text-xs border border-gray-200 rounded px-1.5 py-1 bg-white cursor-pointer">
+                    <option value="">전체 판매사</option>
+                    {storeOptions.map((s) => <option key={s} value={s}>{s}</option>)}
+                  </select>
+                </th>
+                <th />
+                <th />
+                <th className="px-3 py-2">
+                  <select value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)} className="w-full text-xs border border-gray-200 rounded px-1.5 py-1 bg-white cursor-pointer">
+                    <option value="">전체 상태</option>
+                    {Object.entries(STATUS_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+                  </select>
+                </th>
+                <th />
+                <th />
+                <th />
+                <th />
+                <th className="px-3 py-2">
+                  <select value={filterDate} onChange={(e) => setFilterDate(e.target.value)} className="w-full text-xs border border-gray-200 rounded px-1.5 py-1 bg-white cursor-pointer">
+                    <option value="">전체 날짜</option>
+                    {dateOptions.map((d) => <option key={d} value={d}>{d}</option>)}
+                  </select>
+                </th>
+                <th className="px-3 py-2">
+                  {hasFilter && (
+                    <button onClick={() => { setFilterSupplier(""); setFilterStore(""); setFilterStatus(""); setFilterDate(""); }} className="text-[10px] text-red-500 hover:underline cursor-pointer whitespace-nowrap">
+                      초기화
+                    </button>
+                  )}
+                </th>
+              </tr>
             </thead>
             <tbody>
-              {pos.map((po) => (
+              {filtered.length === 0 && !loading ? (
+                <tr><td colSpan={13} className="py-8 text-center text-gray-400 text-sm">필터 조건에 맞는 발주서가 없습니다.</td></tr>
+              ) : filtered.map((po) => (
                 <tr key={po.id} className={`border-b border-gray-50 last:border-0 hover:bg-gray-50/50 ${selected.has(po.id) ? "bg-blue-50/40" : ""}`}>
                   <td className="px-4 py-3.5">
                     <input type="checkbox" checked={selected.has(po.id)} onChange={() => toggleSelect(po.id)} className="rounded border-gray-300 cursor-pointer" />
