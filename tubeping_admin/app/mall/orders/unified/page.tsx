@@ -189,11 +189,13 @@ const OrderRow = memo(function OrderRow({
             <option value="phone">전화주문</option>
             <option value="group">공구주문</option>
             <option value="sample">샘플</option>
+            <option value="etc">기타</option>
           </select>
         ) : (() => {
           if (o.sales_channel === "phone") return <span className="px-1.5 py-0.5 rounded bg-purple-100 text-purple-700 font-medium">전화주문</span>;
           if (o.sales_channel === "group") return <span className="px-1.5 py-0.5 rounded bg-pink-100 text-pink-700 font-medium">공구주문</span>;
           if (o.sales_channel === "sample") return <span className="px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 font-medium">샘플</span>;
+          if (o.sales_channel === "etc") return <span className="px-1.5 py-0.5 rounded bg-gray-200 text-gray-700 font-medium">기타</span>;
           if (!o.stores?.name) return <span className="text-gray-300">-</span>;
           return <span className="px-1.5 py-0.5 rounded bg-blue-100 text-blue-700 font-medium">자사몰</span>;
         })()}
@@ -345,9 +347,13 @@ const OrderRow = memo(function OrderRow({
       </td>
       {/* 16. CS */}
       <td className="px-2 py-2.5 text-center" onClick={(e) => e.stopPropagation()}>
-        <button onClick={() => onOpenCs(o)} className="text-[11px] px-2 py-1 rounded border border-gray-300 text-gray-700 hover:bg-gray-50 cursor-pointer">
-          CS
-        </button>
+        {o.shipping_status !== "cancelled" ? (
+          <button onClick={() => onOpenCs(o)} className="text-[11px] px-2 py-1 rounded border border-gray-300 text-gray-700 hover:bg-gray-50 cursor-pointer">
+            CS
+          </button>
+        ) : (
+          <span className="text-gray-300">-</span>
+        )}
       </td>
       {/* 17. 주문일 */}
       <td className="px-3 py-2.5 text-xs text-gray-400 text-right whitespace-nowrap">{formatDate(o.order_date)}</td>
@@ -433,7 +439,7 @@ export default function UnifiedOrdersPage() {
     setTrackingEdit((p) => { const n = { ...p }; delete n[id]; return n; });
     setSaving(false);
     fetchOrders();
-  }, [trackingEdit]);
+  }, [trackingEdit, fetchOrders]);
 
   const handleTrackingEdit = useCallback((orderId: string, edit: { company: string; number: string } | null) => {
     if (edit === null) {
@@ -496,6 +502,7 @@ export default function UnifiedOrdersPage() {
     const sampleEl = document.getElementById("import-is-sample") as HTMLInputElement;
     const phoneEl = document.getElementById("import-is-phone") as HTMLInputElement;
     const groupEl = document.getElementById("import-is-group") as HTMLInputElement;
+    const etcEl = document.getElementById("import-is-etc") as HTMLInputElement;
     const fd = new FormData();
     fd.append("file", file);
     if (sel.value.startsWith("id:")) fd.append("store_id", sel.value.slice(3));
@@ -503,6 +510,7 @@ export default function UnifiedOrdersPage() {
     if (sampleEl?.checked) fd.append("sales_channel", "sample");
     else if (phoneEl?.checked) fd.append("sales_channel", "phone");
     else if (groupEl?.checked) fd.append("sales_channel", "group");
+    else if (etcEl?.checked) fd.append("sales_channel", "etc");
     const res = await fetch("/admin/api/orders/import", { method: "POST", body: fd });
     const data = await res.json();
     if (res.ok) {
@@ -521,6 +529,7 @@ export default function UnifiedOrdersPage() {
       if (phoneEl) phoneEl.checked = false;
       if (groupEl) groupEl.checked = false;
       if (sampleEl) sampleEl.checked = false;
+      if (etcEl) etcEl.checked = false;
       sel.value = "";
     } else alert(`오류: ${data.error}`);
   }, [fetchOrders]);
@@ -620,6 +629,7 @@ export default function UnifiedOrdersPage() {
       if (colFilterChannel === "phone" && o.sales_channel !== "phone") return false;
       if (colFilterChannel === "group" && o.sales_channel !== "group") return false;
       if (colFilterChannel === "sample" && o.sales_channel !== "sample") return false;
+      if (colFilterChannel === "etc" && o.sales_channel !== "etc") return false;
       if (colFilterChannel === "domestic" && (o.sales_channel || !o.stores?.name)) return false;
       if (colFilterPayment === "paid" && (o.shipping_status === "pending" || o.shipping_status === "cancelled")) return false;
       if (colFilterPayment === "unpaid" && o.shipping_status !== "pending") return false;
@@ -779,7 +789,7 @@ export default function UnifiedOrdersPage() {
 
   const bulkUpdateChannel = async (value: string) => {
     if (selected.size === 0) return;
-    const channelLabel = value === "" ? "자사몰" : value === "phone" ? "전화주문" : value === "group" ? "공구주문" : "샘플";
+    const channelLabel = value === "" ? "자사몰" : value === "phone" ? "전화주문" : value === "group" ? "공구주문" : value === "etc" ? "기타" : "샘플";
     if (!confirm(`선택한 ${selected.size}건의 판매방식을 '${channelLabel}'(으)로 일괄 변경합니다. 계속할까요?`)) return;
     const res = await fetch("/admin/api/orders", {
       method: "PATCH",
@@ -1189,39 +1199,23 @@ export default function UnifiedOrdersPage() {
 
         {/* Import options */}
         <div className="flex items-center gap-2">
-          <label className="flex items-center gap-1 text-xs text-gray-600 cursor-pointer select-none">
-            <input id="import-is-sample" type="checkbox" className="w-3.5 h-3.5 cursor-pointer" onChange={(e) => {
-              if (e.target.checked) {
-                const phoneEl = document.getElementById("import-is-phone") as HTMLInputElement;
-                const groupEl = document.getElementById("import-is-group") as HTMLInputElement;
-                if (phoneEl) phoneEl.checked = false;
-                if (groupEl) groupEl.checked = false;
-              }
-            }} />
-            <span className="px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 font-medium">샘플</span>
-          </label>
-          <label className="flex items-center gap-1 text-xs text-gray-600 cursor-pointer select-none">
-            <input id="import-is-phone" type="checkbox" className="w-3.5 h-3.5 cursor-pointer" onChange={(e) => {
-              if (e.target.checked) {
-                const sampleEl = document.getElementById("import-is-sample") as HTMLInputElement;
-                const groupEl = document.getElementById("import-is-group") as HTMLInputElement;
-                if (sampleEl) sampleEl.checked = false;
-                if (groupEl) groupEl.checked = false;
-              }
-            }} />
-            <span className="px-1.5 py-0.5 rounded bg-purple-100 text-purple-700 font-medium">전화</span>
-          </label>
-          <label className="flex items-center gap-1 text-xs text-gray-600 cursor-pointer select-none">
-            <input id="import-is-group" type="checkbox" className="w-3.5 h-3.5 cursor-pointer" onChange={(e) => {
-              if (e.target.checked) {
-                const sampleEl = document.getElementById("import-is-sample") as HTMLInputElement;
-                const phoneEl = document.getElementById("import-is-phone") as HTMLInputElement;
-                if (sampleEl) sampleEl.checked = false;
-                if (phoneEl) phoneEl.checked = false;
-              }
-            }} />
-            <span className="px-1.5 py-0.5 rounded bg-pink-100 text-pink-700 font-medium">공구</span>
-          </label>
+          {[
+            { id: "import-is-sample", label: "샘플", bg: "bg-amber-100 text-amber-700" },
+            { id: "import-is-phone", label: "전화", bg: "bg-purple-100 text-purple-700" },
+            { id: "import-is-group", label: "공구", bg: "bg-pink-100 text-pink-700" },
+            { id: "import-is-etc", label: "기타", bg: "bg-gray-200 text-gray-700" },
+          ].map((opt) => (
+            <label key={opt.id} className="flex items-center gap-1 text-xs text-gray-600 cursor-pointer select-none">
+              <input id={opt.id} type="checkbox" className="w-3.5 h-3.5 cursor-pointer" onChange={(e) => {
+                if (e.target.checked) {
+                  ["import-is-sample", "import-is-phone", "import-is-group", "import-is-etc"]
+                    .filter((x) => x !== opt.id)
+                    .forEach((x) => { const el = document.getElementById(x) as HTMLInputElement; if (el) el.checked = false; });
+                }
+              }} />
+              <span className={`px-1.5 py-0.5 rounded font-medium ${opt.bg}`}>{opt.label}</span>
+            </label>
+          ))}
         </div>
         <div className="relative">
           <select id="import-store" className="text-xs border border-gray-300 rounded-lg px-2 py-1.5 pr-16 appearance-none bg-white" defaultValue="">
@@ -1277,6 +1271,7 @@ export default function UnifiedOrdersPage() {
               <option value="phone">전화주문</option>
               <option value="group">공구주문</option>
               <option value="sample">샘플</option>
+              <option value="etc">기타</option>
             </select>
             <select onChange={(e) => { const v = e.target.value; e.target.value = ""; if (v) bulkUpdateStore(v); }}
               defaultValue=""
@@ -1430,6 +1425,7 @@ export default function UnifiedOrdersPage() {
                     <option value="phone">전화주문</option>
                     <option value="group">공구주문</option>
                     <option value="sample">샘플</option>
+                    <option value="etc">기타</option>
                     <option value="domestic">자사몰</option>
                   </select>
                 </th>
