@@ -89,26 +89,29 @@ export async function GET(request: NextRequest) {
 
   // 3. product_id들로 products fetch
   const productIds = [...new Set([...keyToProductId.values()])];
-  const productInfo = new Map<string, { tp_code: string | null; product_name: string; verified: boolean }>();
+  const productInfo = new Map<string, { tp_code: string | null; product_name: string; verified: boolean; supplier: string | null }>();
   if (productIds.length > 0) {
     const { data: prods } = await sb
       .from("products")
-      .select("id, tp_code, product_name, mapping_verified")
+      .select("id, tp_code, product_name, mapping_verified, supplier")
       .in("id", productIds);
     for (const p of prods || []) {
       productInfo.set(p.id, {
         tp_code: p.tp_code,
         product_name: p.product_name,
         verified: !!p.mapping_verified,
+        supplier: p.supplier || null,
       });
     }
   }
 
-  // 4. 공급사 short_code → {id,name}
+  // 4. 공급사 short_code → {id,name} + name → {id,name}
   const { data: suppliers } = await sb.from("suppliers").select("id, name, short_code");
   const codeToSupplier: Record<string, { id: string; name: string }> = {};
+  const nameToSupplier: Record<string, { id: string; name: string }> = {};
   for (const s of suppliers || []) {
     if (s.short_code) codeToSupplier[s.short_code.toUpperCase()] = { id: s.id, name: s.name };
+    if (s.name) nameToSupplier[s.name.trim()] = { id: s.id, name: s.name };
   }
 
   // 5. 주문을 (store_id, cafe24_product_no) 단위로 group
@@ -159,24 +162,44 @@ export async function GET(request: NextRequest) {
     if (prod) {
       tpCode = prod.tp_code;
       productName = prod.product_name || productName;
-      if (!tpCode) {
-        status = "invalid_tp_code";
-      } else {
+
+      // 공급사 결정: products.supplier 우선, 없으면 tp_code에서 추출
+      if (prod.supplier && nameToSupplier[prod.supplier.trim()]) {
+        const s = nameToSupplier[prod.supplier.trim()];
+        expectedSupplierId = s.id;
+        expectedSupplierName = s.name;
+      } else if (tpCode) {
         const m = tpCode.toUpperCase().match(TP_CODE_RE);
-        if (!m) {
-          status = "invalid_tp_code";
-        } else {
-          const code = m[2];
-          const s = codeToSupplier[code];
-          if (!s) {
-            status = "unknown_supplier_code";
-          } else {
-            expectedSupplierId = s.id;
-            expectedSupplierName = s.name;
-            const currentIds = new Set(g.rows.map((r) => r.current_supplier_id));
-            const allMatch = currentIds.size === 1 && currentIds.has(expectedSupplierId);
-            status = allMatch ? "match" : "mismatch";
-          }
+        if (m) {
+          const s = codeToSupplier[m[2]];
+          if (s) { expectedSupplierId = s.id; expectedSupplierName = s.name; }
+        }
+      }
+
+      // 상태 결정
+      if (expectedSupplierId) {
+        const currentIds = new Set(g.rows.map((r) => r.current_supplier_id));
+        const allMatch = currentIds.size === 1 && currentIds.has(expectedSupplierId);
+        status = allMatch ? "match" : "mismatch";
+      } else {
+        status = !tpCode ? "invalid_tp_code" : "unknown_supplier_code";
+      }
+    }
+
+    // unmatched_product이지만 상품명으로 products에서 공급사를 찾을 수 있는 경우
+    if (!prod && !expectedSupplierName) {
+      const nameKey = (g.rows[0]?.product_name || "").trim();
+      // product_name 직접 매칭 시도
+      if (nameKey) {
+        const { data: byName } = await sb
+          .from("products")
+          .select("id, supplier")
+          .eq("product_name", nameKey)
+          .limit(1)
+          .maybeSingle();
+        if (byName?.supplier && nameToSupplier[byName.supplier.trim()]) {
+          const s = nameToSupplier[byName.supplier.trim()];
+          expectedSupplierName = s.name;
         }
       }
     }
