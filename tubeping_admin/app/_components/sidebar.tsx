@@ -109,20 +109,6 @@ const MENU_GROUPS: MenuGroup[] = [
         ],
       },
       {
-        key: "phone-orders",
-        label: "전화주문",
-        href: "/mall/phone-orders",
-        icon: (
-          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" />
-          </svg>
-        ),
-        children: [
-          { key: "phone-orders-list", label: "주문 관리", href: "/mall/phone-orders" },
-          { key: "phone-orders-clients", label: "판매처 관리", href: "/mall/phone-orders/clients" },
-        ],
-      },
-      {
         key: "orders",
         label: "주문관리",
         href: "/mall/orders",
@@ -132,8 +118,9 @@ const MENU_GROUPS: MenuGroup[] = [
           </svg>
         ),
         children: [
+          { key: "phone-orders-list", label: "전화주문", href: "/mall/phone-orders" },
           { key: "orders-unified", label: "주문수집 및 조회", href: "/mall/orders/unified" },
-{ key: "orders-payment", label: "입금확인", href: "/mall/orders/payment" },
+          { key: "orders-payment", label: "입금확인", href: "/mall/orders/payment" },
           { key: "orders-verification", label: "매핑 검증", href: "/mall/orders/verification" },
           { key: "supplier-holidays", label: "공급사 휴무", href: "/mall/supplier-holidays" },
         ],

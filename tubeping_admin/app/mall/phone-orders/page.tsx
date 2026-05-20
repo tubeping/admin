@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef } from "react";
-import { useRouter } from "next/navigation";
 
 interface PhoneOrderClient {
   id: string;
@@ -61,7 +60,7 @@ interface PhoneOrder {
 interface NewRow {
   id: string;
   client_id: string;
-  client_text: string; // 판매처 검색어
+  client_text: string;
   product_name: string;
   option_text: string;
   quantity: string;
@@ -70,20 +69,20 @@ interface NewRow {
   recipient_phone: string;
   recipient_zipcode: string;
   recipient_address: string;
-  address_detail: string; // 상세주소
+  address_detail: string;
 }
 
-const STATUS_MAP: Record<string, { label: string; color: string; bg: string }> = {
-  pending: { label: "접수", color: "text-yellow-700", bg: "bg-yellow-50" },
-  confirmed: { label: "확정", color: "text-blue-700", bg: "bg-blue-50" },
-  shipping: { label: "배송중", color: "text-indigo-700", bg: "bg-indigo-50" },
-  delivered: { label: "배송완료", color: "text-green-700", bg: "bg-green-50" },
-  cancelled: { label: "취소", color: "text-red-700", bg: "bg-red-50" },
+const STATUS_MAP: Record<string, { label: string; color: string; bg: string; dot: string }> = {
+  pending: { label: "접수", color: "text-amber-700", bg: "bg-amber-50 border-amber-200", dot: "bg-amber-400" },
+  confirmed: { label: "확정", color: "text-blue-700", bg: "bg-blue-50 border-blue-200", dot: "bg-blue-400" },
+  shipping: { label: "배송중", color: "text-violet-700", bg: "bg-violet-50 border-violet-200", dot: "bg-violet-400" },
+  delivered: { label: "배송완료", color: "text-emerald-700", bg: "bg-emerald-50 border-emerald-200", dot: "bg-emerald-400" },
+  cancelled: { label: "취소", color: "text-red-700", bg: "bg-red-50 border-red-200", dot: "bg-red-400" },
 };
 
 const PAYMENT_MAP: Record<string, { label: string; color: string; bg: string }> = {
-  unpaid: { label: "미입금", color: "text-red-700", bg: "bg-red-50" },
-  paid: { label: "입금확인", color: "text-green-700", bg: "bg-green-50" },
+  unpaid: { label: "미입금", color: "text-red-600", bg: "bg-red-50 border-red-200" },
+  paid: { label: "입금확인", color: "text-emerald-600", bg: "bg-emerald-50 border-emerald-200" },
 };
 
 let rowIdCounter = 0;
@@ -108,20 +107,13 @@ function makeEmptyRow(): NewRow {
 // 자동완성 드롭다운 컴포넌트
 // ============================================================
 function AutocompleteInput({
-  value,
-  onChange,
-  onSelect,
-  items,
-  allItems,
-  placeholder,
-  className,
-  renderItem,
+  value, onChange, onSelect, items, allItems, placeholder, className, renderItem,
 }: {
   value: string;
   onChange: (v: string) => void;
   onSelect: (item: { id: string; label: string }) => void;
   items: { id: string; label: string; sub?: string }[];
-  allItems?: { id: string; label: string }[]; // blur 시 이름 매칭용
+  allItems?: { id: string; label: string }[];
   placeholder: string;
   className: string;
   renderItem?: (item: { id: string; label: string; sub?: string }, idx: number) => React.ReactNode;
@@ -138,7 +130,6 @@ function AutocompleteInput({
     return () => document.removeEventListener("mousedown", handler);
   }, []);
 
-  // blur 시 입력한 텍스트가 목록에 정확히 매칭되면 자동 선택
   const handleBlur = () => {
     setTimeout(() => {
       setFocused(false);
@@ -188,10 +179,7 @@ function AutocompleteInput({
 // 주소 검색 인풋
 // ============================================================
 function AddressSearchInput({
-  value,
-  onChange,
-  onSelect,
-  className,
+  value, onChange, onSelect, className,
 }: {
   value: string;
   onChange: (v: string) => void;
@@ -273,12 +261,13 @@ function AddressSearchInput({
 // 메인 페이지
 // ============================================================
 export default function PhoneOrdersPage() {
-  const router = useRouter();
   const [orders, setOrders] = useState<PhoneOrder[]>([]);
   const [stores, setStores] = useState<Store[]>([]);
   const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [saving, setSaving] = useState(false);
+  const [transferring, setTransferring] = useState(false);
+  const [showInput, setShowInput] = useState(true);
 
   // 필터
   const [clientFilter, setClientFilter] = useState("");
@@ -340,8 +329,6 @@ export default function PhoneOrdersPage() {
   // === 신규 행 관리 ===
   const updateNewRow = (id: string, field: keyof NewRow, value: string) => {
     setNewRows((prev) => prev.map((r) => (r.id === id ? { ...r, [field]: value } : r)));
-
-    // 상품명 검색 디바운스
     if (field === "product_name") {
       if (productTimers.current[id]) clearTimeout(productTimers.current[id]);
       productTimers.current[id] = setTimeout(() => searchProducts(id, value), 300);
@@ -360,7 +347,6 @@ export default function PhoneOrdersPage() {
   const submitNewRows = async () => {
     const validRows = newRows.filter((r) => r.product_name.trim() && r.recipient_name.trim());
     if (validRows.length === 0) { alert("상품명과 수령인을 입력해주세요."); return; }
-
     const noClient = validRows.find((r) => !r.client_text.trim());
     if (noClient) { alert("판매처를 입력해주세요."); return; }
 
@@ -430,30 +416,60 @@ export default function PhoneOrdersPage() {
   };
   const startEdit = (id: string, field: string, currentValue: string) => { setEditingCell({ id, field }); setEditValue(currentValue || ""); };
 
+  // === 발주 이관 ===
+  const transferToOrders = async () => {
+    if (selected.size === 0) return;
+    const selectedOrders = orders.filter((o) => selected.has(o.id));
+    const nonConfirmed = selectedOrders.filter((o) => o.status !== "confirmed" && o.status !== "pending");
+    if (nonConfirmed.length > 0) {
+      if (!confirm(`배송중/완료/취소 상태인 주문 ${nonConfirmed.length}건이 포함되어 있습니다. 계속하시겠습니까?`)) return;
+    }
+
+    setTransferring(true);
+    try {
+      const res = await fetch("/admin/api/phone-orders/transfer", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ids: Array.from(selected) }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        alert(`${data.transferred}건 이관 완료${data.skipped > 0 ? ` (${data.skipped}건 중복 건너뜀)` : ""}`);
+        setSelected(new Set());
+        fetchOrders();
+      } else {
+        alert(`이관 실패: ${data.error}`);
+      }
+    } catch {
+      alert("이관 중 오류가 발생했습니다.");
+    }
+    setTransferring(false);
+  };
+
   // 통계
   const totalCount = orders.length;
   const pendingCount = orders.filter((o) => o.status === "pending").length;
+  const confirmedCount = orders.filter((o) => o.status === "confirmed").length;
   const shippingCount = orders.filter((o) => o.status === "shipping").length;
   const unpaidCount = orders.filter((o) => o.payment_status === "unpaid").length;
 
   // 인라인 편집 셀
-  const EditableCell = ({ orderId, field, value, placeholder }: { orderId: string; field: string; value: string | null; placeholder?: string }) => {
+  const EditableCell = ({ orderId, field, value, placeholder, align }: { orderId: string; field: string; value: string | null; placeholder?: string; align?: string }) => {
     const isEditing = editingCell?.id === orderId && editingCell.field === field;
     return (
-      <td className="px-2 py-2 text-xs text-gray-600 cursor-pointer hover:bg-blue-50/50" onClick={() => startEdit(orderId, field, value || "")}>
+      <td className={`px-3 py-2.5 text-xs text-gray-600 cursor-pointer hover:bg-blue-50/50 ${align || ""}`} onClick={() => startEdit(orderId, field, value || "")}>
         {isEditing ? (
           <input autoFocus value={editValue} onChange={(e) => setEditValue(e.target.value)}
             onBlur={() => saveInlineEdit(orderId, field, editValue)}
             onKeyDown={(e) => { if (e.key === "Enter") saveInlineEdit(orderId, field, editValue); if (e.key === "Escape") setEditingCell(null); }}
-            className="w-full px-1 py-0.5 text-xs border border-blue-400 rounded outline-none" />
+            className="w-full px-1.5 py-0.5 text-xs border border-blue-400 rounded outline-none" />
         ) : ( value || <span className="text-gray-300">{placeholder || "-"}</span> )}
       </td>
     );
   };
 
-  const cellInput = "w-full px-1.5 py-1 text-xs border border-gray-200 rounded outline-none focus:border-[#C41E1E] focus:ring-1 focus:ring-[#C41E1E]/20 bg-white";
+  const cellInput = "w-full px-2 py-1.5 text-xs border border-gray-200 rounded-md outline-none focus:border-[#C41E1E] focus:ring-1 focus:ring-[#C41E1E]/20 bg-white transition-colors";
 
-  // 판매처(스토어) 필터용 목록
   const getFilteredStores = (text: string) => {
     if (!text) return stores;
     const lower = text.toLowerCase();
@@ -461,75 +477,89 @@ export default function PhoneOrdersPage() {
   };
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-5">
       {/* 헤더 */}
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">전화주문 관리</h1>
-          <p className="text-sm text-gray-500 mt-0.5">전화/문자로 접수된 주문을 관리합니다</p>
+          <p className="text-sm text-gray-500 mt-1">전화/문자로 접수된 주문을 등록하고 발주 이관합니다</p>
         </div>
-        <div />
+        <button
+          onClick={() => setShowInput(!showInput)}
+          className="flex items-center gap-1.5 px-3.5 py-2 text-xs font-medium border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+        >
+          <svg className={`w-4 h-4 transition-transform ${showInput ? "rotate-180" : ""}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+          </svg>
+          {showInput ? "입력폼 접기" : "입력폼 열기"}
+        </button>
       </div>
 
-      {/* 통계 */}
-      <div className="grid grid-cols-4 gap-3">
+      {/* 통계 카드 */}
+      <div className="grid grid-cols-5 gap-3">
         {[
-          { label: "전체 주문", value: totalCount, color: "text-gray-900" },
-          { label: "접수 대기", value: pendingCount, color: "text-yellow-600" },
-          { label: "배송중", value: shippingCount, color: "text-indigo-600" },
-          { label: "미입금", value: unpaidCount, color: "text-red-600" },
+          { label: "전체 주문", value: totalCount, color: "text-gray-900", iconBg: "bg-gray-100", icon: "M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" },
+          { label: "접수 대기", value: pendingCount, color: "text-amber-600", iconBg: "bg-amber-50", icon: "M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" },
+          { label: "확정", value: confirmedCount, color: "text-blue-600", iconBg: "bg-blue-50", icon: "M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" },
+          { label: "배송중", value: shippingCount, color: "text-violet-600", iconBg: "bg-violet-50", icon: "M13 16V6a1 1 0 00-1-1H4a1 1 0 00-1 1v10a1 1 0 001 1h1m8-1a1 1 0 01-1 1H9m4-1V8a1 1 0 011-1h2.586a1 1 0 01.707.293l3.414 3.414a1 1 0 01.293.707V16a1 1 0 01-1 1h-1m-6-1a1 1 0 001 1h1M5 17a2 2 0 104 0m-4 0a2 2 0 114 0m6 0a2 2 0 104 0m-4 0a2 2 0 114 0" },
+          { label: "미입금", value: unpaidCount, color: "text-red-600", iconBg: "bg-red-50", icon: "M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" },
         ].map((s) => (
-          <div key={s.label} className="bg-white rounded-xl border border-gray-200 p-3">
-            <p className="text-[11px] text-gray-500">{s.label}</p>
-            <p className={`text-xl font-bold mt-0.5 ${s.color}`}>{s.value}</p>
+          <div key={s.label} className="bg-white rounded-xl border border-gray-200 p-4 flex items-center gap-3">
+            <div className={`w-10 h-10 rounded-lg ${s.iconBg} flex items-center justify-center flex-shrink-0`}>
+              <svg className={`w-5 h-5 ${s.color}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d={s.icon} />
+              </svg>
+            </div>
+            <div>
+              <p className="text-[11px] text-gray-500 font-medium">{s.label}</p>
+              <p className={`text-xl font-bold ${s.color}`}>{s.value}</p>
+            </div>
           </div>
         ))}
       </div>
 
       {/* ====== 스프레드시트 신규 입력 ====== */}
-      {/* 스프레드시트 입력 */}
-      <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+      {showInput && (
+        <div className="bg-white rounded-xl border border-gray-200 overflow-hidden shadow-sm">
+          <div className="px-4 py-3 bg-gradient-to-r from-gray-50 to-white border-b border-gray-200 flex items-center gap-2">
+            <svg className="w-4 h-4 text-[#C41E1E]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+            </svg>
+            <span className="text-sm font-semibold text-gray-700">신규 주문 입력</span>
+          </div>
           <div className="overflow-x-auto">
             <table className="w-full text-xs">
               <thead>
-                <tr className="bg-gray-50 border-b border-gray-200">
-                  <th className="w-8 px-2 py-2"></th>
-                  <th className="px-2 py-2 text-left text-[11px] font-semibold text-gray-500 min-w-[110px]">판매처 *</th>
-                  <th className="px-2 py-2 text-left text-[11px] font-semibold text-gray-500 min-w-[200px]">상품명 *</th>
-                  <th className="px-2 py-2 text-left text-[11px] font-semibold text-gray-500 min-w-[100px]">옵션</th>
-                  <th className="px-2 py-2 text-center text-[11px] font-semibold text-gray-500 w-14">수량</th>
-                  <th className="px-2 py-2 text-left text-[11px] font-semibold text-gray-500 min-w-[80px]">수령인 *</th>
-                  <th className="px-2 py-2 text-left text-[11px] font-semibold text-gray-500 min-w-[70px]">입금자</th>
-                  <th className="px-2 py-2 text-left text-[11px] font-semibold text-gray-500 min-w-[110px]">전화번호</th>
-                  <th className="px-2 py-2 text-left text-[11px] font-semibold text-gray-500 min-w-[200px]">주소 검색</th>
-                  <th className="px-2 py-2 text-left text-[11px] font-semibold text-gray-500 min-w-[140px]">상세주소</th>
-                  <th className="px-2 py-2 text-left text-[11px] font-semibold text-gray-500 w-20">우편번호</th>
-                  <th className="w-8 px-2 py-2"></th>
+                <tr className="bg-gray-50/80">
+                  <th className="w-8 px-2 py-2.5"></th>
+                  <th className="px-2 py-2.5 text-left text-[11px] font-semibold text-gray-500 min-w-[110px]">판매처 *</th>
+                  <th className="px-2 py-2.5 text-left text-[11px] font-semibold text-gray-500 min-w-[200px]">상품명 *</th>
+                  <th className="px-2 py-2.5 text-left text-[11px] font-semibold text-gray-500 min-w-[100px]">옵션</th>
+                  <th className="px-2 py-2.5 text-center text-[11px] font-semibold text-gray-500 w-14">수량</th>
+                  <th className="px-2 py-2.5 text-left text-[11px] font-semibold text-gray-500 min-w-[80px]">수령인 *</th>
+                  <th className="px-2 py-2.5 text-left text-[11px] font-semibold text-gray-500 min-w-[70px]">입금자</th>
+                  <th className="px-2 py-2.5 text-left text-[11px] font-semibold text-gray-500 min-w-[110px]">전화번호</th>
+                  <th className="px-2 py-2.5 text-left text-[11px] font-semibold text-gray-500 min-w-[200px]">주소 검색</th>
+                  <th className="px-2 py-2.5 text-left text-[11px] font-semibold text-gray-500 min-w-[140px]">상세주소</th>
+                  <th className="px-2 py-2.5 text-left text-[11px] font-semibold text-gray-500 w-20">우편번호</th>
+                  <th className="w-8 px-2 py-2.5"></th>
                 </tr>
               </thead>
               <tbody>
                 {newRows.map((row, idx) => (
-                  <tr key={row.id} className="border-b border-gray-100 hover:bg-[#FFFBFC]">
-                    <td className="px-2 py-1.5 text-center text-[11px] text-gray-400">{idx + 1}</td>
-
-                    {/* 판매처 자동완성 */}
+                  <tr key={row.id} className="border-b border-gray-100 hover:bg-[#FFFBFC] transition-colors">
+                    <td className="px-2 py-1.5 text-center text-[11px] text-gray-400 font-mono">{idx + 1}</td>
                     <td className="px-1 py-1">
                       <AutocompleteInput
                         value={row.client_text}
-                        onChange={(v) => {
-                          updateNewRow(row.id, "client_text", v);
-                        }}
-                        onSelect={(item) => {
-                          updateNewRow(row.id, "client_text", item.label);
-                        }}
+                        onChange={(v) => updateNewRow(row.id, "client_text", v)}
+                        onSelect={(item) => updateNewRow(row.id, "client_text", item.label)}
                         items={getFilteredStores(row.client_text).map((s) => ({ id: s.id, label: s.name, sub: s.channel || undefined }))}
                         allItems={stores.map((s) => ({ id: s.id, label: s.name }))}
                         placeholder="판매처 검색"
                         className={cellInput}
                       />
                     </td>
-
-                    {/* 상품명 자동완성 */}
                     <td className="px-1 py-1">
                       <AutocompleteInput
                         value={row.product_name}
@@ -546,7 +576,6 @@ export default function PhoneOrdersPage() {
                         )}
                       />
                     </td>
-
                     <td className="px-1 py-1">
                       <input value={row.option_text} onChange={(e) => updateNewRow(row.id, "option_text", e.target.value)} placeholder="옵션" className={cellInput} />
                     </td>
@@ -562,8 +591,6 @@ export default function PhoneOrdersPage() {
                     <td className="px-1 py-1">
                       <input value={row.recipient_phone} onChange={(e) => updateNewRow(row.id, "recipient_phone", e.target.value)} placeholder="010-0000-0000" className={cellInput} />
                     </td>
-
-                    {/* 주소 검색 (JUSO API) */}
                     <td className="px-1 py-1">
                       <AddressSearchInput
                         value={row.recipient_address}
@@ -575,19 +602,14 @@ export default function PhoneOrdersPage() {
                         className={cellInput}
                       />
                     </td>
-
-                    {/* 상세주소 */}
                     <td className="px-1 py-1">
                       <input value={row.address_detail} onChange={(e) => updateNewRow(row.id, "address_detail", e.target.value)} placeholder="상세주소" className={cellInput} />
                     </td>
-
-                    {/* 우편번호 (자동) */}
                     <td className="px-1 py-1">
                       <input value={row.recipient_zipcode} readOnly placeholder="자동" className={`${cellInput} bg-gray-50 text-gray-500`} />
                     </td>
-
                     <td className="px-1 py-1 text-center">
-                      <button onClick={() => removeNewRow(row.id)} className="p-0.5 text-gray-300 hover:text-red-500" title="행 삭제">
+                      <button onClick={() => removeNewRow(row.id)} className="p-1 text-gray-300 hover:text-red-500 rounded hover:bg-red-50 transition-colors" title="행 삭제">
                         <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                         </svg>
@@ -598,107 +620,143 @@ export default function PhoneOrdersPage() {
               </tbody>
             </table>
           </div>
-          <div className="px-4 py-2.5 bg-gray-50 border-t border-gray-200 flex items-center justify-between">
-            <button onClick={addNewRow} className="px-3 py-1.5 text-xs font-medium text-gray-600 border border-gray-300 rounded hover:bg-white">+ 행 추가</button>
-            <div className="flex items-center gap-2">
+          <div className="px-4 py-3 bg-gray-50 border-t border-gray-200 flex items-center justify-between">
+            <button onClick={addNewRow} className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-gray-600 border border-gray-300 rounded-lg hover:bg-white transition-colors">
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+              </svg>
+              행 추가
+            </button>
+            <div className="flex items-center gap-3">
               <span className="text-xs text-gray-500">{newRows.filter((r) => r.product_name.trim() && r.recipient_name.trim()).length}건 입력됨</span>
-              <button onClick={submitNewRows} disabled={saving} className="px-4 py-1.5 bg-[#C41E1E] text-white text-xs font-medium rounded-lg hover:bg-[#A01818] disabled:opacity-50">
+              <button onClick={submitNewRows} disabled={saving} className="px-5 py-2 bg-[#C41E1E] text-white text-xs font-semibold rounded-lg hover:bg-[#A01818] disabled:opacity-50 transition-colors shadow-sm">
                 {saving ? "등록 중..." : "주문 등록"}
               </button>
             </div>
           </div>
-      </div>
+        </div>
+      )}
 
       {/* 필터 */}
-      <div className="bg-white rounded-xl border border-gray-200 p-3">
+      <div className="bg-white rounded-xl border border-gray-200 p-3.5 shadow-sm">
         <div className="flex flex-wrap items-center gap-2">
-          <select value={clientFilter} onChange={(e) => setClientFilter(e.target.value)} className="px-2.5 py-1.5 text-xs border border-gray-300 rounded-lg">
+          <select value={clientFilter} onChange={(e) => setClientFilter(e.target.value)} className="px-3 py-1.5 text-xs border border-gray-300 rounded-lg bg-white">
             <option value="">전체 판매처</option>
             {stores.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
           </select>
-          <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="px-2.5 py-1.5 text-xs border border-gray-300 rounded-lg">
+          <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="px-3 py-1.5 text-xs border border-gray-300 rounded-lg bg-white">
             <option value="">전체 상태</option>
             {Object.entries(STATUS_MAP).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
           </select>
-          <select value={paymentFilter} onChange={(e) => setPaymentFilter(e.target.value)} className="px-2.5 py-1.5 text-xs border border-gray-300 rounded-lg">
+          <select value={paymentFilter} onChange={(e) => setPaymentFilter(e.target.value)} className="px-3 py-1.5 text-xs border border-gray-300 rounded-lg bg-white">
             <option value="">입금 전체</option>
             {Object.entries(PAYMENT_MAP).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
           </select>
-          <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} className="px-2.5 py-1.5 text-xs border border-gray-300 rounded-lg" />
-          <span className="text-gray-400 text-xs">~</span>
-          <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} className="px-2.5 py-1.5 text-xs border border-gray-300 rounded-lg" />
-          <input type="text" value={keyword} onChange={(e) => setKeyword(e.target.value)} placeholder="상품명, 수령인, 입금자 검색" className="px-2.5 py-1.5 text-xs border border-gray-300 rounded-lg w-48" />
+          <div className="flex items-center gap-1.5">
+            <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} className="px-2.5 py-1.5 text-xs border border-gray-300 rounded-lg" />
+            <span className="text-gray-400 text-xs">~</span>
+            <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} className="px-2.5 py-1.5 text-xs border border-gray-300 rounded-lg" />
+          </div>
+          <div className="relative">
+            <svg className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+            </svg>
+            <input type="text" value={keyword} onChange={(e) => setKeyword(e.target.value)} placeholder="상품명, 수령인, 입금자 검색" className="pl-8 pr-3 py-1.5 text-xs border border-gray-300 rounded-lg w-52" />
+          </div>
         </div>
       </div>
 
       {/* 일괄 작업 */}
       {selected.size > 0 && (
-        <div className="bg-[#FFF0F5] rounded-xl border border-[#C41E1E]/20 p-2.5 flex items-center gap-3">
-          <span className="text-xs font-medium text-[#C41E1E]">{selected.size}건 선택</span>
+        <div className="bg-gradient-to-r from-[#FFF0F5] to-[#FFF5F8] rounded-xl border border-[#C41E1E]/20 p-3 flex items-center gap-3 shadow-sm">
+          <div className="flex items-center gap-2">
+            <div className="w-6 h-6 rounded-full bg-[#C41E1E] text-white text-[11px] font-bold flex items-center justify-center">{selected.size}</div>
+            <span className="text-xs font-medium text-[#C41E1E]">건 선택</span>
+          </div>
           <div className="flex gap-1.5 ml-auto">
-            <button onClick={() => bulkUpdate({ status: "confirmed" })} className="px-2.5 py-1 text-[11px] font-medium bg-blue-500 text-white rounded hover:bg-blue-600">확정</button>
-            <button onClick={() => bulkUpdate({ status: "shipping" })} className="px-2.5 py-1 text-[11px] font-medium bg-indigo-500 text-white rounded hover:bg-indigo-600">배송중</button>
-            <button onClick={() => bulkUpdate({ status: "delivered" })} className="px-2.5 py-1 text-[11px] font-medium bg-green-500 text-white rounded hover:bg-green-600">배송완료</button>
-            <button onClick={() => bulkUpdate({ payment_status: "paid", paid_at: new Date().toISOString() })} className="px-2.5 py-1 text-[11px] font-medium bg-emerald-500 text-white rounded hover:bg-emerald-600">입금확인</button>
-            <button onClick={bulkDelete} className="px-2.5 py-1 text-[11px] font-medium bg-red-500 text-white rounded hover:bg-red-600">삭제</button>
+            <button onClick={() => bulkUpdate({ status: "confirmed" })} className="px-3 py-1.5 text-[11px] font-semibold bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors shadow-sm">확정</button>
+            <button onClick={() => bulkUpdate({ status: "shipping" })} className="px-3 py-1.5 text-[11px] font-semibold bg-violet-500 text-white rounded-lg hover:bg-violet-600 transition-colors shadow-sm">배송중</button>
+            <button onClick={() => bulkUpdate({ status: "delivered" })} className="px-3 py-1.5 text-[11px] font-semibold bg-emerald-500 text-white rounded-lg hover:bg-emerald-600 transition-colors shadow-sm">배송완료</button>
+            <button onClick={() => bulkUpdate({ payment_status: "paid", paid_at: new Date().toISOString() })} className="px-3 py-1.5 text-[11px] font-semibold bg-teal-500 text-white rounded-lg hover:bg-teal-600 transition-colors shadow-sm">입금확인</button>
+            <div className="w-px h-6 bg-[#C41E1E]/20 mx-1" />
+            <button onClick={transferToOrders} disabled={transferring} className="px-3.5 py-1.5 text-[11px] font-semibold bg-[#C41E1E] text-white rounded-lg hover:bg-[#A01818] disabled:opacity-50 transition-colors shadow-sm flex items-center gap-1">
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7l5 5m0 0l-5 5m5-5H6" />
+              </svg>
+              {transferring ? "이관 중..." : "발주 이관"}
+            </button>
+            <div className="w-px h-6 bg-[#C41E1E]/20 mx-1" />
+            <button onClick={bulkDelete} className="px-3 py-1.5 text-[11px] font-semibold bg-white text-red-600 border border-red-200 rounded-lg hover:bg-red-50 transition-colors">삭제</button>
           </div>
         </div>
       )}
 
       {/* ====== 주문 목록 ====== */}
-      <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+      <div className="bg-white rounded-xl border border-gray-200 overflow-hidden shadow-sm">
         <div className="overflow-x-auto">
           <table className="w-full text-xs">
             <thead>
-              <tr className="bg-gray-50 border-b border-gray-200">
-                <th className="w-8 px-2 py-2.5"><input type="checkbox" checked={orders.length > 0 && selected.size === orders.length} onChange={toggleAll} className="rounded border-gray-300" /></th>
-                <th className="px-2 py-2.5 text-left text-[11px] font-semibold text-gray-500">주문번호</th>
-                <th className="px-2 py-2.5 text-left text-[11px] font-semibold text-gray-500">주문일</th>
-                <th className="px-2 py-2.5 text-left text-[11px] font-semibold text-gray-500">판매처</th>
-                <th className="px-2 py-2.5 text-left text-[11px] font-semibold text-gray-500">상품명</th>
-                <th className="px-2 py-2.5 text-left text-[11px] font-semibold text-gray-500">옵션</th>
-                <th className="px-2 py-2.5 text-center text-[11px] font-semibold text-gray-500">수량</th>
-                <th className="px-2 py-2.5 text-left text-[11px] font-semibold text-gray-500">수령인</th>
-                <th className="px-2 py-2.5 text-left text-[11px] font-semibold text-gray-500">입금자</th>
-                <th className="px-2 py-2.5 text-center text-[11px] font-semibold text-gray-500">입금</th>
-                <th className="px-2 py-2.5 text-center text-[11px] font-semibold text-gray-500">상태</th>
-                <th className="px-2 py-2.5 text-left text-[11px] font-semibold text-gray-500">메모</th>
+              <tr className="bg-gray-50/80 border-b border-gray-200">
+                <th className="w-9 px-3 py-3"><input type="checkbox" checked={orders.length > 0 && selected.size === orders.length} onChange={toggleAll} className="rounded border-gray-300 text-[#C41E1E] focus:ring-[#C41E1E]" /></th>
+                <th className="px-3 py-3 text-left text-[11px] font-semibold text-gray-500">주문번호</th>
+                <th className="px-3 py-3 text-left text-[11px] font-semibold text-gray-500">주문일</th>
+                <th className="px-3 py-3 text-left text-[11px] font-semibold text-gray-500">판매처</th>
+                <th className="px-3 py-3 text-left text-[11px] font-semibold text-gray-500">상품명</th>
+                <th className="px-3 py-3 text-left text-[11px] font-semibold text-gray-500">옵션</th>
+                <th className="px-3 py-3 text-center text-[11px] font-semibold text-gray-500">수량</th>
+                <th className="px-3 py-3 text-left text-[11px] font-semibold text-gray-500">수령인</th>
+                <th className="px-3 py-3 text-left text-[11px] font-semibold text-gray-500">입금자</th>
+                <th className="px-3 py-3 text-center text-[11px] font-semibold text-gray-500">입금</th>
+                <th className="px-3 py-3 text-center text-[11px] font-semibold text-gray-500">상태</th>
+                <th className="px-3 py-3 text-left text-[11px] font-semibold text-gray-500">메모</th>
               </tr>
             </thead>
             <tbody>
               {loading ? (
-                <tr><td colSpan={12} className="py-16 text-center text-gray-400 text-sm">불러오는 중...</td></tr>
+                <tr><td colSpan={12} className="py-20 text-center">
+                  <div className="flex flex-col items-center gap-2">
+                    <div className="w-6 h-6 border-2 border-gray-200 border-t-[#C41E1E] rounded-full animate-spin" />
+                    <span className="text-sm text-gray-400">불러오는 중...</span>
+                  </div>
+                </td></tr>
               ) : orders.length === 0 ? (
-                <tr><td colSpan={12} className="py-16 text-center text-gray-400 text-sm">전화주문이 없습니다</td></tr>
+                <tr><td colSpan={12} className="py-20 text-center">
+                  <div className="flex flex-col items-center gap-2">
+                    <svg className="w-10 h-10 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" />
+                    </svg>
+                    <span className="text-sm text-gray-400">전화주문이 없습니다</span>
+                  </div>
+                </td></tr>
               ) : (
                 orders.map((order) => {
                   const st = STATUS_MAP[order.status] || STATUS_MAP.pending;
                   const pt = PAYMENT_MAP[order.payment_status] || PAYMENT_MAP.unpaid;
                   return (
-                    <tr key={order.id} className={`border-b border-gray-100 hover:bg-gray-50/50 ${selected.has(order.id) ? "bg-[#FFF8FA]" : ""}`}>
-                      <td className="px-2 py-2"><input type="checkbox" checked={selected.has(order.id)} onChange={() => toggleOne(order.id)} className="rounded border-gray-300" /></td>
-                      <td className="px-2 py-2 font-mono text-[11px] text-gray-500">{order.order_number}</td>
-                      <td className="px-2 py-2 text-[11px] text-gray-500">{order.order_date}</td>
-                      <td className="px-2 py-2 text-xs font-medium text-gray-900">{order.phone_order_clients?.name || "-"}</td>
-                      <td className="px-2 py-2 text-xs text-gray-900 max-w-[180px] truncate">{order.product_name}</td>
-                      <td className="px-2 py-2 text-[11px] text-gray-500 max-w-[100px] truncate">{order.option_text || "-"}</td>
-                      <td className="px-2 py-2 text-center text-xs">{order.quantity}</td>
-                      <td className="px-2 py-2 text-xs text-gray-900">{order.recipient_name}</td>
-                      <td className="px-2 py-2 text-[11px] text-gray-500">{order.depositor_name || "-"}</td>
-                      <td className="px-2 py-2 text-center">
+                    <tr key={order.id} className={`border-b border-gray-100 hover:bg-gray-50/50 transition-colors ${selected.has(order.id) ? "bg-[#FFF8FA]" : ""}`}>
+                      <td className="px-3 py-2.5"><input type="checkbox" checked={selected.has(order.id)} onChange={() => toggleOne(order.id)} className="rounded border-gray-300 text-[#C41E1E] focus:ring-[#C41E1E]" /></td>
+                      <td className="px-3 py-2.5 font-mono text-[11px] text-gray-500 whitespace-nowrap">{order.order_number}</td>
+                      <td className="px-3 py-2.5 text-[11px] text-gray-500 whitespace-nowrap">{order.order_date}</td>
+                      <td className="px-3 py-2.5 text-xs font-medium text-gray-900">{order.phone_order_clients?.name || "-"}</td>
+                      <td className="px-3 py-2.5 text-xs text-gray-900 max-w-[200px] truncate" title={order.product_name}>{order.product_name}</td>
+                      <td className="px-3 py-2.5 text-[11px] text-gray-500 max-w-[100px] truncate">{order.option_text || "-"}</td>
+                      <td className="px-3 py-2.5 text-center text-xs font-medium">{order.quantity}</td>
+                      <td className="px-3 py-2.5 text-xs text-gray-900">{order.recipient_name}</td>
+                      <td className="px-3 py-2.5 text-[11px] text-gray-500">{order.depositor_name || "-"}</td>
+                      <td className="px-3 py-2.5 text-center">
                         <button onClick={() => singleUpdate(order.id, order.payment_status === "unpaid" ? { payment_status: "paid", paid_at: new Date().toISOString() } : { payment_status: "unpaid", paid_at: null })}
-                          className={`text-[11px] font-medium px-1.5 py-0.5 rounded-full cursor-pointer ${pt.color} ${pt.bg}`}>{pt.label}</button>
+                          className={`inline-flex items-center gap-1 text-[11px] font-medium px-2 py-0.5 rounded-full border cursor-pointer transition-colors ${pt.color} ${pt.bg}`}>{pt.label}</button>
                       </td>
-                      <td className="px-2 py-2 text-center">
+                      <td className="px-3 py-2.5 text-center">
                         <select value={order.status} onChange={(e) => {
                           const updates: Record<string, unknown> = { status: e.target.value };
                           if (e.target.value === "shipping" && !order.shipped_at) updates.shipped_at = new Date().toISOString();
                           singleUpdate(order.id, updates);
-                        }} className={`text-[11px] font-medium px-1.5 py-0.5 rounded-full border-0 cursor-pointer ${st.color} ${st.bg}`}>
+                        }} className={`text-[11px] font-medium px-2 py-0.5 rounded-full border cursor-pointer transition-colors ${st.color} ${st.bg}`}>
                           {Object.entries(STATUS_MAP).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
                         </select>
                       </td>
-                      <EditableCell orderId={order.id} field="memo" value={order.memo} />
+                      <EditableCell orderId={order.id} field="memo" value={order.memo} placeholder="메모 입력" />
                     </tr>
                   );
                 })
