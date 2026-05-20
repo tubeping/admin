@@ -1,7 +1,5 @@
 "use client";
 
-export const dynamic = "force-dynamic";
-
 import { useState, useEffect, useCallback, useMemo, memo, useRef } from "react";
 
 interface Store { id: string; name: string; mall_id: string; status: string; }
