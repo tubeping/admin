@@ -1047,74 +1047,48 @@ export default function UnifiedOrdersPage() {
         </div>
       </div>
 
-      {/* Filter Area */}
-      <div className="bg-white rounded-xl border border-gray-200 p-5 mb-4">
-        <div className="grid grid-cols-6 gap-3 mb-3">
-          <div>
-            <label className="text-xs text-gray-500 block mb-1">판매사</label>
-            <select value={filterStore} onChange={(e) => setFilterStore(e.target.value)} className="w-full text-sm border border-gray-300 rounded-lg px-3 py-2">
-              <option value="">전체</option>
-              {stores.filter((s) => s.status === "active").map((s) => (<option key={s.id} value={s.id}>{s.name}</option>))}
-            </select>
+      {/* Filter Area — 날짜/검색만 (판매사/공급사/배송상태는 테이블 인라인 필터로 이동) */}
+      <div className="bg-white rounded-xl border border-gray-200 p-4 mb-4">
+        <div className="flex items-center gap-3 flex-wrap">
+          <div className="flex items-center gap-2">
+            <label className="text-xs text-gray-500">시작일</label>
+            <input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} className="text-sm border border-gray-300 rounded-lg px-2 py-1.5" />
           </div>
-          <div>
-            <label className="text-xs text-gray-500 block mb-1">공급사</label>
-            <select value={filterSupplier} onChange={(e) => setFilterSupplier(e.target.value)} className="w-full text-sm border border-gray-300 rounded-lg px-3 py-2">
-              <option value="">전체</option>
-              <option value="__none__">미배정</option>
-              {suppliers.map((s) => (<option key={s.id} value={s.id}>{s.name}</option>))}
-            </select>
+          <div className="flex items-center gap-2">
+            <label className="text-xs text-gray-500">종료일</label>
+            <input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} className="text-sm border border-gray-300 rounded-lg px-2 py-1.5" />
           </div>
-          <div>
-            <label className="text-xs text-gray-500 block mb-1">배송상태</label>
-            <select value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)} className="w-full text-sm border border-gray-300 rounded-lg px-3 py-2">
-              <option value="">전체</option>
-              {Object.entries(STATUS_LABEL).map(([k, v]) => (<option key={k} value={k}>{v}</option>))}
-            </select>
+          <div className="flex gap-1">
+            {[
+              { label: "이번달", from: (() => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-01`; })(), to: today() },
+              { label: "오늘", from: today(), to: today() },
+              { label: "7일", from: daysAgo(7), to: today() },
+              { label: "15일", from: daysAgo(15), to: today() },
+              { label: "30일", from: daysAgo(30), to: today() },
+              { label: "60일", from: daysAgo(60), to: today() },
+            ].map((p) => (
+              <button key={p.label} onClick={() => { setDateFrom(p.from); setDateTo(p.to); }}
+                className={`text-xs px-2 py-1 rounded border cursor-pointer ${dateFrom === p.from ? "bg-[#C41E1E] text-white border-[#C41E1E]" : "border-gray-300 hover:bg-gray-50"}`}
+              >{p.label}</button>
+            ))}
           </div>
-          <div>
-            <label className="text-xs text-gray-500 block mb-1">시작일</label>
-            <input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} className="w-full text-sm border border-gray-300 rounded-lg px-3 py-2" />
-          </div>
-          <div>
-            <label className="text-xs text-gray-500 block mb-1">종료일</label>
-            <input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} className="w-full text-sm border border-gray-300 rounded-lg px-3 py-2" />
-          </div>
-          <div>
-            <label className="text-xs text-gray-500 block mb-1">빠른선택</label>
-            <div className="flex gap-1 flex-wrap">
-              {[
-                { label: "이번달", from: (() => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-01`; })(), to: today() },
-                { label: "오늘", from: today(), to: today() },
-                { label: "7일", from: daysAgo(7), to: today() },
-                { label: "15일", from: daysAgo(15), to: today() },
-                { label: "30일", from: daysAgo(30), to: today() },
-                { label: "60일", from: daysAgo(60), to: today() },
-              ].map((p) => (
-                <button key={p.label} onClick={() => { setDateFrom(p.from); setDateTo(p.to); }}
-                  className={`text-xs px-2 py-1 rounded border cursor-pointer ${dateFrom === p.from ? "bg-[#C41E1E] text-white border-[#C41E1E]" : "border-gray-300 hover:bg-gray-50"}`}
-                >{p.label}</button>
-              ))}
-            </div>
-          </div>
-        </div>
-        <div className="flex items-center gap-4">
+          <div className="w-px h-6 bg-gray-200" />
           <input
             value={searchKeyword} onChange={(e) => setSearchKeyword(e.target.value)}
-            className="text-sm border border-gray-300 rounded-lg px-3 py-2 w-64"
+            className="text-sm border border-gray-300 rounded-lg px-3 py-1.5 w-64"
             placeholder="상품명, 주문번호, 주문자, 연락처, 송장번호"
           />
-          <label className="flex items-center gap-1.5 text-sm text-gray-600 cursor-pointer">
+          <label className="flex items-center gap-1.5 text-xs text-gray-600 cursor-pointer">
             <input type="checkbox" checked={filterNoTracking} onChange={(e) => setFilterNoTracking(e.target.checked)} className="rounded" />
             송장 미입력
           </label>
-          <label className="flex items-center gap-1.5 text-sm text-gray-600 cursor-pointer">
+          <label className="flex items-center gap-1.5 text-xs text-gray-600 cursor-pointer">
             <input type="checkbox" checked={filterNoSupplier} onChange={(e) => setFilterNoSupplier(e.target.checked)} className="rounded" />
             공급사 미배정
           </label>
           <div className="ml-auto flex gap-2">
-            <button onClick={() => fetchOrders()} className="px-3 py-2 bg-gray-900 text-white text-sm rounded-lg hover:bg-gray-700 cursor-pointer">검색</button>
-            <button onClick={handleReset} className="px-3 py-2 border border-gray-300 text-sm rounded-lg hover:bg-gray-50 cursor-pointer">초기화</button>
+            <button onClick={() => fetchOrders()} className="px-3 py-1.5 bg-gray-900 text-white text-sm rounded-lg hover:bg-gray-700 cursor-pointer">검색</button>
+            <button onClick={handleReset} className="px-3 py-1.5 border border-gray-300 text-sm rounded-lg hover:bg-gray-50 cursor-pointer">초기화</button>
           </div>
         </div>
       </div>
