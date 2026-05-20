@@ -515,7 +515,7 @@ export default function UnifiedOrdersPage() {
           body: JSON.stringify({ addresses: batch.map((o) => ({ id: o.id, address: o.receiver_address })) }),
         });
         const data = await res.json();
-        if (!res.ok) { alert(`주소 검증 오류: ${data.error}`); break; }
+        if (!res.ok) { alert(`주소 검증 오류: ${data.error}`); setAddrVerifying(false); return; }
         allResults.push(...(data.results || []));
       }
       const map: Record<string, AddrVerifyResult> = {};
