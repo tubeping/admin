@@ -118,8 +118,9 @@ const MENU_GROUPS: MenuGroup[] = [
           </svg>
         ),
         children: [
-          { key: "orders-manage", label: "주문집계", href: "/mall/orders" },
-          { key: "orders-lookup", label: "주문조회", href: "/mall/orders/lookup" },
+          { key: "orders-unified", label: "주문수집 및 조회", href: "/mall/orders/unified" },
+          { key: "orders-manage", label: "주문집계(구)", href: "/mall/orders" },
+          { key: "orders-lookup", label: "주문조회(구)", href: "/mall/orders/lookup" },
           // { key: "orders-phone", label: "전화주문 관리", href: "/mall/orders/phone" },
           { key: "orders-payment", label: "입금확인", href: "/mall/orders/payment" },
           { key: "orders-verification", label: "매핑 검증", href: "/mall/orders/verification" },
