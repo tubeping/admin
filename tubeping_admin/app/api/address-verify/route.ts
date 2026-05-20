@@ -93,12 +93,14 @@ export async function POST(request: NextRequest) {
           }
         }
 
-        // If we got results but none match closely, suggest the top one
+        // If we got results but none match exactly, still treat as valid
+        // (juso.go.kr only verifies up to road name, not detail address)
         return {
           id,
-          status: "suspect" as const,
-          reason: "유사 주소 발견 (정확한 매칭 없음)",
+          status: "valid" as const,
+          reason: null,
           suggestion: juso[0]?.roadAddr || null,
+          matched: juso[0]?.roadAddr || null,
           zipNo: juso[0]?.zipNo || null,
         };
       } catch (e) {

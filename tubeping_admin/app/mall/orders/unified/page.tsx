@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback, useMemo, memo, useRef } from "react";
 
 interface Store { id: string; name: string; mall_id: string; status: string; }
 interface Supplier { id: string; name: string; email: string; }
-interface AddrVerifyResult { id: string; status: "valid" | "invalid" | "suspect" | "unknown"; reason?: string | null; suggestion?: string | null; matched?: string; zipNo?: string | null }
+interface AddrVerifyResult { id: string; status: "valid" | "invalid" | "unknown"; reason?: string | null; suggestion?: string | null; matched?: string; zipNo?: string | null }
 
 interface Order {
   id: string;
@@ -175,7 +175,7 @@ const OrderRow = memo(function OrderRow({
         <div className="flex items-center gap-1">
           {addrStatus && (
             <span title={addrStatus.reason || addrStatus.suggestion || (addrStatus.status === "valid" ? "검증 완료" : "")} className={`shrink-0 w-1.5 h-1.5 rounded-full ${
-              addrStatus.status === "valid" ? "bg-green-500" : addrStatus.status === "invalid" ? "bg-red-500" : addrStatus.status === "suspect" ? "bg-yellow-500" : "bg-gray-400"
+              addrStatus.status === "valid" ? "bg-green-500" : addrStatus.status === "invalid" ? "bg-red-500" : "bg-gray-400"
             }`} />
           )}
           <div className="text-[11px] text-gray-600 truncate" title={o.receiver_address || ""}>{o.receiver_address || <span className="text-gray-300">-</span>}</div>
@@ -523,8 +523,7 @@ export default function UnifiedOrdersPage() {
       setAddrResults((prev) => ({ ...prev, ...map }));
       const valid = allResults.filter((r) => r.status === "valid").length;
       const invalid = allResults.filter((r) => r.status === "invalid").length;
-      const suspect = allResults.filter((r) => r.status === "suspect").length;
-      alert(`주소 검증 완료 (${allResults.length}건)\n\n● 정상: ${valid}건\n● 오류: ${invalid}건\n● 의심: ${suspect}건`);
+      alert(`주소 검증 완료 (${allResults.length}건)\n\n● 정상: ${valid}건\n● 오류: ${invalid}건`);
     } catch (e) { alert(`주소 검증 실패: ${(e as Error).message}`); }
     finally { setAddrVerifying(false); }
   };
@@ -655,7 +654,7 @@ export default function UnifiedOrdersPage() {
               const map: Record<string, AddrVerifyResult> = { ...addrResults };
               for (const r of verData.results) map[r.id] = r;
               setAddrResults(map);
-              const invalidAddr = verData.results.filter((r: AddrVerifyResult) => r.status === "invalid" || r.status === "suspect");
+              const invalidAddr = verData.results.filter((r: AddrVerifyResult) => r.status === "invalid");
               if (invalidAddr.length > 0) {
                 alert(`주소 검증 완료: ${invalidAddr.length}건 확인 필요\n\n${invalidAddr.map((r: AddrVerifyResult) => `- ${r.reason || r.suggestion || r.status}`).slice(0, 5).join("\n")}`);
               }
