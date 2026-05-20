@@ -300,6 +300,9 @@ export default function OrdersPage() {
   const [colFilterChannel, setColFilterChannel] = useState(""); // "" | "phone" | "group" | "sample" | "domestic"
   const [colFilterPayment, setColFilterPayment] = useState(""); // "" | "paid" | "unpaid"
   const [colFilterPOStatus, setColFilterPOStatus] = useState(""); // "" | "no_po" | "mail_not_sent" | "mail_sent" | "mail_read" | "tracking"
+  const [colFilterWarehouse, setColFilterWarehouse] = useState("");
+  const [colFilterQty, setColFilterQty] = useState(""); // "" | "1" | "2+"
+  const [colFilterAmount, setColFilterAmount] = useState(""); // "" | "under10k" | "10k_50k" | "50k_100k" | "over100k"
   // 기본값: 이번 달 1일 ~ 오늘
   const [dateFrom, setDateFrom] = useState(() => {
     const d = new Date();
@@ -461,6 +464,13 @@ export default function OrdersPage() {
       if (colFilterChannel === "domestic" && (o.sales_channel || !o.stores?.name)) return false;
       if (colFilterPayment === "paid" && (o.shipping_status === "pending" || o.shipping_status === "cancelled")) return false;
       if (colFilterPayment === "unpaid" && o.shipping_status !== "pending") return false;
+      if (colFilterWarehouse && !(o.warehouse_name || "").toLowerCase().includes(colFilterWarehouse.toLowerCase())) return false;
+      if (colFilterQty === "1" && o.quantity !== 1) return false;
+      if (colFilterQty === "2+" && o.quantity < 2) return false;
+      if (colFilterAmount === "under10k" && o.order_amount >= 10000) return false;
+      if (colFilterAmount === "10k_50k" && (o.order_amount < 10000 || o.order_amount >= 50000)) return false;
+      if (colFilterAmount === "50k_100k" && (o.order_amount < 50000 || o.order_amount >= 100000)) return false;
+      if (colFilterAmount === "over100k" && o.order_amount < 100000) return false;
       if (colFilterPOStatus) {
         const ps = derivePOStatus(o);
         if (colFilterPOStatus === "no_po" && ps.label !== "미발주") return false;
@@ -471,10 +481,10 @@ export default function OrdersPage() {
       }
       return true;
     });
-  }, [rawOrders, filterSupplier, filterNoTracking, filterNoSupplier, poTab, searchKeyword, colFilterOrderNo, colFilterProduct, colFilterCustomer, colFilterChannel, colFilterPayment, colFilterPOStatus]);
+  }, [rawOrders, filterSupplier, filterNoTracking, filterNoSupplier, poTab, searchKeyword, colFilterOrderNo, colFilterProduct, colFilterCustomer, colFilterChannel, colFilterPayment, colFilterPOStatus, colFilterWarehouse, colFilterQty, colFilterAmount]);
 
   // 필터 변경 시 페이지 리셋
-  useEffect(() => { setPage((p) => p === 0 ? p : 0); }, [rawOrders, filterSupplier, filterNoTracking, filterNoSupplier, poTab, searchKeyword, colFilterOrderNo, colFilterProduct, colFilterCustomer, colFilterChannel, colFilterPayment, colFilterPOStatus]);
+  useEffect(() => { setPage((p) => p === 0 ? p : 0); }, [rawOrders, filterSupplier, filterNoTracking, filterNoSupplier, poTab, searchKeyword, colFilterOrderNo, colFilterProduct, colFilterCustomer, colFilterChannel, colFilterPayment, colFilterPOStatus, colFilterWarehouse, colFilterQty, colFilterAmount]);
 
   // 현재 페이지에 표시할 주문만 슬라이스
   const totalPages = Math.max(1, Math.ceil(orders.length / PAGE_SIZE));
@@ -1184,11 +1194,12 @@ export default function OrdersPage() {
               {/* 컬럼별 필터 행 */}
               <tr className="text-xs border-b border-gray-200 bg-white">
                 <th className="px-2 py-1.5">
-                  {(colFilterOrderNo || colFilterProduct || colFilterCustomer || colFilterChannel || colFilterPayment || colFilterPOStatus || filterStore || filterSupplier || filterStatus) && (
+                  {(colFilterOrderNo || colFilterProduct || colFilterCustomer || colFilterChannel || colFilterPayment || colFilterPOStatus || colFilterWarehouse || colFilterQty || colFilterAmount || filterStore || filterSupplier || filterStatus) && (
                     <button
                       onClick={() => {
                         setColFilterOrderNo(""); setColFilterProduct(""); setColFilterCustomer("");
                         setColFilterChannel(""); setColFilterPayment(""); setColFilterPOStatus("");
+                        setColFilterWarehouse(""); setColFilterQty(""); setColFilterAmount("");
                         setFilterStore(""); setFilterSupplier(""); setFilterStatus("");
                       }}
                       title="필터 초기화"
@@ -1236,9 +1247,28 @@ export default function OrdersPage() {
                     {suppliers.map((s) => (<option key={s.id} value={s.id}>{s.name}</option>))}
                   </select>
                 </th>
-                <th></th>
-                <th></th>
-                <th></th>
+                <th className="px-1 py-1">
+                  <input type="text" value={colFilterWarehouse} onChange={(e) => setColFilterWarehouse(e.target.value)}
+                    placeholder="출고지" className="w-full text-[11px] border border-gray-200 rounded px-1.5 py-0.5 bg-white" />
+                </th>
+                <th className="px-1 py-1">
+                  <select value={colFilterQty} onChange={(e) => setColFilterQty(e.target.value)}
+                    className="w-full text-[11px] border border-gray-200 rounded px-1 py-0.5 bg-white">
+                    <option value="">전체</option>
+                    <option value="1">1개</option>
+                    <option value="2+">2개이상</option>
+                  </select>
+                </th>
+                <th className="px-1 py-1">
+                  <select value={colFilterAmount} onChange={(e) => setColFilterAmount(e.target.value)}
+                    className="w-full text-[11px] border border-gray-200 rounded px-1 py-0.5 bg-white">
+                    <option value="">전체</option>
+                    <option value="under10k">~1만</option>
+                    <option value="10k_50k">1~5만</option>
+                    <option value="50k_100k">5~10만</option>
+                    <option value="over100k">10만~</option>
+                  </select>
+                </th>
                 <th className="px-1 py-1 text-center">
                   <select value={colFilterPayment} onChange={(e) => setColFilterPayment(e.target.value)}
                     className="w-full text-[11px] border border-gray-200 rounded px-1 py-0.5 bg-white">
