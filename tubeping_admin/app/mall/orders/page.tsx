@@ -74,6 +74,24 @@ function derivePOStatus(o: Order): { label: string; style: string } {
   return { label: "", style: "" };
 }
 
+const TRACKING_URLS: Record<string, string> = {
+  "CJ대한통운": "https://trace.cjlogistics.com/next/tracking.html?wblNo=",
+  "한진택배": "https://trace.hanjin.co.kr/tracking?gnbInvcNo=",
+  "롯데택배": "https://www.lotteglogis.com/home/reservation/tracking/link498?InvNo=",
+  "우체국택배": "https://service.epost.go.kr/trace.RetrieveDomRi498Track.postal?sid1=",
+  "로젠택배": "https://www.ilogen.com/web/personal/trace/",
+  "경동택배": "https://kdexp.com/newDeliverySearch.kd?barcode=",
+  "대신택배": "https://www.ds3211.co.kr/freight/internalFreightSearch.ht?billno=",
+};
+
+function getTrackingUrl(company: string, trackingNo: string): string | null {
+  if (!company || !trackingNo) return null;
+  for (const [name, url] of Object.entries(TRACKING_URLS)) {
+    if (company.includes(name) || name.includes(company)) return url + trackingNo;
+  }
+  return null;
+}
+
 function toKST(d: string): Date {
   const dt = new Date(d);
   return new Date(dt.getTime() + 9 * 60 * 60 * 1000);
@@ -239,7 +257,18 @@ const OrderRow = memo(function OrderRow({
         {o.tracking_number ? (
           <div>
             <span className="text-[11px] text-gray-500">{o.shipping_company}</span>
-            <span className="text-xs text-gray-700 ml-1">{o.tracking_number}</span>
+            {(() => {
+              const url = getTrackingUrl(o.shipping_company, o.tracking_number);
+              return url ? (
+                <a href={url} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()}
+                  className="text-xs text-blue-600 hover:text-blue-800 hover:underline font-mono ml-1"
+                  title="배송추적 열기">
+                  {o.tracking_number}
+                </a>
+              ) : (
+                <span className="text-xs text-gray-700 ml-1">{o.tracking_number}</span>
+              );
+            })()}
             {!o.cafe24_shipping_synced && <span className="text-[10px] text-orange-500 ml-1">미연동</span>}
           </div>
         ) : noTrack ? (
