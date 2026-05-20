@@ -10,6 +10,7 @@ interface PurchaseOrder {
   total_items: number;
   total_amount: number;
   access_password: string;
+  access_expires_at: string | null;
   status: string;
   sent_at: string | null;
   viewed_at: string | null;
@@ -302,6 +303,7 @@ export default function PurchaseOrdersPage() {
                 <th className="text-center px-3 py-3 font-medium">발송</th>
                 <th className="text-center px-3 py-3 font-medium">열람</th>
                 <th className="text-center px-3 py-3 font-medium">송장/카페24</th>
+                <th className="text-center px-3 py-3 font-medium">접속만료</th>
                 <th className="text-right px-6 py-3 font-medium">발주일</th>
                 <th className="text-center px-3 py-3 font-medium">액션</th>
               </tr>
@@ -359,6 +361,42 @@ export default function PurchaseOrdersPage() {
                           <span className={pending > 0 ? "text-orange-600 font-medium" : "text-green-600"}>
                             카페24 {s.synced}/{s.tracked}
                           </span>
+                        </div>
+                      );
+                    })()}
+                  </td>
+                  <td className="px-3 py-3.5 text-xs text-center whitespace-nowrap">
+                    {(() => {
+                      if (!po.access_expires_at) return <span className="text-gray-400">-</span>;
+                      const exp = new Date(po.access_expires_at);
+                      const now = new Date();
+                      const diffMs = exp.getTime() - now.getTime();
+                      const expired = diffMs < 0;
+                      const days = Math.ceil(Math.abs(diffMs) / (1000 * 60 * 60 * 24));
+                      return (
+                        <div className="flex flex-col items-center gap-1">
+                          <span className={expired ? "text-red-600 font-medium" : days <= 2 ? "text-orange-600" : "text-green-600"}>
+                            {expired ? `만료 (${days}일 전)` : `${days}일 남음`}
+                          </span>
+                          <button
+                            onClick={async () => {
+                              const res = await fetch("/api/purchase-orders", {
+                                method: "PATCH",
+                                headers: { "Content-Type": "application/json" },
+                                body: JSON.stringify({ id: po.id, days: 7 }),
+                              });
+                              const data = await res.json();
+                              if (data.success) {
+                                alert("접속 기한이 7일 연장되었습니다.");
+                                fetchPOs();
+                              } else {
+                                alert(`연장 실패: ${data.error}`);
+                              }
+                            }}
+                            className="text-[10px] text-blue-600 hover:underline cursor-pointer"
+                          >
+                            +7일 연장
+                          </button>
                         </div>
                       );
                     })()}

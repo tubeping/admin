@@ -171,6 +171,36 @@ export async function POST(request: NextRequest) {
 }
 
 /**
+ * PATCH /api/purchase-orders — 발주서 만료 연장
+ * body: { id: string, days?: number }
+ * 기본 7일 연장 (현재 시점 기준)
+ */
+export async function PATCH(request: NextRequest) {
+  const body = await request.json();
+  const { id, days = 7 } = body;
+
+  if (!id) {
+    return NextResponse.json({ error: "id 필수" }, { status: 400 });
+  }
+
+  const sb = getServiceClient();
+  const newExpiry = new Date(Date.now() + days * 24 * 60 * 60 * 1000).toISOString();
+
+  const { data, error } = await sb
+    .from("purchase_orders")
+    .update({ access_expires_at: newExpiry })
+    .eq("id", id)
+    .select("id, access_expires_at")
+    .single();
+
+  if (error) {
+    return NextResponse.json({ error: error.message }, { status: 500 });
+  }
+
+  return NextResponse.json({ success: true, access_expires_at: data.access_expires_at });
+}
+
+/**
  * DELETE /api/purchase-orders — 발주서 삭제
  * body: { id: string }
  *
