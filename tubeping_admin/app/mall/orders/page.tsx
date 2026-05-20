@@ -473,11 +473,17 @@ export default function OrdersPage() {
 
   useEffect(() => { fetchOrders(); fetchStores(); fetchSuppliers(); }, [fetchOrders]);
 
-  // 클립보드 붙여넣기 (Ctrl+V) — 이미지 감지 시 OCR
+  // 클립보드 붙여넣기 (Ctrl+V) — 이미지 → OCR, 텍스트(탭 구분) → 엑셀 임포트
   useEffect(() => {
     const handlePaste = (e: ClipboardEvent) => {
+      // input/textarea 내에서의 붙여넣기는 무시
+      const tag = (e.target as HTMLElement)?.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
+
       const items = e.clipboardData?.items;
       if (!items) return;
+
+      // 이미지 감지 시 OCR
       for (const item of Array.from(items)) {
         if (item.type.startsWith("image/")) {
           e.preventDefault();
@@ -486,10 +492,22 @@ export default function OrdersPage() {
           return;
         }
       }
+
+      // 텍스트 붙여넣기 — 탭 구분 데이터(엑셀 복사)이면 CSV로 변환 후 임포트
+      const text = e.clipboardData?.getData("text/plain");
+      if (text && text.includes("\t")) {
+        e.preventDefault();
+        const csvContent = text.split("\n").map((line) =>
+          line.split("\t").map((cell) => `"${cell.replace(/"/g, '""')}"`).join(",")
+        ).join("\n");
+        const blob = new Blob(["\uFEFF" + csvContent], { type: "text/csv;charset=utf-8;" });
+        const file = new File([blob], "clipboard-paste.csv", { type: "text/csv" });
+        handleImportFile(file);
+      }
     };
     document.addEventListener("paste", handlePaste);
     return () => document.removeEventListener("paste", handlePaste);
-  }, [handleImageOCR]);
+  }, [handleImageOCR, handleImportFile]);
 
   // 카페24 주문 수집
   const handleSync = async () => {
