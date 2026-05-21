@@ -57,7 +57,36 @@ export async function GET(request: NextRequest) {
     mallOrders = data || [];
   }
 
-  // 4. 통계 계산
+  // 4. 금액 0인 주문에 상품 기본가 보정
+  const zeroAmountNames = [
+    ...allPhoneOrders.filter((o) => !o.total_amount && o.product_name).map((o) => o.product_name),
+    ...mallOrders.filter((o) => !(o.order_amount as number) && !(o.product_price as number) && o.product_name).map((o) => o.product_name as string),
+  ];
+  if (zeroAmountNames.length > 0) {
+    const uniqueNames = [...new Set(zeroAmountNames)];
+    const { data: products } = await sb
+      .from("products")
+      .select("product_name, price")
+      .in("product_name", uniqueNames);
+    const priceMap: Record<string, number> = {};
+    for (const p of products || []) {
+      if (p.product_name && p.price) priceMap[p.product_name] = p.price;
+    }
+    for (const o of allPhoneOrders) {
+      if (!o.total_amount && priceMap[o.product_name]) {
+        o.total_amount = priceMap[o.product_name] * (o.quantity || 1);
+        o.unit_price = priceMap[o.product_name];
+      }
+    }
+    for (const o of mallOrders) {
+      if (!(o.order_amount as number) && !(o.product_price as number) && priceMap[o.product_name as string]) {
+        o.order_amount = priceMap[o.product_name as string] * ((o.quantity as number) || 1);
+        o.product_price = priceMap[o.product_name as string];
+      }
+    }
+  }
+
+  // 5. 통계 계산
   const allPhoneOrders = phoneOrders || [];
   const stats = {
     phone: {
