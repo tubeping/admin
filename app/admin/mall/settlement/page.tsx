@@ -381,7 +381,7 @@ export default function SettlementPage() {
     setCreating(false);
     if (!res.ok) return alert(data.error || "정산 생성 실패");
     setPeriod(createPeriod);
-    setFilterStore("");
+    setFilterStore(targetStore);
     setShowCreateForm(false);
     fetchSettlements();
   };
