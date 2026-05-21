@@ -70,6 +70,7 @@ export default function SellerPortalPage() {
   const [phoneOrders, setPhoneOrders] = useState<PhoneOrder[]>([]);
   const [mallOrders, setMallOrders] = useState<MallOrder[]>([]);
   const [stats, setStats] = useState<Stats | null>(null);
+  const [period, setPeriod] = useState("");
   const [tab, setTab] = useState<"all" | "phone" | "mall">("all");
   const [lastRefresh, setLastRefresh] = useState<Date>(new Date());
 
@@ -87,6 +88,7 @@ export default function SellerPortalPage() {
       setPhoneOrders(data.phoneOrders || []);
       setMallOrders(data.mallOrders || []);
       setStats(data.stats);
+      setPeriod(data.period || "");
       setError(null);
       setLastRefresh(new Date());
     } catch {
@@ -144,7 +146,9 @@ export default function SellerPortalPage() {
               </div>
               <div>
                 <h1 className="text-lg font-bold text-gray-900">{clientName}</h1>
-                <p className="text-xs text-gray-500">주문 현황 대시보드</p>
+                <p className="text-xs text-gray-500">
+                  {period ? `${period.slice(0, 7).replace("-", "년 ")}월` : ""} 주문 현황
+                </p>
               </div>
             </div>
             <div className="flex items-center gap-3">
@@ -194,7 +198,7 @@ export default function SellerPortalPage() {
           {[
             { key: "all" as const, label: "전체", count: totalOrders },
             { key: "phone" as const, label: "전화주문", count: stats?.phone.total || 0 },
-            { key: "mall" as const, label: "자사몰", count: stats?.mall.total || 0 },
+            { key: "mall" as const, label: "주문", count: stats?.mall.total || 0 },
           ].map((t) => (
             <button
               key={t.key}
@@ -278,7 +282,7 @@ export default function SellerPortalPage() {
           <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
             {tab === "all" && (
               <div className="px-4 py-3 border-b border-gray-100 bg-gray-50/50">
-                <h3 className="text-sm font-bold text-gray-700">자사몰 주문</h3>
+                <h3 className="text-sm font-bold text-gray-700">주문 (자사몰/샘플/기타)</h3>
               </div>
             )}
             <div className="overflow-x-auto">

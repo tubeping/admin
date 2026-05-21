@@ -23,11 +23,16 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "유효하지 않은 링크입니다." }, { status: 404 });
   }
 
-  // 2. 전화주문 조회
+  // 2. 해당 월 1일 기준 날짜 계산
+  const now = new Date();
+  const monthStart = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-01`;
+
+  // 3. 전화주문 조회 (당월)
   const { data: phoneOrders } = await sb
     .from("phone_orders")
     .select("id, order_number, order_date, product_name, option_text, quantity, unit_price, total_amount, recipient_name, status, payment_status, shipping_company, tracking_number, shipped_at, created_at")
     .eq("client_id", client.id)
+    .gte("order_date", monthStart)
     .order("order_date", { ascending: false })
     .order("created_at", { ascending: false })
     .limit(500);
@@ -46,7 +51,7 @@ export async function GET(request: NextRequest) {
       .from("orders")
       .select("id, cafe24_order_id, order_date, product_name, option_text, quantity, order_amount, receiver_name, shipping_status, shipping_company, tracking_number, shipped_at, sales_channel, created_at")
       .eq("store_id", store.id)
-      .neq("sales_channel", "phone") // 전화주문은 위에서 이미 조회
+      .gte("order_date", monthStart)
       .order("order_date", { ascending: false })
       .limit(500);
     mallOrders = data || [];
@@ -78,5 +83,6 @@ export async function GET(request: NextRequest) {
     phoneOrders: allPhoneOrders,
     mallOrders,
     stats,
+    period: monthStart,
   });
 }
