@@ -137,6 +137,12 @@ export async function PATCH(request: NextRequest) {
     return NextResponse.json({ error: "수정할 필드 없음" }, { status: 400 });
   }
 
+  // 사용자가 supplier_id를 명시 변경하면 auto_assign_status를 "manual"로 자동 표시
+  // (auto_assign_status를 함께 보냈으면 그 값 유지)
+  if ("supplier_id" in filtered && !("auto_assign_status" in filtered)) {
+    filtered.auto_assign_status = "manual";
+  }
+
   const sb = getServiceClient();
   const { data, error } = await sb
     .from("orders")

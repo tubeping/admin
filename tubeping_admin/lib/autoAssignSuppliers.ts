@@ -1,7 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 /**
- * 주문 → 공급사 자동 매칭 (자체코드 기준)
+ * 주문 → 공급사 자동 매칭 (products 기준만)
  *
  * 자체코드 형식: [채널 2자][공급사 2자][일련번호]
  *   - 채널: TP(튜핑) / EV(이벤트) / AT(아튜브 PB) / AC(ACTs)
@@ -10,10 +10,17 @@ import type { SupabaseClient } from "@supabase/supabase-js";
  * 매칭 흐름:
  *   1. 주문 → products 행 식별
  *      - cafe24_product_no가 있으면 product_cafe24_mappings 사용 (cafe24 동기화)
- *      - 없으면 (Excel) product_name 정확 일치
- *      - 그래도 없으면 학습 캐시: 같은 상품명의 다른 주문이 이미 supplier_id 가지고 있으면 그대로 사용
- *   2. products.tp_code → 가운데 2자 추출 → suppliers.short_code 매칭
- *   3. supplier_id 업데이트
+ *      - 없으면 (Excel) product_name 정확 일치 또는 name_aliases
+ *   2. products.supplier(공급사명) 우선, 없으면 tp_code 가운데 2자 → suppliers.short_code 매칭
+ *   3. products 매칭 실패 시 다수결 학습 캐시 (같은 상품명 옛 주문 중 다수가 배정한 supplier)
+ *      - manual 배정에는 가중치 ×3 (수동 정정 우선)
+ *      - manual/auto만 학습 대상, none 제외
+ *   4. supplier_id 업데이트
+ *
+ * 원복 방지:
+ *   - supplier_id IS NULL인 주문만 자동 매칭 대상 (이미 배정된 건 안 건드림)
+ *   - orders PATCH에서 사용자가 직접 변경하면 auto_assign_status=manual 자동 박힘
+ *   - reassign 라우트는 manual 주문 리셋에서 제외 (force=true일 때만 강제)
  */
 export async function autoAssignSuppliers(
   sb: SupabaseClient,
@@ -124,24 +131,27 @@ export async function autoAssignSuppliers(
     return tpCode ? supplierIdFromTpCode(tpCode) : null;
   };
 
-  // 경로 C: 학습 캐시 — 같은 상품명의 다른 주문에서 가장 많이 배정된 공급사 사용
-  // (수동 배정 1건이 잘못 전파되는 것을 방지하기 위해 다수결 방식)
+  // 경로 C: 학습 캐시 — 같은 상품명의 다른 주문에서 "다수결"로 가장 많이 배정된 공급사 사용
+  // (수동 배정 1건이 잘못 전파되는 걸 막기 위해 다수결 방식. manual 보호와 결합해 원복 차단)
+  // manual 또는 auto로 배정된 주문만 학습 대상 (none 상태는 무시)
   const learnNames = [...new Set(orders.map((o) => o.product_name?.trim()).filter(Boolean) as string[])];
   const nameToLearnedSupplier: Record<string, string> = {};
   if (learnNames.length > 0) {
     const { data: learned } = await sb
       .from("orders")
-      .select("product_name, supplier_id")
+      .select("product_name, supplier_id, auto_assign_status")
       .not("supplier_id", "is", null)
       .in("product_name", learnNames)
+      .in("auto_assign_status", ["manual", "auto"])
       .limit(5000);
-    // 상품명별로 가장 많이 등장하는 supplier_id 선택
+    // 상품명별로 가장 많이 등장하는 supplier_id 선택 (manual은 가중치 ×3)
     const nameSupplierCounts: Record<string, Record<string, number>> = {};
     for (const row of learned || []) {
       const key = row.product_name?.trim();
       if (!key || !row.supplier_id) continue;
       if (!nameSupplierCounts[key]) nameSupplierCounts[key] = {};
-      nameSupplierCounts[key][row.supplier_id] = (nameSupplierCounts[key][row.supplier_id] || 0) + 1;
+      const weight = row.auto_assign_status === "manual" ? 3 : 1;
+      nameSupplierCounts[key][row.supplier_id] = (nameSupplierCounts[key][row.supplier_id] || 0) + weight;
     }
     for (const [name, counts] of Object.entries(nameSupplierCounts)) {
       const best = Object.entries(counts).sort((a, b) => b[1] - a[1])[0];
@@ -167,7 +177,7 @@ export async function autoAssignSuppliers(
       supplierId = supplierIdFromProductId(productId);
     }
 
-    // 경로 C: 학습 캐시 (같은 상품명의 이전 주문에 supplier 있으면 사용)
+    // 경로 C: 다수결 학습 캐시 (products 미등록 상품의 보조 매칭)
     if (!supplierId && order.product_name) {
       supplierId = nameToLearnedSupplier[order.product_name.trim()] || null;
     }
