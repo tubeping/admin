@@ -166,15 +166,12 @@ export async function POST(request: NextRequest) {
   }
 
   // 기존 등록된 (cafe24_order_id, cafe24_order_item_code) 조합을 미리 조회해 중복 판정
-  // 전체 스토어 대상으로 체크 (크로스 스토어 중복 방지)
   const { data: existing } = await sb
     .from("orders")
-    .select("cafe24_order_id, cafe24_order_item_code, store_id");
+    .select("cafe24_order_id, cafe24_order_item_code")
+    .eq("store_id", store.id);
   const existingKeys = new Set(
     (existing || []).map((e) => `${e.cafe24_order_id}::${e.cafe24_order_item_code}`)
-  );
-  const existingInOtherStore = new Set(
-    (existing || []).filter((e) => e.store_id !== store.id).map((e) => e.cafe24_order_id)
   );
 
   // 데이터 파싱 + 저장
@@ -196,12 +193,6 @@ export async function POST(request: NextRequest) {
     // 상품주문번호(line) 우선, 없으면 주문번호 사용, 그것도 없으면 fallback
     const lineKey = itemOrderId || parentOrderId || `EXCEL-${Date.now()}-${i}`;
     const orderId = parentOrderId || itemOrderId || `EXCEL-${Date.now()}-${i}`;
-
-    // 다른 스토어에 이미 같은 주문번호가 있으면 스킵 (크로스 스토어 중복 방지)
-    if (existingInOtherStore.has(orderId)) {
-      errors.push({ row: i + 1, error: `다른 판매사에 이미 존재하는 주문번호: ${orderId}` });
-      continue;
-    }
 
     // 같은 스토어 내 중복 시 덮어쓰기 (운영 상태는 보존)
     const isExisting = existingKeys.has(`${orderId}::${lineKey}`);
