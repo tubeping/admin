@@ -377,6 +377,7 @@ const OrderRow = memo(function OrderRow({
    ═══════════════════════════════════════════════════ */
 
 const FILTER_STORAGE_KEY = "unified-orders-filters";
+const PSEUDO_STORES = ["공구주문", "엑셀등록", "수기주문"];
 function loadSavedFilters() {
   if (typeof window === "undefined") return null;
   try { return JSON.parse(localStorage.getItem(FILTER_STORAGE_KEY) || "null"); } catch { return null; }
@@ -767,7 +768,6 @@ export default function UnifiedOrdersPage() {
   const totalPages = Math.max(1, Math.ceil(orders.length / pageSize));
   const pagedOrders = useMemo(() => orders.slice(page * pageSize, (page + 1) * pageSize), [orders, page, pageSize]);
 
-  const PSEUDO_STORES = ["공구주문", "엑셀등록", "수기주문"];
   const filteredStores = useMemo(() => stores.filter((s) => !PSEUDO_STORES.includes(s.name)), [stores]);
 
   const fetchStores = async () => { const r = await fetch("/admin/api/stores"); const d = await r.json(); setStores(d.stores || []); };
@@ -1382,38 +1382,38 @@ export default function UnifiedOrdersPage() {
             </colgroup>
             <thead className="sticky top-0 z-10">
               {/* Parent header row for column groups */}
-              <tr className="text-[10px] text-gray-400 bg-gray-50">
-                <th colSpan={10} className="py-0.5 border-b border-gray-100"></th>
+              <tr className="text-[10px] text-gray-400">
+                <th colSpan={10} className="py-0.5 bg-gray-50 border-b border-gray-100"></th>
                 <th colSpan={2} className="py-0.5 text-center font-semibold text-blue-500 bg-blue-50 border-b border-gray-100 border-x border-blue-100/50">공급</th>
                 <th colSpan={2} className="py-0.5 text-center font-semibold text-green-600 bg-green-50 border-b border-gray-100 border-x border-green-100/50">판매</th>
-                <th colSpan={6} className="py-0.5 border-b border-gray-100"></th>
+                <th colSpan={6} className="py-0.5 bg-gray-50 border-b border-gray-100"></th>
               </tr>
-              <tr className="text-[11px] text-gray-500 bg-gray-50">
-                <th className="px-2 py-2 w-8 border-b border-gray-100">
+              <tr className="text-[11px] text-gray-500">
+                <th className="px-2 py-2 w-8 bg-gray-50 border-b border-gray-100">
                   <input type="checkbox" checked={pagedOrders.length > 0 && pagedOrders.every((o) => selected.has(o.id))} onChange={toggleAll} className="rounded w-3.5 h-3.5" />
                 </th>
-                <th className="text-left px-1.5 py-2 font-medium border-b border-gray-100">No</th>
-                <th className="text-left px-1.5 py-2 font-medium border-b border-gray-100">주문번호</th>
-                <th className="text-left px-1.5 py-2 font-medium border-b border-gray-100">상품/옵션</th>
-                <th className="text-left px-1.5 py-2 font-medium border-b border-gray-100">주문자/수취인</th>
-                <th className="text-left px-1.5 py-2 font-medium border-b border-gray-100">배송주소</th>
-                <th className="text-left px-1.5 py-2 font-medium border-b border-gray-100">판매방식</th>
-                <th className="text-left px-1.5 py-2 font-medium border-b border-gray-100">판매사</th>
-                <th className="text-left px-1.5 py-2 font-medium border-b border-gray-100">공급사</th>
-                <th className="text-right px-1.5 py-2 font-medium border-b border-gray-100">수량</th>
+                <th className="text-left px-1.5 py-2 font-medium bg-gray-50 border-b border-gray-100">No</th>
+                <th className="text-left px-1.5 py-2 font-medium bg-gray-50 border-b border-gray-100">주문번호</th>
+                <th className="text-left px-1.5 py-2 font-medium bg-gray-50 border-b border-gray-100">상품/옵션</th>
+                <th className="text-left px-1.5 py-2 font-medium bg-gray-50 border-b border-gray-100">주문자/수취인</th>
+                <th className="text-left px-1.5 py-2 font-medium bg-gray-50 border-b border-gray-100">배송주소</th>
+                <th className="text-left px-1.5 py-2 font-medium bg-gray-50 border-b border-gray-100">판매방식</th>
+                <th className="text-left px-1.5 py-2 font-medium bg-gray-50 border-b border-gray-100">판매사</th>
+                <th className="text-left px-1.5 py-2 font-medium bg-gray-50 border-b border-gray-100">공급사</th>
+                <th className="text-right px-1.5 py-2 font-medium bg-gray-50 border-b border-gray-100">수량</th>
                 <th className="text-right px-1.5 py-2 font-medium bg-blue-50 border-l border-blue-100/50 border-b border-gray-100">상품가</th>
                 <th className="text-right px-1.5 py-2 font-medium bg-blue-50 border-r border-blue-100/50 border-b border-gray-100">배송비</th>
                 <th className="text-right px-1.5 py-2 font-medium bg-green-50 border-l border-green-100/50 border-b border-gray-100">상품가</th>
                 <th className="text-right px-1.5 py-2 font-medium bg-green-50 border-r border-green-100/50 border-b border-gray-100">배송비</th>
-                <th className="text-center px-1.5 py-2 font-medium border-b border-gray-100">입금</th>
-                <th className="text-left px-1.5 py-2 font-medium border-b border-gray-100">송장</th>
-                <th className="text-center px-1.5 py-2 font-medium border-b border-gray-100">발주</th>
-                <th className="text-center px-1.5 py-2 font-medium border-b border-gray-100">배송</th>
-                <th className="text-center px-1.5 py-2 font-medium border-b border-gray-100">CS</th>
-                <th className="text-right px-2 py-2 font-medium border-b border-gray-100">주문일</th>
+                <th className="text-center px-1.5 py-2 font-medium bg-gray-50 border-b border-gray-100">입금</th>
+                <th className="text-left px-1.5 py-2 font-medium bg-gray-50 border-b border-gray-100">송장</th>
+                <th className="text-center px-1.5 py-2 font-medium bg-gray-50 border-b border-gray-100">발주</th>
+                <th className="text-center px-1.5 py-2 font-medium bg-gray-50 border-b border-gray-100">배송</th>
+                <th className="text-center px-1.5 py-2 font-medium bg-gray-50 border-b border-gray-100">CS</th>
+                <th className="text-right px-2 py-2 font-medium bg-gray-50 border-b border-gray-100">주문일</th>
               </tr>
               {/* Column filters — compact */}
-              <tr className="text-[10px] bg-gray-50" style={{ boxShadow: "0 2px 4px -1px rgba(0,0,0,0.1)" }}>
+              <tr className="text-[10px] [&>th]:bg-gray-50 [&>th]:border-b [&>th]:border-gray-200" style={{ boxShadow: "0 2px 4px -1px rgba(0,0,0,0.1)" }}>
                 {/* 1. Reset button */}
                 <th className="px-1 py-0.5">
                   {(colFilterOrderNo || colFilterProduct || colFilterCustomer || colFilterAddress || colFilterChannel || colFilterPayment || colFilterPOStatus || colFilterQty || colFilterAmount || colFilterTracking || filterStore || filterSupplier || filterStatus) && (
@@ -1492,11 +1492,11 @@ export default function UnifiedOrdersPage() {
                   </select>
                 </th>
                 {/* 11. 공급가 */}
-                <th className="bg-blue-50"></th>
+                <th className="!bg-blue-50"></th>
                 {/* 12. 공급배송비 */}
-                <th className="bg-blue-50"></th>
+                <th className="!bg-blue-50"></th>
                 {/* 13. 판매가 select */}
-                <th className="px-0.5 py-0.5 bg-green-50">
+                <th className="px-0.5 py-0.5 !bg-green-50">
                   <select value={colFilterAmount} onChange={(e) => setColFilterAmount(e.target.value)}
                     className="w-full text-[10px] border border-gray-200 rounded px-0.5 py-px bg-white">
                     <option value="">-</option>
@@ -1507,7 +1507,7 @@ export default function UnifiedOrdersPage() {
                   </select>
                 </th>
                 {/* 14. 판매배송비 */}
-                <th className="bg-green-50"></th>
+                <th className="!bg-green-50"></th>
                 {/* 15. 입금 select */}
                 <th className="px-0.5 py-0.5 text-center">
                   <select value={colFilterPayment} onChange={(e) => setColFilterPayment(e.target.value)}
