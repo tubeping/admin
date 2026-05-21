@@ -395,30 +395,52 @@ export default function UnifiedOrdersPage() {
     setEditingCell(orderId ? { orderId, field } : null);
   }, []);
 
-  // Filters
-  const [filterStatus, setFilterStatus] = useState("");
-  const [filterStore, setFilterStore] = useState("");
-  const [filterSupplier, setFilterSupplier] = useState("");
+  // Filters — localStorage 키
+  const FILTER_STORAGE_KEY = "unified-orders-filters";
+  const loadSavedFilters = () => {
+    if (typeof window === "undefined") return null;
+    try { return JSON.parse(localStorage.getItem(FILTER_STORAGE_KEY) || "null"); } catch { return null; }
+  };
+  const saved = useRef(loadSavedFilters());
+
+  const [filterStatus, setFilterStatus] = useState(saved.current?.filterStatus || "");
+  const [filterStore, setFilterStore] = useState(saved.current?.filterStore || "");
+  const [filterSupplier, setFilterSupplier] = useState(saved.current?.filterSupplier || "");
   const [dateFrom, setDateFrom] = useState(() => {
+    if (saved.current?.dateFrom) return saved.current.dateFrom;
     const d = new Date();
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-01`;
   });
-  const [dateTo, setDateTo] = useState(today());
-  const [searchKeyword, setSearchKeyword] = useState("");
+  const [dateTo, setDateTo] = useState(saved.current?.dateTo || today());
+  const [searchKeyword, setSearchKeyword] = useState(saved.current?.searchKeyword || "");
 
-  const [filterNoTracking, setFilterNoTracking] = useState(false);
-  const [filterNoSupplier, setFilterNoSupplier] = useState(false);
-  const [colFilterOrderNo, setColFilterOrderNo] = useState("");
-  const [colFilterProduct, setColFilterProduct] = useState("");
-  const [colFilterCustomer, setColFilterCustomer] = useState("");
-  const [colFilterAddress, setColFilterAddress] = useState("");
-  const [colFilterChannel, setColFilterChannel] = useState("");
-  const [colFilterPayment, setColFilterPayment] = useState("");
-  const [colFilterPOStatus, setColFilterPOStatus] = useState("");
-  const [colFilterQty, setColFilterQty] = useState("");
-  const [colFilterAmount, setColFilterAmount] = useState("");
-  const [colFilterTracking, setColFilterTracking] = useState("");
-  const [poTab, setPoTab] = useState<"all" | "no_po" | "has_po">("all");
+  const [filterNoTracking, setFilterNoTracking] = useState(saved.current?.filterNoTracking || false);
+  const [filterNoSupplier, setFilterNoSupplier] = useState(saved.current?.filterNoSupplier || false);
+  const [colFilterOrderNo, setColFilterOrderNo] = useState(saved.current?.colFilterOrderNo || "");
+  const [colFilterProduct, setColFilterProduct] = useState(saved.current?.colFilterProduct || "");
+  const [colFilterCustomer, setColFilterCustomer] = useState(saved.current?.colFilterCustomer || "");
+  const [colFilterAddress, setColFilterAddress] = useState(saved.current?.colFilterAddress || "");
+  const [colFilterChannel, setColFilterChannel] = useState(saved.current?.colFilterChannel || "");
+  const [colFilterPayment, setColFilterPayment] = useState(saved.current?.colFilterPayment || "");
+  const [colFilterPOStatus, setColFilterPOStatus] = useState(saved.current?.colFilterPOStatus || "");
+  const [colFilterQty, setColFilterQty] = useState(saved.current?.colFilterQty || "");
+  const [colFilterAmount, setColFilterAmount] = useState(saved.current?.colFilterAmount || "");
+  const [colFilterTracking, setColFilterTracking] = useState(saved.current?.colFilterTracking || "");
+  const [poTab, setPoTab] = useState<"all" | "no_po" | "has_po">(saved.current?.poTab || "all");
+
+  // 필터 변경 시 localStorage 저장
+  useEffect(() => {
+    const data = {
+      filterStatus, filterStore, filterSupplier, dateFrom, dateTo, searchKeyword,
+      filterNoTracking, filterNoSupplier, colFilterOrderNo, colFilterProduct,
+      colFilterCustomer, colFilterAddress, colFilterChannel, colFilterPayment,
+      colFilterPOStatus, colFilterQty, colFilterAmount, colFilterTracking, poTab,
+    };
+    localStorage.setItem(FILTER_STORAGE_KEY, JSON.stringify(data));
+  }, [filterStatus, filterStore, filterSupplier, dateFrom, dateTo, searchKeyword,
+    filterNoTracking, filterNoSupplier, colFilterOrderNo, colFilterProduct,
+    colFilterCustomer, colFilterAddress, colFilterChannel, colFilterPayment,
+    colFilterPOStatus, colFilterQty, colFilterAmount, colFilterTracking, poTab]);
 
   // Address verification
   const [addrResults, setAddrResults] = useState<Record<string, AddrVerifyResult>>({});
@@ -960,6 +982,7 @@ export default function UnifiedOrdersPage() {
     setColFilterOrderNo(""); setColFilterProduct(""); setColFilterCustomer(""); setColFilterAddress("");
     setColFilterChannel(""); setColFilterPayment(""); setColFilterPOStatus("");
     setColFilterQty(""); setColFilterAmount(""); setColFilterTracking("");
+    localStorage.removeItem(FILTER_STORAGE_KEY);
   };
 
   // Excel download
@@ -1331,8 +1354,6 @@ export default function UnifiedOrdersPage() {
       <div className="bg-white rounded-lg border border-gray-200 overflow-x-auto">
         {loading ? (
           <div className="p-12 text-center text-gray-400">불러오는 중...</div>
-        ) : orders.length === 0 ? (
-          <div className="p-12 text-center text-gray-400">조건에 맞는 주문이 없습니다.</div>
         ) : (
           <>
           <table className="w-full text-sm table-fixed">
@@ -1534,7 +1555,9 @@ export default function UnifiedOrdersPage() {
               </tr>
             </thead>
             <tbody>
-              {pagedOrders.map((o, idx) => (
+              {orders.length === 0 ? (
+                <tr><td colSpan={20} className="p-12 text-center text-gray-400">조건에 맞는 주문이 없습니다.</td></tr>
+              ) : pagedOrders.map((o, idx) => (
                 <OrderRow
                   key={o.id}
                   o={o}
