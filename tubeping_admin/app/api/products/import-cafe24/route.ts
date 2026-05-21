@@ -1,64 +1,26 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServiceClient } from "@/lib/supabase";
-import { env } from "@/lib/env.server";
+import { getActiveStores, cafe24Fetch as _cafe24Fetch, type StoreInfo } from "@/lib/cafe24";
 
 const MALL_ID = "tubeping";
-const API_VERSION = "2026-03-01";
 
-const CLIENT_ID = env.CAFE24_CLIENT_ID;
-const CLIENT_SECRET = env.CAFE24_CLIENT_SECRET;
+/* ── lib/cafe24.ts 기반 통합 토큰 관리 ── */
+let _masterStore: StoreInfo | null = null;
 
-/* ── DB 기반 토큰 관리 ── */
-async function getTokenFromDB(): Promise<string | null> {
-  const sb = getServiceClient();
-  const { data: store } = await sb.from("stores").select("id, access_token, refresh_token, token_expires_at, mall_id")
-    .eq("mall_id", MALL_ID).single();
-  if (!store) return null;
-
-  const expiresAt = store.token_expires_at ? new Date(store.token_expires_at).getTime() : 0;
-  if (store.access_token && expiresAt > Date.now() + 60000) return store.access_token;
-
-  if (store.access_token) {
-    const testRes = await fetch(`https://${MALL_ID}.cafe24api.com/api/v2/admin/products?limit=1`, {
-      headers: { Authorization: `Bearer ${store.access_token}`, "X-Cafe24-Api-Version": API_VERSION },
-    });
-    if (testRes.ok) return store.access_token;
-  }
-
-  if (!store.refresh_token) return null;
-  try {
-    const res = await fetch(`https://${MALL_ID}.cafe24api.com/api/v2/oauth/token`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/x-www-form-urlencoded",
-        Authorization: `Basic ${Buffer.from(`${CLIENT_ID}:${CLIENT_SECRET}`).toString("base64")}`,
-      },
-      body: new URLSearchParams({ grant_type: "refresh_token", refresh_token: store.refresh_token }),
-    });
-    if (!res.ok) return null;
-    const data = await res.json();
-    if (!data.access_token) return null;
-    await sb.from("stores").update({
-      access_token: data.access_token, refresh_token: data.refresh_token,
-      token_expires_at: data.expires_at, updated_at: new Date().toISOString(),
-    }).eq("id", store.id);
-    return data.access_token;
-  } catch {
-    return null;
-  }
+async function getMasterStore(): Promise<StoreInfo | null> {
+  if (_masterStore) return _masterStore;
+  const stores = await getActiveStores();
+  _masterStore = stores.find((s) => s.mall_id === MALL_ID) || null;
+  return _masterStore;
 }
 
 async function cafe24Fetch(url: string) {
-  const token = await getTokenFromDB();
-  if (!token) return null;
-
-  const headers = {
-    Authorization: `Bearer ${token}`,
-    "Content-Type": "application/json",
-    "X-Cafe24-Api-Version": API_VERSION,
-  };
-
-  const res = await fetch(url, { headers });
+  const store = await getMasterStore();
+  if (!store) return null;
+  // url에서 /api/v2/admin 이후 경로 추출
+  const pathMatch = url.match(/\/api\/v2\/admin(.+)/);
+  if (!pathMatch) return null;
+  const res = await _cafe24Fetch(store, pathMatch[1]);
   if (!res.ok) return null;
   return res.json();
 }
@@ -108,7 +70,7 @@ export async function POST(request: NextRequest) {
       if (sData.suppliers.length < sLimit) break;
       sOffset += sLimit;
     }
-  } catch { /* ignore */ }
+  } catch (e) { console.error("[import-cafe24] 공급사 맵 구축 실패:", e); }
 
   // 기존 매핑/상품을 한 번에 fetch (per-product DB 호출 제거)
   const noToProductId = new Map<number, string>();
@@ -166,7 +128,7 @@ export async function POST(request: NextRequest) {
       );
       cafeTotalCount += (countData?.count as number) || 0;
     }
-  } catch { /* ignore */ }
+  } catch (e) { console.error("[import-cafe24] 카페24 상품 수 조회 실패:", e); }
 
   // 카페24 상품 전체 로드 (since_product_no 기반, display=T/F 둘 다)
   // offset 기반은 일부 상품이 누락될 수 있어서 since_product_no + limit 방식 사용

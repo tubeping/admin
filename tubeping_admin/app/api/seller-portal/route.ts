@@ -57,6 +57,8 @@ export async function GET(request: NextRequest) {
     mallOrders = data || [];
   }
 
+  const allPhoneOrders = phoneOrders || [];
+
   // 4. 금액 0인 주문에 상품 기본가 보정
   const zeroAmountNames = [
     ...allPhoneOrders.filter((o) => !o.total_amount && o.product_name).map((o) => o.product_name),
@@ -87,7 +89,6 @@ export async function GET(request: NextRequest) {
   }
 
   // 5. 통계 계산
-  const allPhoneOrders = phoneOrders || [];
   const stats = {
     phone: {
       total: allPhoneOrders.length,

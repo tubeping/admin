@@ -12,11 +12,16 @@ const CLIENT_SECRET = env.CAFE24_CLIENT_SECRET;
 
 const API_VERSION = "2026-03-01";
 
+const FETCH_TIMEOUT = 30_000; // 30초
+
 // 스토어별 토큰 메모리 캐시
 const tokenCache: Record<
   string,
   { access: string; refresh: string; expiresAt: number; mallId: string }
 > = {};
+
+// 토큰 갱신 중복 방지 (race condition 해소)
+const refreshInFlight: Record<string, Promise<string>> = {};
 
 export interface StoreInfo {
   id: string;
@@ -90,6 +95,19 @@ export async function getStoreToken(store: StoreInfo): Promise<string> {
  * 여러 앱 자격증명을 순차 시도해 어느 하나라도 성공하면 사용
  */
 export async function refreshStoreToken(storeId: string): Promise<string> {
+  // 이미 갱신 중이면 동일 promise 재사용 (race condition 방지)
+  if (refreshInFlight[storeId]) return refreshInFlight[storeId];
+
+  const promise = _doRefresh(storeId);
+  refreshInFlight[storeId] = promise;
+  try {
+    return await promise;
+  } finally {
+    delete refreshInFlight[storeId];
+  }
+}
+
+async function _doRefresh(storeId: string): Promise<string> {
   const entry = tokenCache[storeId];
   if (!entry) throw new Error(`스토어 ${storeId} 토큰 캐시 없음`);
 
@@ -107,6 +125,7 @@ export async function refreshStoreToken(storeId: string): Promise<string> {
           grant_type: "refresh_token",
           refresh_token: entry.refresh,
         }),
+        signal: AbortSignal.timeout(FETCH_TIMEOUT),
       }
     );
     if (res.ok) {
@@ -150,7 +169,7 @@ export async function refreshStoreToken(storeId: string): Promise<string> {
 }
 
 /**
- * 카페24 API 호출 (401 시 자동 토큰 갱신 + 재시도)
+ * 카페24 API 호출 (401 자동 갱신 + 429/5xx 재시도 + timeout)
  */
 export async function cafe24Fetch(
   store: StoreInfo,
@@ -165,12 +184,22 @@ export async function cafe24Fetch(
     "X-Cafe24-Api-Version": API_VERSION,
   };
 
-  const res = await fetch(url, { ...options, headers });
+  const doFetch = (hdrs: Record<string, string>) =>
+    fetch(url, { ...options, headers: hdrs, signal: AbortSignal.timeout(FETCH_TIMEOUT) });
+
+  let res = await doFetch(headers);
 
   if (res.status === 401) {
     const newToken = await refreshStoreToken(store.id);
     headers.Authorization = `Bearer ${newToken}`;
-    return fetch(url, { ...options, headers });
+    res = await doFetch(headers);
+  }
+
+  // 429 또는 5xx → 최대 2회 재시도 (지수 백오프)
+  for (let retry = 0; retry < 2 && (res.status === 429 || res.status >= 500); retry++) {
+    const delay = (retry + 1) * 1000; // 1초, 2초
+    await new Promise((r) => setTimeout(r, delay));
+    res = await doFetch(headers);
   }
 
   return res;
