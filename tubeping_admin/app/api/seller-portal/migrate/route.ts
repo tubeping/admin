@@ -20,7 +20,7 @@ export async function POST() {
   let tokenUpdated = 0;
   if (clients && clients.length > 0) {
     for (const client of clients) {
-      const token = randomBytes(16).toString("hex");
+      const token = randomBytes(4).toString("hex");
       const { error } = await sb
         .from("phone_order_clients")
         .update({ view_token: token })
