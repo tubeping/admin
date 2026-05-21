@@ -131,6 +131,11 @@ function AutocompleteInput({
     return () => document.removeEventListener("mousedown", handler);
   }, []);
 
+  // 비동기 검색 결과가 도착하면 드롭다운 자동 열기
+  useEffect(() => {
+    if (focused && items.length > 0) setOpen(true);
+  }, [items, focused]);
+
   const handleBlur = () => {
     setTimeout(() => {
       setFocused(false);
