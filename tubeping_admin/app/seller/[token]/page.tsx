@@ -160,7 +160,12 @@ export default function SellerPortalPage() {
     );
   }
 
-  const totalOrders = (stats?.phone.total || 0) + (stats?.mall.total || 0);
+  // mallOrders 중 전화주문 패턴을 분리해서 카운트
+  const mallPhoneOrders = mallOrders.filter((o) => detectChannel(o.sales_channel, o.cafe24_order_id) === "전화주문");
+  const mallNonPhoneOrders = mallOrders.filter((o) => detectChannel(o.sales_channel, o.cafe24_order_id) !== "전화주문");
+  const phoneCount = (stats?.phone.total || 0) + mallPhoneOrders.length;
+  const mallCount = mallNonPhoneOrders.length;
+  const totalOrders = phoneCount + mallCount;
   const totalAmount = (stats?.phone.totalAmount || 0) + (stats?.mall.totalAmount || 0);
   const periodLabel = period ? `${period.slice(0, 4)}년 ${parseInt(period.slice(5, 7))}월` : "";
 
@@ -218,8 +223,8 @@ export default function SellerPortalPage() {
         <div className="flex gap-0.5 bg-gray-100 rounded-lg p-0.5 w-fit">
           {[
             { key: "all" as const, label: "전체", count: totalOrders },
-            { key: "phone" as const, label: "전화주문", count: stats?.phone.total || 0 },
-            { key: "mall" as const, label: "주문", count: stats?.mall.total || 0 },
+            { key: "phone" as const, label: "전화주문", count: phoneCount },
+            { key: "mall" as const, label: "주문", count: mallCount },
           ].map((t) => (
             <button
               key={t.key}
@@ -306,7 +311,10 @@ export default function SellerPortalPage() {
         )}
 
         {/* 주문 테이블 */}
-        {(tab === "all" || tab === "mall") && mallOrders.length > 0 && (
+        {(tab === "all" || tab === "mall" || tab === "phone") && mallOrders.length > 0 && (() => {
+          const filteredMallOrders = tab === "phone" ? mallPhoneOrders : tab === "mall" ? mallNonPhoneOrders : mallOrders;
+          if (filteredMallOrders.length === 0) return null;
+          return (
           <section className="bg-white rounded-lg border border-gray-200 overflow-hidden shadow-sm">
             {tab === "all" && (
               <div className="px-4 py-2.5 border-b border-gray-100">
@@ -329,7 +337,7 @@ export default function SellerPortalPage() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-50">
-                  {mallOrders.map((o) => {
+                  {filteredMallOrders.map((o) => {
                     const st = MALL_STATUS[o.shipping_status] || MALL_STATUS.pending;
                     const amount = o.order_amount || o.product_price || 0;
                     const channel = detectChannel(o.sales_channel, o.cafe24_order_id);
@@ -376,7 +384,8 @@ export default function SellerPortalPage() {
               </table>
             </div>
           </section>
-        )}
+          );
+        })()}
 
         {/* 주문 없음 */}
         {totalOrders === 0 && (
