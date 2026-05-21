@@ -2,36 +2,81 @@ import { NextResponse } from "next/server";
 import { getServiceClient } from "@/lib/supabase";
 import { randomBytes } from "crypto";
 
-// 일회성 마이그레이션 엔드포인트: view_token 컬럼이 없을 때만 사용
-// phone_order_clients에 view_token을 추가하는 대신
-// Supabase에서 직접 ALTER TABLE을 실행한 후 이 엔드포인트로 토큰 생성
+// POST: view_token 생성 + sales_channel 일괄 수정
 export async function POST() {
   const sb = getServiceClient();
+  const results: string[] = [];
 
-  // view_token이 null인 클라이언트에 토큰 생성
+  // 1. view_token이 null인 클라이언트에 토큰 생성
   const { data: clients, error: fetchErr } = await sb
     .from("phone_order_clients")
     .select("id")
     .is("view_token", null);
 
   if (fetchErr) {
-    return NextResponse.json({ error: fetchErr.message, hint: "view_token 컬럼이 없다면 Supabase SQL Editor에서 먼저 실행하세요: ALTER TABLE phone_order_clients ADD COLUMN IF NOT EXISTS view_token TEXT UNIQUE;" }, { status: 500 });
+    return NextResponse.json({ error: fetchErr.message }, { status: 500 });
   }
 
-  if (!clients || clients.length === 0) {
-    return NextResponse.json({ message: "모든 판매처에 이미 토큰이 있습니다.", updated: 0 });
+  let tokenUpdated = 0;
+  if (clients && clients.length > 0) {
+    for (const client of clients) {
+      const token = randomBytes(16).toString("hex");
+      const { error } = await sb
+        .from("phone_order_clients")
+        .update({ view_token: token })
+        .eq("id", client.id);
+      if (!error) tokenUpdated++;
+    }
+  }
+  results.push(`view_token: ${tokenUpdated}개 생성`);
+
+  // 2. sales_channel 일괄 수정 (null인 주문들 대상)
+  const { data: orders } = await sb
+    .from("orders")
+    .select("id, cafe24_order_id, sales_channel")
+    .is("sales_channel", null)
+    .limit(5000);
+
+  let phoneCount = 0;
+  let sampleCount = 0;
+  let manualCount = 0;
+
+  if (orders) {
+    const phoneIds: string[] = [];
+    const sampleIds: string[] = [];
+    const manualIds: string[] = [];
+
+    for (const o of orders) {
+      const oid = o.cafe24_order_id || "";
+      if (/^PT-/.test(oid)) {
+        phoneIds.push(o.id);
+      } else if (/\(\d+\)/.test(oid)) {
+        sampleIds.push(o.id);
+      } else if (/^MR-/.test(oid)) {
+        manualIds.push(o.id);
+      } else if (/^EXCEL-/.test(oid)) {
+        manualIds.push(o.id);
+      } else if (/^\d{8}-\d{1,4}$/.test(oid)) {
+        phoneIds.push(o.id);
+      }
+      // YYYYMMDD-0000027 (7자리+) 형태는 자사몰이므로 null 유지
+    }
+
+    if (phoneIds.length > 0) {
+      const { error } = await sb.from("orders").update({ sales_channel: "phone" }).in("id", phoneIds);
+      if (!error) phoneCount = phoneIds.length;
+    }
+    if (sampleIds.length > 0) {
+      const { error } = await sb.from("orders").update({ sales_channel: "sample" }).in("id", sampleIds);
+      if (!error) sampleCount = sampleIds.length;
+    }
+    if (manualIds.length > 0) {
+      const { error } = await sb.from("orders").update({ sales_channel: "manual" }).in("id", manualIds);
+      if (!error) manualCount = manualIds.length;
+    }
   }
 
-  let updated = 0;
-  for (const client of clients) {
-    const token = randomBytes(16).toString("hex");
-    const { error } = await sb
-      .from("phone_order_clients")
-      .update({ view_token: token })
-      .eq("id", client.id);
+  results.push(`sales_channel 수정: phone=${phoneCount}, sample=${sampleCount}, manual=${manualCount}`);
 
-    if (!error) updated++;
-  }
-
-  return NextResponse.json({ message: `${updated}개 판매처에 토큰을 생성했습니다.`, updated });
+  return NextResponse.json({ results });
 }

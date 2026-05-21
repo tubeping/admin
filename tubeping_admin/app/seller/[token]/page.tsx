@@ -61,10 +61,24 @@ const MALL_STATUS: Record<string, { label: string; color: string; bg: string }> 
   cancelled: { label: "취소", color: "text-red-700", bg: "bg-red-50" },
 };
 
-const CHANNEL_LABEL: Record<string, string> = {
-  phone: "전화",
-  sample: "샘플",
-};
+function detectChannel(salesChannel: string | null, orderId: string): string {
+  // 명시적 sales_channel이 있으면 사용
+  if (salesChannel === "phone") return "전화";
+  if (salesChannel === "sample") return "샘플";
+
+  // 주문번호 패턴으로 판별
+  if (/^PT-/.test(orderId)) return "전화";
+  if (/^MR-/.test(orderId)) return "수동";
+  if (/^EXCEL-/.test(orderId)) return "엑셀";
+  if (/\(\d+\)/.test(orderId)) return "샘플";
+  // 자사몰: YYYYMMDD-0000027 (날짜 8자리 + 7자리 이상 번호)
+  if (/^\d{8}-\d{5,}$/.test(orderId)) return "자사몰";
+
+  // 그 외 짧은 번호 (20260424-4 등) → 전화
+  if (/^\d{8}-\d{1,4}$/.test(orderId)) return "전화";
+
+  return salesChannel || "기타";
+}
 
 function formatDate(d: string) {
   if (!d) return "-";
@@ -319,7 +333,7 @@ export default function SellerPortalPage() {
                   {mallOrders.map((o) => {
                     const st = MALL_STATUS[o.shipping_status] || MALL_STATUS.pending;
                     const amount = o.order_amount || o.product_price || 0;
-                    const channel = o.sales_channel ? CHANNEL_LABEL[o.sales_channel] || o.sales_channel : "자사몰";
+                    const channel = detectChannel(o.sales_channel, o.cafe24_order_id);
                     return (
                       <tr key={o.id} className="hover:bg-gray-50/60 transition-colors">
                         <td className="px-3 py-2 font-mono text-[11px] text-gray-500 whitespace-nowrap">{o.cafe24_order_id}</td>
@@ -335,8 +349,10 @@ export default function SellerPortalPage() {
                         <td className="px-3 py-2 text-xs text-gray-700 whitespace-nowrap">{o.receiver_name}</td>
                         <td className="px-3 py-2 text-center">
                           <span className={`inline-block text-[10px] font-medium px-1.5 py-0.5 rounded whitespace-nowrap ${
+                            channel === "자사몰" ? "text-indigo-600 bg-indigo-50" :
                             channel === "샘플" ? "text-orange-600 bg-orange-50" :
                             channel === "전화" ? "text-teal-600 bg-teal-50" :
+                            channel === "수동" ? "text-sky-600 bg-sky-50" :
                             "text-gray-500 bg-gray-50"
                           }`}>
                             {channel}
