@@ -290,7 +290,7 @@ export default function SettlementPage() {
   );
   const [dateStart, setDateStart] = useState("");
   const [dateEnd, setDateEnd] = useState("");
-  const [showCreateForm, setShowCreateForm] = useState(false);
+  const [showCreateForm, setShowCreateForm] = useState(true);
   const [createAllResult, setCreateAllResult] = useState<{
     total: number;
     created: number;
