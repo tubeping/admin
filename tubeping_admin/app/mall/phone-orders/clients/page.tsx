@@ -10,6 +10,7 @@ interface PhoneOrderClient {
   phone: string | null;
   memo: string | null;
   status: string;
+  view_token: string | null;
   created_at: string;
 }
 
@@ -183,6 +184,20 @@ export default function PhoneOrderClientsPage() {
     } catch { /* ignore */ }
   };
 
+  const copyViewLink = async (client: PhoneOrderClient) => {
+    if (!client.view_token) {
+      alert("이 판매처에는 아직 조회 토큰이 생성되지 않았습니다.\nSupabase에서 마이그레이션을 실행해주세요.");
+      return;
+    }
+    const url = `${window.location.origin}/admin/seller/${client.view_token}`;
+    try {
+      await navigator.clipboard.writeText(url);
+      alert(`${client.name} 조회 링크가 복사되었습니다.\n\n${url}`);
+    } catch {
+      prompt("아래 링크를 복사하세요:", url);
+    }
+  };
+
   const viewClientOrders = async (client: PhoneOrderClient) => {
     setViewClient(client);
     setOrdersLoading(true);
@@ -322,6 +337,13 @@ export default function PhoneOrderClientsPage() {
                       <div className="flex items-center justify-center gap-1">
                         <button onClick={() => viewClientOrders(client)} className="px-2 py-1 text-xs text-blue-600 hover:bg-blue-50 rounded" title="주문 내역">
                           주문
+                        </button>
+                        <button
+                          onClick={() => copyViewLink(client)}
+                          className="px-2 py-1 text-xs text-emerald-600 hover:bg-emerald-50 rounded"
+                          title="판매처 조회 링크 복사"
+                        >
+                          링크
                         </button>
                         <button onClick={() => startEdit(client)} className="px-2 py-1 text-xs text-gray-600 hover:bg-gray-100 rounded">
                           수정
