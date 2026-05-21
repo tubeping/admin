@@ -164,17 +164,20 @@ export async function autoAssignSuppliers(
 
   for (const order of orders) {
     let supplierId: string | null = null;
+    let matchedProductId: string | null = null;
 
     // 경로 A: (store_id, cafe24_product_no) → products → supplier (products.supplier 우선, tp_code fallback)
     if (order.cafe24_product_no > 0 && order.store_id) {
       const productId = storeProductKeyToProductId[`${order.store_id}::${order.cafe24_product_no}`];
       supplierId = supplierIdFromProductId(productId);
+      if (productId) matchedProductId = productId;
     }
 
     // 경로 B: 상품명 정확 일치 → products → supplier
     if (!supplierId && order.product_name) {
       const productId = nameToProductId[order.product_name.trim()];
       supplierId = supplierIdFromProductId(productId);
+      if (productId && !matchedProductId) matchedProductId = productId;
     }
 
     // 경로 C: 다수결 학습 캐시 (products 미등록 상품의 보조 매칭)
@@ -182,12 +185,18 @@ export async function autoAssignSuppliers(
       supplierId = nameToLearnedSupplier[order.product_name.trim()] || null;
     }
 
-    if (supplierId) {
+    if (supplierId || matchedProductId) {
+      const updateData: Record<string, unknown> = {};
+      if (supplierId) {
+        updateData.supplier_id = supplierId;
+        updateData.auto_assign_status = "auto";
+      }
+      if (matchedProductId) updateData.product_id = matchedProductId;
       const { error } = await sb
         .from("orders")
-        .update({ supplier_id: supplierId, auto_assign_status: "auto" })
+        .update(updateData)
         .eq("id", order.id);
-      if (!error) {
+      if (!error && supplierId) {
         assigned++;
         continue;
       }
