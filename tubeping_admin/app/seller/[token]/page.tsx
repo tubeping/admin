@@ -28,13 +28,14 @@ interface MallOrder {
   product_name: string;
   option_text: string | null;
   quantity: number;
+  product_price: number;
   order_amount: number;
   receiver_name: string;
   shipping_status: string;
   shipping_company: string | null;
   tracking_number: string | null;
   shipped_at: string | null;
-  sales_channel: string;
+  sales_channel: string | null;
   created_at: string;
 }
 
@@ -59,6 +60,22 @@ const MALL_STATUS: Record<string, { label: string; color: string; bg: string }> 
   delivered: { label: "배송완료", color: "text-emerald-700", bg: "bg-emerald-50" },
   cancelled: { label: "취소", color: "text-red-700", bg: "bg-red-50" },
 };
+
+const CHANNEL_LABEL: Record<string, string> = {
+  phone: "전화",
+  sample: "샘플",
+};
+
+function formatDate(d: string) {
+  if (!d) return "-";
+  const date = new Date(d);
+  return `${String(date.getMonth() + 1).padStart(2, "0")}/${String(date.getDate()).padStart(2, "0")}`;
+}
+
+function formatAmount(amount: number) {
+  if (!amount) return "-";
+  return amount.toLocaleString();
+}
 
 export default function SellerPortalPage() {
   const params = useParams();
@@ -99,7 +116,6 @@ export default function SellerPortalPage() {
 
   useEffect(() => {
     fetchData();
-    // 30초마다 자동 새로고침
     const interval = setInterval(fetchData, 30000);
     return () => clearInterval(interval);
   }, [fetchData]);
@@ -109,7 +125,7 @@ export default function SellerPortalPage() {
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
         <div className="text-center">
           <div className="w-8 h-8 border-2 border-[#C41E1E] border-t-transparent rounded-full animate-spin mx-auto mb-3" />
-          <p className="text-sm text-gray-500">주문 현황을 불러오는 중...</p>
+          <p className="text-sm text-gray-500">불러오는 중...</p>
         </div>
       </div>
     );
@@ -133,31 +149,30 @@ export default function SellerPortalPage() {
 
   const totalOrders = (stats?.phone.total || 0) + (stats?.mall.total || 0);
   const totalAmount = (stats?.phone.totalAmount || 0) + (stats?.mall.totalAmount || 0);
+  const periodLabel = period ? `${period.slice(0, 4)}년 ${parseInt(period.slice(5, 7))}월` : "";
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-[#f8f9fb]">
       {/* 헤더 */}
-      <header className="bg-white border-b border-gray-200 sticky top-0 z-10">
-        <div className="max-w-6xl mx-auto px-4 sm:px-6 py-4">
+      <header className="bg-white border-b border-gray-200 sticky top-0 z-10 shadow-sm">
+        <div className="max-w-5xl mx-auto px-4 py-3">
           <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div className="w-8 h-8 bg-[#C41E1E] rounded-lg flex items-center justify-center">
-                <span className="text-white text-xs font-bold">TP</span>
+            <div className="flex items-center gap-2.5">
+              <div className="w-7 h-7 bg-[#C41E1E] rounded-md flex items-center justify-center shrink-0">
+                <span className="text-white text-[10px] font-bold">TP</span>
               </div>
-              <div>
-                <h1 className="text-lg font-bold text-gray-900">{clientName}</h1>
-                <p className="text-xs text-gray-500">
-                  {period ? `${period.slice(0, 7).replace("-", "년 ")}월` : ""} 주문 현황
-                </p>
+              <div className="min-w-0">
+                <h1 className="text-base font-bold text-gray-900 truncate">{clientName}</h1>
+                <p className="text-[11px] text-gray-400">{periodLabel} 주문 현황</p>
               </div>
             </div>
-            <div className="flex items-center gap-3">
-              <span className="text-xs text-gray-400">
+            <div className="flex items-center gap-2 shrink-0">
+              <span className="text-[11px] text-gray-400 hidden sm:inline">
                 {lastRefresh.toLocaleTimeString("ko-KR")} 기준
               </span>
               <button
                 onClick={() => { setLoading(true); fetchData(); }}
-                className="px-3 py-1.5 text-xs font-medium text-[#C41E1E] border border-[#C41E1E] rounded-lg hover:bg-red-50 transition-colors"
+                className="px-2.5 py-1.5 text-[11px] font-medium text-[#C41E1E] border border-[#C41E1E]/30 rounded-md hover:bg-red-50 transition-colors"
               >
                 새로고침
               </button>
@@ -166,35 +181,28 @@ export default function SellerPortalPage() {
         </div>
       </header>
 
-      <main className="max-w-6xl mx-auto px-4 sm:px-6 py-6 space-y-6">
+      <main className="max-w-5xl mx-auto px-4 py-5 space-y-4">
         {/* 통계 카드 */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-          <StatCard label="전체 주문" value={`${totalOrders}건`} color="gray" />
-          <StatCard label="총 금액" value={`${totalAmount.toLocaleString()}원`} color="blue" />
-          <StatCard
-            label="배송중"
-            value={`${(stats?.phone.shipping || 0) + (stats?.mall.shipping || 0)}건`}
-            color="violet"
-          />
-          <StatCard
-            label="배송완료"
-            value={`${(stats?.phone.delivered || 0) + (stats?.mall.delivered || 0)}건`}
-            color="green"
-          />
+        <div className="grid grid-cols-4 gap-2.5">
+          <StatCard label="전체 주문" value={totalOrders} suffix="건" color="gray" />
+          <StatCard label="총 금액" value={totalAmount} suffix="원" format color="blue" />
+          <StatCard label="배송중" value={(stats?.phone.shipping || 0) + (stats?.mall.shipping || 0)} suffix="건" color="violet" />
+          <StatCard label="배송완료" value={(stats?.phone.delivered || 0) + (stats?.mall.delivered || 0)} suffix="건" color="green" />
         </div>
 
         {/* 전화주문 미입금 알림 */}
         {(stats?.phone.unpaid || 0) > 0 && (
-          <div className="bg-red-50 border border-red-200 rounded-xl px-4 py-3 flex items-center gap-2">
-            <span className="text-red-600 text-sm font-medium">
+          <div className="bg-red-50 border border-red-100 rounded-lg px-3.5 py-2.5 flex items-center gap-2">
+            <div className="w-1.5 h-1.5 bg-red-500 rounded-full shrink-0" />
+            <span className="text-red-600 text-xs font-medium">
               미입금 {stats?.phone.unpaid}건
             </span>
-            <span className="text-red-500 text-xs">입금 확인이 필요한 전화주문이 있습니다.</span>
+            <span className="text-red-400 text-[11px]">입금 확인이 필요합니다</span>
           </div>
         )}
 
         {/* 탭 */}
-        <div className="flex gap-1 bg-gray-100 rounded-lg p-1 w-fit">
+        <div className="flex gap-0.5 bg-gray-100 rounded-lg p-0.5 w-fit">
           {[
             { key: "all" as const, label: "전체", count: totalOrders },
             { key: "phone" as const, label: "전화주문", count: stats?.phone.total || 0 },
@@ -203,70 +211,77 @@ export default function SellerPortalPage() {
             <button
               key={t.key}
               onClick={() => setTab(t.key)}
-              className={`px-4 py-2 text-sm font-medium rounded-md transition-colors ${
-                tab === t.key ? "bg-white text-gray-900 shadow-sm" : "text-gray-500 hover:text-gray-700"
+              className={`px-3 py-1.5 text-xs font-medium rounded-md transition-all ${
+                tab === t.key
+                  ? "bg-white text-gray-900 shadow-sm"
+                  : "text-gray-400 hover:text-gray-600"
               }`}
             >
-              {t.label} <span className="text-xs text-gray-400 ml-1">{t.count}</span>
+              {t.label}
+              <span className={`ml-1 text-[10px] ${tab === t.key ? "text-gray-500" : "text-gray-300"}`}>
+                {t.count}
+              </span>
             </button>
           ))}
         </div>
 
         {/* 전화주문 테이블 */}
         {(tab === "all" || tab === "phone") && phoneOrders.length > 0 && (
-          <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+          <section className="bg-white rounded-lg border border-gray-200 overflow-hidden shadow-sm">
             {tab === "all" && (
-              <div className="px-4 py-3 border-b border-gray-100 bg-gray-50/50">
-                <h3 className="text-sm font-bold text-gray-700">전화주문</h3>
+              <div className="px-4 py-2.5 border-b border-gray-100">
+                <h3 className="text-xs font-bold text-gray-500 uppercase tracking-wider">전화주문</h3>
               </div>
             )}
             <div className="overflow-x-auto">
-              <table className="w-full text-sm">
+              <table className="w-full">
                 <thead>
-                  <tr className="bg-gray-50 border-b border-gray-200">
-                    <th className="px-4 py-2.5 text-left text-xs font-semibold text-gray-500">주문번호</th>
-                    <th className="px-4 py-2.5 text-left text-xs font-semibold text-gray-500">주문일</th>
-                    <th className="px-4 py-2.5 text-left text-xs font-semibold text-gray-500">상품명</th>
-                    <th className="px-4 py-2.5 text-center text-xs font-semibold text-gray-500">수량</th>
-                    <th className="px-4 py-2.5 text-right text-xs font-semibold text-gray-500">금액</th>
-                    <th className="px-4 py-2.5 text-left text-xs font-semibold text-gray-500">수령인</th>
-                    <th className="px-4 py-2.5 text-center text-xs font-semibold text-gray-500">상태</th>
-                    <th className="px-4 py-2.5 text-center text-xs font-semibold text-gray-500">입금</th>
-                    <th className="px-4 py-2.5 text-left text-xs font-semibold text-gray-500">운송장</th>
+                  <tr className="border-b border-gray-100">
+                    <th className="px-3 py-2 text-left text-[11px] font-semibold text-gray-400 whitespace-nowrap">주문번호</th>
+                    <th className="px-3 py-2 text-center text-[11px] font-semibold text-gray-400 whitespace-nowrap">날짜</th>
+                    <th className="px-3 py-2 text-left text-[11px] font-semibold text-gray-400">상품명</th>
+                    <th className="px-3 py-2 text-center text-[11px] font-semibold text-gray-400 whitespace-nowrap">수량</th>
+                    <th className="px-3 py-2 text-right text-[11px] font-semibold text-gray-400 whitespace-nowrap">금액</th>
+                    <th className="px-3 py-2 text-left text-[11px] font-semibold text-gray-400 whitespace-nowrap">수령인</th>
+                    <th className="px-3 py-2 text-center text-[11px] font-semibold text-gray-400 whitespace-nowrap">상태</th>
+                    <th className="px-3 py-2 text-center text-[11px] font-semibold text-gray-400 whitespace-nowrap">입금</th>
+                    <th className="px-3 py-2 text-left text-[11px] font-semibold text-gray-400 whitespace-nowrap">운송장</th>
                   </tr>
                 </thead>
-                <tbody>
+                <tbody className="divide-y divide-gray-50">
                   {phoneOrders.map((o) => {
                     const st = PHONE_STATUS[o.status] || PHONE_STATUS.pending;
                     return (
-                      <tr key={o.id} className="border-b border-gray-50 hover:bg-gray-50/50">
-                        <td className="px-4 py-2.5 font-mono text-xs text-gray-600">{o.order_number}</td>
-                        <td className="px-4 py-2.5 text-xs text-gray-600">{o.order_date}</td>
-                        <td className="px-4 py-2.5 text-xs text-gray-900 max-w-[250px] truncate">
-                          {o.product_name}
-                          {o.option_text && <span className="text-gray-400 ml-1">({o.option_text})</span>}
+                      <tr key={o.id} className="hover:bg-gray-50/60 transition-colors">
+                        <td className="px-3 py-2 font-mono text-[11px] text-gray-500 whitespace-nowrap">{o.order_number}</td>
+                        <td className="px-3 py-2 text-[11px] text-gray-500 text-center whitespace-nowrap">{formatDate(o.order_date)}</td>
+                        <td className="px-3 py-2 text-xs text-gray-900 max-w-[220px]">
+                          <div className="truncate">{o.product_name}</div>
+                          {o.option_text && <div className="truncate text-[11px] text-gray-400">{o.option_text}</div>}
                         </td>
-                        <td className="px-4 py-2.5 text-center text-xs text-gray-700">{o.quantity}</td>
-                        <td className="px-4 py-2.5 text-right text-xs font-medium text-gray-900">
-                          {(o.total_amount || 0).toLocaleString()}원
+                        <td className="px-3 py-2 text-center text-xs text-gray-600">{o.quantity}</td>
+                        <td className="px-3 py-2 text-right text-xs font-medium text-gray-900 whitespace-nowrap">
+                          {formatAmount(o.total_amount)}
                         </td>
-                        <td className="px-4 py-2.5 text-xs text-gray-700">{o.recipient_name}</td>
-                        <td className="px-4 py-2.5 text-center">
-                          <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${st.color} ${st.bg}`}>
+                        <td className="px-3 py-2 text-xs text-gray-700 whitespace-nowrap">{o.recipient_name}</td>
+                        <td className="px-3 py-2 text-center">
+                          <span className={`inline-block text-[11px] font-medium px-1.5 py-0.5 rounded ${st.color} ${st.bg} whitespace-nowrap`}>
                             {st.label}
                           </span>
                         </td>
-                        <td className="px-4 py-2.5 text-center">
-                          <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${
-                            o.payment_status === "paid" ? "text-emerald-700 bg-emerald-50" : "text-red-700 bg-red-50"
+                        <td className="px-3 py-2 text-center">
+                          <span className={`inline-block text-[11px] font-medium px-1.5 py-0.5 rounded whitespace-nowrap ${
+                            o.payment_status === "paid" ? "text-emerald-700 bg-emerald-50" : "text-red-600 bg-red-50"
                           }`}>
-                            {o.payment_status === "paid" ? "입금" : "미입금"}
+                            {o.payment_status === "paid" ? "완료" : "미입금"}
                           </span>
                         </td>
-                        <td className="px-4 py-2.5 text-xs text-gray-500">
-                          {o.tracking_number
-                            ? `${o.shipping_company || ""} ${o.tracking_number}`
-                            : "-"}
+                        <td className="px-3 py-2 text-[11px] text-gray-500 whitespace-nowrap">
+                          {o.tracking_number ? (
+                            <span>{o.shipping_company} {o.tracking_number}</span>
+                          ) : (
+                            <span className="text-gray-300">-</span>
+                          )}
                         </td>
                       </tr>
                     );
@@ -274,58 +289,70 @@ export default function SellerPortalPage() {
                 </tbody>
               </table>
             </div>
-          </div>
+          </section>
         )}
 
-        {/* 자사몰 주문 테이블 */}
+        {/* 주문 테이블 */}
         {(tab === "all" || tab === "mall") && mallOrders.length > 0 && (
-          <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+          <section className="bg-white rounded-lg border border-gray-200 overflow-hidden shadow-sm">
             {tab === "all" && (
-              <div className="px-4 py-3 border-b border-gray-100 bg-gray-50/50">
-                <h3 className="text-sm font-bold text-gray-700">주문 (자사몰/샘플/기타)</h3>
+              <div className="px-4 py-2.5 border-b border-gray-100">
+                <h3 className="text-xs font-bold text-gray-500 uppercase tracking-wider">주문</h3>
               </div>
             )}
             <div className="overflow-x-auto">
-              <table className="w-full text-sm">
+              <table className="w-full">
                 <thead>
-                  <tr className="bg-gray-50 border-b border-gray-200">
-                    <th className="px-4 py-2.5 text-left text-xs font-semibold text-gray-500">주문번호</th>
-                    <th className="px-4 py-2.5 text-left text-xs font-semibold text-gray-500">주문일</th>
-                    <th className="px-4 py-2.5 text-left text-xs font-semibold text-gray-500">상품명</th>
-                    <th className="px-4 py-2.5 text-center text-xs font-semibold text-gray-500">수량</th>
-                    <th className="px-4 py-2.5 text-right text-xs font-semibold text-gray-500">금액</th>
-                    <th className="px-4 py-2.5 text-left text-xs font-semibold text-gray-500">수령인</th>
-                    <th className="px-4 py-2.5 text-center text-xs font-semibold text-gray-500">배송상태</th>
-                    <th className="px-4 py-2.5 text-left text-xs font-semibold text-gray-500">운송장</th>
+                  <tr className="border-b border-gray-100">
+                    <th className="px-3 py-2 text-left text-[11px] font-semibold text-gray-400 whitespace-nowrap">주문번호</th>
+                    <th className="px-3 py-2 text-center text-[11px] font-semibold text-gray-400 whitespace-nowrap">날짜</th>
+                    <th className="px-3 py-2 text-left text-[11px] font-semibold text-gray-400">상품명</th>
+                    <th className="px-3 py-2 text-center text-[11px] font-semibold text-gray-400 whitespace-nowrap">수량</th>
+                    <th className="px-3 py-2 text-right text-[11px] font-semibold text-gray-400 whitespace-nowrap">금액</th>
+                    <th className="px-3 py-2 text-left text-[11px] font-semibold text-gray-400 whitespace-nowrap">수령인</th>
+                    <th className="px-3 py-2 text-center text-[11px] font-semibold text-gray-400 whitespace-nowrap">구분</th>
+                    <th className="px-3 py-2 text-center text-[11px] font-semibold text-gray-400 whitespace-nowrap">상태</th>
+                    <th className="px-3 py-2 text-left text-[11px] font-semibold text-gray-400 whitespace-nowrap">운송장</th>
                   </tr>
                 </thead>
-                <tbody>
+                <tbody className="divide-y divide-gray-50">
                   {mallOrders.map((o) => {
                     const st = MALL_STATUS[o.shipping_status] || MALL_STATUS.pending;
+                    const amount = o.order_amount || o.product_price || 0;
+                    const channel = o.sales_channel ? CHANNEL_LABEL[o.sales_channel] || o.sales_channel : "자사몰";
                     return (
-                      <tr key={o.id} className="border-b border-gray-50 hover:bg-gray-50/50">
-                        <td className="px-4 py-2.5 font-mono text-xs text-gray-600">{o.cafe24_order_id}</td>
-                        <td className="px-4 py-2.5 text-xs text-gray-600">
-                          {o.order_date ? new Date(o.order_date).toLocaleDateString("ko-KR") : "-"}
+                      <tr key={o.id} className="hover:bg-gray-50/60 transition-colors">
+                        <td className="px-3 py-2 font-mono text-[11px] text-gray-500 whitespace-nowrap">{o.cafe24_order_id}</td>
+                        <td className="px-3 py-2 text-[11px] text-gray-500 text-center whitespace-nowrap">{formatDate(o.order_date)}</td>
+                        <td className="px-3 py-2 text-xs text-gray-900 max-w-[220px]">
+                          <div className="truncate">{o.product_name}</div>
+                          {o.option_text && <div className="truncate text-[11px] text-gray-400">{o.option_text}</div>}
                         </td>
-                        <td className="px-4 py-2.5 text-xs text-gray-900 max-w-[250px] truncate">
-                          {o.product_name}
-                          {o.option_text && <span className="text-gray-400 ml-1">({o.option_text})</span>}
+                        <td className="px-3 py-2 text-center text-xs text-gray-600">{o.quantity}</td>
+                        <td className="px-3 py-2 text-right text-xs font-medium text-gray-900 whitespace-nowrap">
+                          {formatAmount(amount)}
                         </td>
-                        <td className="px-4 py-2.5 text-center text-xs text-gray-700">{o.quantity}</td>
-                        <td className="px-4 py-2.5 text-right text-xs font-medium text-gray-900">
-                          {(o.order_amount || 0).toLocaleString()}원
+                        <td className="px-3 py-2 text-xs text-gray-700 whitespace-nowrap">{o.receiver_name}</td>
+                        <td className="px-3 py-2 text-center">
+                          <span className={`inline-block text-[10px] font-medium px-1.5 py-0.5 rounded whitespace-nowrap ${
+                            channel === "샘플" ? "text-orange-600 bg-orange-50" :
+                            channel === "전화" ? "text-teal-600 bg-teal-50" :
+                            "text-gray-500 bg-gray-50"
+                          }`}>
+                            {channel}
+                          </span>
                         </td>
-                        <td className="px-4 py-2.5 text-xs text-gray-700">{o.receiver_name}</td>
-                        <td className="px-4 py-2.5 text-center">
-                          <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${st.color} ${st.bg}`}>
+                        <td className="px-3 py-2 text-center">
+                          <span className={`inline-block text-[11px] font-medium px-1.5 py-0.5 rounded whitespace-nowrap ${st.color} ${st.bg}`}>
                             {st.label}
                           </span>
                         </td>
-                        <td className="px-4 py-2.5 text-xs text-gray-500">
-                          {o.tracking_number
-                            ? `${o.shipping_company || ""} ${o.tracking_number}`
-                            : "-"}
+                        <td className="px-3 py-2 text-[11px] text-gray-500 whitespace-nowrap">
+                          {o.tracking_number ? (
+                            <span>{o.shipping_company} {o.tracking_number}</span>
+                          ) : (
+                            <span className="text-gray-300">-</span>
+                          )}
                         </td>
                       </tr>
                     );
@@ -333,42 +360,43 @@ export default function SellerPortalPage() {
                 </tbody>
               </table>
             </div>
-          </div>
+          </section>
         )}
 
         {/* 주문 없음 */}
         {totalOrders === 0 && (
-          <div className="bg-white rounded-xl border border-gray-200 p-12 text-center">
-            <p className="text-gray-400 text-sm">아직 등록된 주문이 없습니다.</p>
+          <div className="bg-white rounded-lg border border-gray-200 p-12 text-center shadow-sm">
+            <p className="text-gray-400 text-sm">이번 달 주문이 없습니다.</p>
           </div>
         )}
 
         {/* 푸터 */}
-        <div className="text-center py-4">
-          <p className="text-xs text-gray-400">30초마다 자동 새로고침 됩니다</p>
-        </div>
+        <p className="text-center text-[11px] text-gray-300 py-3">30초마다 자동 새로고침</p>
       </main>
     </div>
   );
 }
 
-function StatCard({ label, value, color }: { label: string; value: string; color: string }) {
+function StatCard({ label, value, suffix, color, format }: { label: string; value: number; suffix: string; color: string; format?: boolean }) {
   const colors: Record<string, string> = {
-    gray: "bg-gray-50 border-gray-200",
-    blue: "bg-blue-50 border-blue-200",
-    violet: "bg-violet-50 border-violet-200",
-    green: "bg-emerald-50 border-emerald-200",
+    gray: "border-gray-200 bg-white",
+    blue: "border-blue-100 bg-blue-50/50",
+    violet: "border-violet-100 bg-violet-50/50",
+    green: "border-emerald-100 bg-emerald-50/50",
   };
   const textColors: Record<string, string> = {
     gray: "text-gray-900",
-    blue: "text-blue-900",
-    violet: "text-violet-900",
-    green: "text-emerald-900",
+    blue: "text-blue-700",
+    violet: "text-violet-700",
+    green: "text-emerald-700",
   };
+  const display = format ? value.toLocaleString() : String(value);
   return (
-    <div className={`rounded-xl border p-4 ${colors[color] || colors.gray}`}>
-      <p className="text-xs text-gray-500 mb-1">{label}</p>
-      <p className={`text-lg font-bold ${textColors[color] || textColors.gray}`}>{value}</p>
+    <div className={`rounded-lg border p-3 shadow-sm ${colors[color] || colors.gray}`}>
+      <p className="text-[11px] text-gray-400 mb-0.5">{label}</p>
+      <p className={`text-base font-bold ${textColors[color] || textColors.gray}`}>
+        {display}<span className="text-[11px] font-normal text-gray-400 ml-0.5">{suffix}</span>
+      </p>
     </div>
   );
 }

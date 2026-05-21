@@ -49,7 +49,7 @@ export async function GET(request: NextRequest) {
   if (store) {
     const { data } = await sb
       .from("orders")
-      .select("id, cafe24_order_id, order_date, product_name, option_text, quantity, order_amount, receiver_name, shipping_status, shipping_company, tracking_number, shipped_at, sales_channel, created_at")
+      .select("id, cafe24_order_id, order_date, product_name, option_text, quantity, product_price, order_amount, receiver_name, shipping_status, shipping_company, tracking_number, shipped_at, sales_channel, created_at")
       .eq("store_id", store.id)
       .gte("order_date", monthStart)
       .order("order_date", { ascending: false })

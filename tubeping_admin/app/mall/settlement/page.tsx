@@ -290,7 +290,7 @@ export default function SettlementPage() {
   );
   const [dateStart, setDateStart] = useState("");
   const [dateEnd, setDateEnd] = useState("");
-  const [showCreateForm, setShowCreateForm] = useState(false);
+  const [showCreateForm, setShowCreateForm] = useState(true);
   const [createAllResult, setCreateAllResult] = useState<{
     total: number;
     created: number;
@@ -381,7 +381,7 @@ export default function SettlementPage() {
     setCreating(false);
     if (!res.ok) return alert(data.error || "정산 생성 실패");
     setPeriod(createPeriod);
-    setFilterStore("");
+    setFilterStore(targetStore);
     setShowCreateForm(false);
     fetchSettlements();
   };
