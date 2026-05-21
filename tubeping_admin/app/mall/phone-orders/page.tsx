@@ -75,6 +75,7 @@ interface NewRow {
 const STATUS_MAP: Record<string, { label: string; color: string; bg: string; dot: string }> = {
   pending: { label: "접수", color: "text-amber-700", bg: "bg-amber-50 border-amber-200", dot: "bg-amber-400" },
   confirmed: { label: "확정", color: "text-blue-700", bg: "bg-blue-50 border-blue-200", dot: "bg-blue-400" },
+  transferred: { label: "이관완료", color: "text-teal-700", bg: "bg-teal-50 border-teal-200", dot: "bg-teal-400" },
   shipping: { label: "배송중", color: "text-violet-700", bg: "bg-violet-50 border-violet-200", dot: "bg-violet-400" },
   delivered: { label: "배송완료", color: "text-emerald-700", bg: "bg-emerald-50 border-emerald-200", dot: "bg-emerald-400" },
   cancelled: { label: "취소", color: "text-red-700", bg: "bg-red-50 border-red-200", dot: "bg-red-400" },
@@ -420,26 +421,35 @@ export default function PhoneOrdersPage() {
   const transferToOrders = async () => {
     if (selected.size === 0) return;
     const selectedOrders = orders.filter((o) => selected.has(o.id));
-    const nonConfirmed = selectedOrders.filter((o) => o.status !== "confirmed" && o.status !== "pending");
-    if (nonConfirmed.length > 0) {
-      if (!confirm(`배송중/완료/취소 상태인 주문 ${nonConfirmed.length}건이 포함되어 있습니다. 계속하시겠습니까?`)) return;
+    const alreadyTransferred = selectedOrders.filter((o) => o.status === "transferred");
+    if (alreadyTransferred.length === selectedOrders.length) {
+      alert("선택한 주문이 모두 이미 이관된 건입니다.");
+      return;
+    }
+    const transferable = selectedOrders.filter((o) => o.status !== "transferred");
+    if (alreadyTransferred.length > 0) {
+      if (!confirm(`${alreadyTransferred.length}건은 이미 이관됨 → 나머지 ${transferable.length}건만 이관합니다. 계속?`)) return;
     }
 
     setTransferring(true);
     try {
+      const transferIds = transferable.map((o) => o.id);
       const res = await fetch("/admin/api/phone-orders/transfer", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ids: Array.from(selected) }),
+        body: JSON.stringify({ ids: transferIds }),
       });
       const data = await res.json();
-      if (res.ok) {
-        alert(`${data.transferred}건 이관 완료${data.skipped > 0 ? ` (${data.skipped}건 중복 건너뜀)` : ""}`);
-        setSelected(new Set());
-        fetchOrders();
+      const errorDetails = (data.errors || []).map((e: { order_number: string; reason?: string }) => `${e.order_number}: ${e.reason}`).join("\n");
+      if (data.transferred > 0) {
+        alert(`${data.transferred}건 이관 완료${data.skipped > 0 ? ` (${data.skipped}건 중복)` : ""}${errorDetails ? `\n\n에러:\n${errorDetails}` : ""}`);
+      } else if (data.skipped > 0) {
+        alert(`${data.skipped}건 이미 이관됨 (신규 이관 없음)`);
       } else {
-        alert(`이관 실패: ${data.error}`);
+        alert(`이관 실패${errorDetails ? `:\n${errorDetails}` : `: ${data.error || "알 수 없는 오류"}`}`);
       }
+      setSelected(new Set());
+      fetchOrders();
     } catch {
       alert("이관 중 오류가 발생했습니다.");
     }
@@ -450,6 +460,7 @@ export default function PhoneOrdersPage() {
   const totalCount = orders.length;
   const pendingCount = orders.filter((o) => o.status === "pending").length;
   const confirmedCount = orders.filter((o) => o.status === "confirmed").length;
+  const transferredCount = orders.filter((o) => o.status === "transferred").length;
   const shippingCount = orders.filter((o) => o.status === "shipping").length;
   const unpaidCount = orders.filter((o) => o.payment_status === "unpaid").length;
 
@@ -496,11 +507,12 @@ export default function PhoneOrdersPage() {
       </div>
 
       {/* 통계 카드 */}
-      <div className="grid grid-cols-5 gap-3">
+      <div className="grid grid-cols-6 gap-3">
         {[
           { label: "전체 주문", value: totalCount, color: "text-gray-900", iconBg: "bg-gray-100", icon: "M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" },
           { label: "접수 대기", value: pendingCount, color: "text-amber-600", iconBg: "bg-amber-50", icon: "M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" },
           { label: "확정", value: confirmedCount, color: "text-blue-600", iconBg: "bg-blue-50", icon: "M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" },
+          { label: "이관완료", value: transferredCount, color: "text-teal-600", iconBg: "bg-teal-50", icon: "M13 7l5 5m0 0l-5 5m5-5H6" },
           { label: "배송중", value: shippingCount, color: "text-violet-600", iconBg: "bg-violet-50", icon: "M13 16V6a1 1 0 00-1-1H4a1 1 0 00-1 1v10a1 1 0 001 1h1m8-1a1 1 0 01-1 1H9m4-1V8a1 1 0 011-1h2.586a1 1 0 01.707.293l3.414 3.414a1 1 0 01.293.707V16a1 1 0 01-1 1h-1m-6-1a1 1 0 001 1h1M5 17a2 2 0 104 0m-4 0a2 2 0 114 0m6 0a2 2 0 104 0m-4 0a2 2 0 114 0" },
           { label: "미입금", value: unpaidCount, color: "text-red-600", iconBg: "bg-red-50", icon: "M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" },
         ].map((s) => (
@@ -730,12 +742,23 @@ export default function PhoneOrdersPage() {
                 </td></tr>
               ) : (
                 orders.map((order) => {
+                  const isTransferred = order.status === "transferred";
                   const st = STATUS_MAP[order.status] || STATUS_MAP.pending;
                   const pt = PAYMENT_MAP[order.payment_status] || PAYMENT_MAP.unpaid;
                   return (
-                    <tr key={order.id} className={`border-b border-gray-100 hover:bg-gray-50/50 transition-colors ${selected.has(order.id) ? "bg-[#FFF8FA]" : ""}`}>
+                    <tr key={order.id} className={`border-b border-gray-100 hover:bg-gray-50/50 transition-colors ${isTransferred ? "bg-teal-50/30" : ""} ${selected.has(order.id) ? "bg-[#FFF8FA]" : ""}`}>
                       <td className="px-3 py-2.5"><input type="checkbox" checked={selected.has(order.id)} onChange={() => toggleOne(order.id)} className="rounded border-gray-300 text-[#C41E1E] focus:ring-[#C41E1E]" /></td>
-                      <td className="px-3 py-2.5 font-mono text-[11px] text-gray-500 whitespace-nowrap">{order.order_number}</td>
+                      <td className="px-3 py-2.5 font-mono text-[11px] text-gray-500 whitespace-nowrap">
+                        <div className="flex items-center gap-1.5">
+                          {order.order_number}
+                          {isTransferred && (
+                            <span className="inline-flex items-center gap-0.5 text-[9px] font-bold text-teal-600 bg-teal-100 px-1.5 py-0.5 rounded-full">
+                              <svg className="w-2.5 h-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" /></svg>
+                              이관
+                            </span>
+                          )}
+                        </div>
+                      </td>
                       <td className="px-3 py-2.5 text-[11px] text-gray-500 whitespace-nowrap">{order.order_date}</td>
                       <td className="px-3 py-2.5 text-xs font-medium text-gray-900">{order.phone_order_clients?.name || "-"}</td>
                       <td className="px-3 py-2.5 text-xs text-gray-900 max-w-[200px] truncate" title={order.product_name}>{order.product_name}</td>
@@ -748,13 +771,19 @@ export default function PhoneOrdersPage() {
                           className={`inline-flex items-center gap-1 text-[11px] font-medium px-2 py-0.5 rounded-full border cursor-pointer transition-colors ${pt.color} ${pt.bg}`}>{pt.label}</button>
                       </td>
                       <td className="px-3 py-2.5 text-center">
-                        <select value={order.status} onChange={(e) => {
-                          const updates: Record<string, unknown> = { status: e.target.value };
-                          if (e.target.value === "shipping" && !order.shipped_at) updates.shipped_at = new Date().toISOString();
-                          singleUpdate(order.id, updates);
-                        }} className={`text-[11px] font-medium px-2 py-0.5 rounded-full border cursor-pointer transition-colors ${st.color} ${st.bg}`}>
-                          {Object.entries(STATUS_MAP).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
-                        </select>
+                        {isTransferred ? (
+                          <span className={`inline-flex items-center gap-1 text-[11px] font-medium px-2 py-0.5 rounded-full border ${st.color} ${st.bg}`}>
+                            {st.label}
+                          </span>
+                        ) : (
+                          <select value={order.status} onChange={(e) => {
+                            const updates: Record<string, unknown> = { status: e.target.value };
+                            if (e.target.value === "shipping" && !order.shipped_at) updates.shipped_at = new Date().toISOString();
+                            singleUpdate(order.id, updates);
+                          }} className={`text-[11px] font-medium px-2 py-0.5 rounded-full border cursor-pointer transition-colors ${st.color} ${st.bg}`}>
+                            {Object.entries(STATUS_MAP).filter(([k]) => k !== "transferred").map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
+                          </select>
+                        )}
                       </td>
                       <EditableCell orderId={order.id} field="memo" value={order.memo} placeholder="메모 입력" />
                     </tr>
