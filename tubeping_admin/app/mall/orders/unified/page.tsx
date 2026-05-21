@@ -141,7 +141,7 @@ const OrderRow = memo(function OrderRow({
   const editing = !!trackingEdit;
   return (
     <tr
-      className={`border-b border-gray-50 last:border-0 hover:bg-gray-50/50 cursor-pointer ${
+      className={`hover:bg-gray-50/50 cursor-pointer [&>td]:border-b [&>td]:border-gray-100 ${
         isSelected ? "bg-blue-50/60" : noPO && noSup ? "bg-red-50/20" : noPO ? "bg-amber-50/20" : ""
       }`}
       onClick={() => toggleSelect(o.id)}
@@ -1357,7 +1357,7 @@ export default function UnifiedOrdersPage() {
           <div className="p-12 text-center text-gray-400">불러오는 중...</div>
         ) : (
           <>
-          <table className="w-full text-sm table-fixed">
+          <table className="w-full text-sm table-fixed border-separate border-spacing-0">
             <colgroup>
               <col className="w-[36px]" />{/* checkbox */}
               <col className="w-[36px]" />{/* No */}
@@ -1382,38 +1382,38 @@ export default function UnifiedOrdersPage() {
             </colgroup>
             <thead className="sticky top-0 z-10">
               {/* Parent header row for column groups */}
-              <tr className="text-[10px] text-gray-400 border-b border-gray-100 bg-gray-50">
-                <th colSpan={10} className="py-0.5"></th>
-                <th colSpan={2} className="py-0.5 text-center font-semibold text-blue-500 bg-blue-50/50 border-x border-blue-100/50">공급</th>
-                <th colSpan={2} className="py-0.5 text-center font-semibold text-green-600 bg-green-50/50 border-x border-green-100/50">판매</th>
-                <th colSpan={6} className="py-0.5"></th>
+              <tr className="text-[10px] text-gray-400 bg-gray-50">
+                <th colSpan={10} className="py-0.5 border-b border-gray-100"></th>
+                <th colSpan={2} className="py-0.5 text-center font-semibold text-blue-500 bg-blue-50 border-b border-gray-100 border-x border-blue-100/50">공급</th>
+                <th colSpan={2} className="py-0.5 text-center font-semibold text-green-600 bg-green-50 border-b border-gray-100 border-x border-green-100/50">판매</th>
+                <th colSpan={6} className="py-0.5 border-b border-gray-100"></th>
               </tr>
-              <tr className="text-[11px] text-gray-500 border-b border-gray-100 bg-gray-50">
-                <th className="px-2 py-2 w-8">
+              <tr className="text-[11px] text-gray-500 bg-gray-50">
+                <th className="px-2 py-2 w-8 border-b border-gray-100">
                   <input type="checkbox" checked={pagedOrders.length > 0 && pagedOrders.every((o) => selected.has(o.id))} onChange={toggleAll} className="rounded w-3.5 h-3.5" />
                 </th>
-                <th className="text-left px-1.5 py-2 font-medium">No</th>
-                <th className="text-left px-1.5 py-2 font-medium">주문번호</th>
-                <th className="text-left px-1.5 py-2 font-medium">상품/옵션</th>
-                <th className="text-left px-1.5 py-2 font-medium">주문자/수취인</th>
-                <th className="text-left px-1.5 py-2 font-medium">배송주소</th>
-                <th className="text-left px-1.5 py-2 font-medium">판매방식</th>
-                <th className="text-left px-1.5 py-2 font-medium">판매사</th>
-                <th className="text-left px-1.5 py-2 font-medium">공급사</th>
-                <th className="text-right px-1.5 py-2 font-medium">수량</th>
-                <th className="text-right px-1.5 py-2 font-medium bg-blue-50/50 border-l border-blue-100/50">상품가</th>
-                <th className="text-right px-1.5 py-2 font-medium bg-blue-50/50 border-r border-blue-100/50">배송비</th>
-                <th className="text-right px-1.5 py-2 font-medium bg-green-50/50 border-l border-green-100/50">상품가</th>
-                <th className="text-right px-1.5 py-2 font-medium bg-green-50/50 border-r border-green-100/50">배송비</th>
-                <th className="text-center px-1.5 py-2 font-medium">입금</th>
-                <th className="text-left px-1.5 py-2 font-medium">송장</th>
-                <th className="text-center px-1.5 py-2 font-medium">발주</th>
-                <th className="text-center px-1.5 py-2 font-medium">배송</th>
-                <th className="text-center px-1.5 py-2 font-medium">CS</th>
-                <th className="text-right px-2 py-2 font-medium">주문일</th>
+                <th className="text-left px-1.5 py-2 font-medium border-b border-gray-100">No</th>
+                <th className="text-left px-1.5 py-2 font-medium border-b border-gray-100">주문번호</th>
+                <th className="text-left px-1.5 py-2 font-medium border-b border-gray-100">상품/옵션</th>
+                <th className="text-left px-1.5 py-2 font-medium border-b border-gray-100">주문자/수취인</th>
+                <th className="text-left px-1.5 py-2 font-medium border-b border-gray-100">배송주소</th>
+                <th className="text-left px-1.5 py-2 font-medium border-b border-gray-100">판매방식</th>
+                <th className="text-left px-1.5 py-2 font-medium border-b border-gray-100">판매사</th>
+                <th className="text-left px-1.5 py-2 font-medium border-b border-gray-100">공급사</th>
+                <th className="text-right px-1.5 py-2 font-medium border-b border-gray-100">수량</th>
+                <th className="text-right px-1.5 py-2 font-medium bg-blue-50 border-l border-blue-100/50 border-b border-gray-100">상품가</th>
+                <th className="text-right px-1.5 py-2 font-medium bg-blue-50 border-r border-blue-100/50 border-b border-gray-100">배송비</th>
+                <th className="text-right px-1.5 py-2 font-medium bg-green-50 border-l border-green-100/50 border-b border-gray-100">상품가</th>
+                <th className="text-right px-1.5 py-2 font-medium bg-green-50 border-r border-green-100/50 border-b border-gray-100">배송비</th>
+                <th className="text-center px-1.5 py-2 font-medium border-b border-gray-100">입금</th>
+                <th className="text-left px-1.5 py-2 font-medium border-b border-gray-100">송장</th>
+                <th className="text-center px-1.5 py-2 font-medium border-b border-gray-100">발주</th>
+                <th className="text-center px-1.5 py-2 font-medium border-b border-gray-100">배송</th>
+                <th className="text-center px-1.5 py-2 font-medium border-b border-gray-100">CS</th>
+                <th className="text-right px-2 py-2 font-medium border-b border-gray-100">주문일</th>
               </tr>
               {/* Column filters — compact */}
-              <tr className="text-[10px] border-b border-gray-200 bg-gray-50">
+              <tr className="text-[10px] bg-gray-50" style={{ boxShadow: "0 2px 4px -1px rgba(0,0,0,0.1)" }}>
                 {/* 1. Reset button */}
                 <th className="px-1 py-0.5">
                   {(colFilterOrderNo || colFilterProduct || colFilterCustomer || colFilterAddress || colFilterChannel || colFilterPayment || colFilterPOStatus || colFilterQty || colFilterAmount || colFilterTracking || filterStore || filterSupplier || filterStatus) && (
@@ -1492,11 +1492,11 @@ export default function UnifiedOrdersPage() {
                   </select>
                 </th>
                 {/* 11. 공급가 */}
-                <th className="bg-blue-50/30"></th>
+                <th className="bg-blue-50"></th>
                 {/* 12. 공급배송비 */}
-                <th className="bg-blue-50/30"></th>
+                <th className="bg-blue-50"></th>
                 {/* 13. 판매가 select */}
-                <th className="px-0.5 py-0.5 bg-green-50/30">
+                <th className="px-0.5 py-0.5 bg-green-50">
                   <select value={colFilterAmount} onChange={(e) => setColFilterAmount(e.target.value)}
                     className="w-full text-[10px] border border-gray-200 rounded px-0.5 py-px bg-white">
                     <option value="">-</option>
@@ -1507,7 +1507,7 @@ export default function UnifiedOrdersPage() {
                   </select>
                 </th>
                 {/* 14. 판매배송비 */}
-                <th className="bg-green-50/30"></th>
+                <th className="bg-green-50"></th>
                 {/* 15. 입금 select */}
                 <th className="px-0.5 py-0.5 text-center">
                   <select value={colFilterPayment} onChange={(e) => setColFilterPayment(e.target.value)}
