@@ -30,7 +30,26 @@ export async function POST() {
   }
   results.push(`view_token: ${tokenUpdated}개 생성`);
 
-  // 2. sales_channel 일괄 수정 (null인 주문들 대상)
+  // 2. 이전에 sample로 잘못 분류된 주문 → phone으로 수정
+  const { data: misclassified } = await sb
+    .from("orders")
+    .select("id, cafe24_order_id")
+    .eq("sales_channel", "sample")
+    .limit(5000);
+
+  if (misclassified) {
+    const fixIds = misclassified.filter((o) => {
+      const oid = o.cafe24_order_id || "";
+      return /^\d{8}\(\d+\)/.test(oid); // 20260519(2)-4 형태
+    }).map((o) => o.id);
+
+    if (fixIds.length > 0) {
+      await sb.from("orders").update({ sales_channel: "phone" }).in("id", fixIds);
+      results.push(`sample→phone 재분류: ${fixIds.length}건`);
+    }
+  }
+
+  // 3. sales_channel 일괄 수정 (null인 주문들 대상)
   const { data: orders } = await sb
     .from("orders")
     .select("id, cafe24_order_id, sales_channel")
@@ -50,16 +69,16 @@ export async function POST() {
       const oid = o.cafe24_order_id || "";
       if (/^PT-/.test(oid)) {
         phoneIds.push(o.id);
-      } else if (/\(\d+\)/.test(oid)) {
-        sampleIds.push(o.id);
       } else if (/^MR-/.test(oid)) {
         manualIds.push(o.id);
       } else if (/^EXCEL-/.test(oid)) {
         manualIds.push(o.id);
-      } else if (/^\d{8}-\d{1,4}$/.test(oid)) {
+      } else if (/^\d{8}-\d{5,}$/.test(oid)) {
+        // YYYYMMDD-0000027 (7자리+) 형태는 자사몰이므로 null 유지
+      } else if (/^\d{8}/.test(oid)) {
+        // 그 외 날짜로 시작 (20260424-4, 20260519(2)-4 등) → 전화
         phoneIds.push(o.id);
       }
-      // YYYYMMDD-0000027 (7자리+) 형태는 자사몰이므로 null 유지
     }
 
     if (phoneIds.length > 0) {

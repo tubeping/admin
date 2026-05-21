@@ -70,12 +70,11 @@ function detectChannel(salesChannel: string | null, orderId: string): string {
   if (/^PT-/.test(orderId)) return "전화";
   if (/^MR-/.test(orderId)) return "수동";
   if (/^EXCEL-/.test(orderId)) return "엑셀";
-  if (/\(\d+\)/.test(orderId)) return "샘플";
   // 자사몰: YYYYMMDD-0000027 (날짜 8자리 + 7자리 이상 번호)
   if (/^\d{8}-\d{5,}$/.test(orderId)) return "자사몰";
 
-  // 그 외 짧은 번호 (20260424-4 등) → 전화
-  if (/^\d{8}-\d{1,4}$/.test(orderId)) return "전화";
+  // 그 외 (20260424-4, 20260519(2)-4 등) → 전화
+  if (/^\d{8}/.test(orderId)) return "전화";
 
   return salesChannel || "기타";
 }
