@@ -5,6 +5,9 @@ import { autoAssignSuppliers } from "@/lib/autoAssignSuppliers";
 /**
  * POST /api/phone-orders/transfer — 전화주문을 orders 테이블로 이관
  * body: { ids: string[] }
+ *
+ * - 판매방식(sales_channel): "phone" (전화주문)
+ * - 판매사(store_id): phone_order_clients 이름으로 stores 테이블 매칭/생성
  */
 export async function POST(request: NextRequest) {
   const body = await request.json().catch(() => ({}));
@@ -32,32 +35,56 @@ export async function POST(request: NextRequest) {
   // 이미 이관된 건 제외
   const notTransferred = phoneOrders.filter((o) => o.status !== "transferred");
   if (notTransferred.length === 0) {
-    return NextResponse.json({ error: "모두 이미 이관된 주문입니다.", transferred: 0, skipped: phoneOrders.length, details: [] }, { status: 200 });
+    return NextResponse.json({ transferred: 0, skipped: phoneOrders.length, errors: [], details: [] });
   }
 
-  // 2. '전화주문' store 찾거나 생성
-  let phoneStoreId: string;
-  const { data: phoneStore } = await sb
-    .from("stores")
-    .select("id")
-    .eq("name", "전화주문")
-    .maybeSingle();
+  // 2. 판매처 이름 → stores 매핑 (없으면 생성)
+  const clientNames = [...new Set(notTransferred.map((o) => o.phone_order_clients?.name).filter(Boolean))] as string[];
+  const storeIdMap: Record<string, string> = {};
 
-  if (phoneStore) {
-    phoneStoreId = phoneStore.id;
-  } else {
-    const { data: created, error: storeErr } = await sb
+  if (clientNames.length > 0) {
+    // 기존 stores에서 이름 매칭
+    const { data: existingStores } = await sb
       .from("stores")
-      .insert({ mall_id: `manual_phone_${Date.now()}`, name: "전화주문", status: "active" })
-      .select("id")
-      .single();
-    if (storeErr || !created) {
-      return NextResponse.json({ error: `스토어 생성 실패: ${storeErr?.message}` }, { status: 500 });
+      .select("id, name")
+      .in("name", clientNames);
+    for (const s of existingStores || []) {
+      storeIdMap[s.name] = s.id;
     }
-    phoneStoreId = created.id;
+
+    // 매칭 안 된 판매처는 새 store 생성
+    for (const name of clientNames) {
+      if (!storeIdMap[name]) {
+        const { data: created, error: storeErr } = await sb
+          .from("stores")
+          .insert({ mall_id: `phone_${name}_${Date.now()}`, name, status: "active" })
+          .select("id")
+          .single();
+        if (!storeErr && created) {
+          storeIdMap[name] = created.id;
+        }
+      }
+    }
   }
 
-  // 3. 이미 이관된 주문번호 체크 (PT- 접두사)
+  // fallback: 판매처 이름이 없는 경우 '전화주문' 스토어 사용
+  let fallbackStoreId: string | null = null;
+  const needsFallback = notTransferred.some((o) => !o.phone_order_clients?.name || !storeIdMap[o.phone_order_clients.name]);
+  if (needsFallback) {
+    const { data: phoneStore } = await sb.from("stores").select("id").eq("name", "전화주문").maybeSingle();
+    if (phoneStore) {
+      fallbackStoreId = phoneStore.id;
+    } else {
+      const { data: created } = await sb
+        .from("stores")
+        .insert({ mall_id: `manual_phone_${Date.now()}`, name: "전화주문", status: "active" })
+        .select("id")
+        .single();
+      fallbackStoreId = created?.id || null;
+    }
+  }
+
+  // 3. 이미 이관된 주문번호 체크
   const orderNos = notTransferred.map((o) =>
     o.order_number.startsWith("PT-") ? o.order_number : `PT-${o.order_number}`
   );
@@ -92,9 +119,16 @@ export async function POST(request: NextRequest) {
 
     if (existingSet.has(orderNo)) {
       skipped++;
-      // orders 테이블에 이미 있으면 phone_orders 상태도 transferred로 맞춤
       transferredPhoneOrderIds.push(po.id);
       details.push({ order_number: po.order_number, status: "이미 이관됨" });
+      continue;
+    }
+
+    // 판매사(store_id) 결정: 판매처 이름 → stores 매핑
+    const clientName = po.phone_order_clients?.name || "";
+    const storeId = (clientName && storeIdMap[clientName]) || fallbackStoreId;
+    if (!storeId) {
+      details.push({ order_number: po.order_number, status: "에러", reason: "판매사(store) 매핑 실패" });
       continue;
     }
 
@@ -103,7 +137,6 @@ export async function POST(request: NextRequest) {
     const orderAmount = unitPrice * qty;
     const isPaid = po.payment_status === "paid";
 
-    // order_date를 ISO 타임스탬프로 변환
     const orderDateStr = po.order_date
       ? new Date(po.order_date + "T09:00:00+09:00").toISOString()
       : new Date().toISOString();
@@ -111,7 +144,7 @@ export async function POST(request: NextRequest) {
     const { data: inserted, error: insertErr } = await sb
       .from("orders")
       .insert({
-        store_id: phoneStoreId,
+        store_id: storeId,
         cafe24_order_id: orderNo,
         cafe24_order_item_code: orderNo,
         order_date: orderDateStr,
@@ -126,8 +159,9 @@ export async function POST(request: NextRequest) {
         receiver_phone: po.recipient_phone || "",
         receiver_address: po.recipient_address || "",
         receiver_zipcode: po.recipient_zipcode || "",
-        memo: `[전화주문] ${po.phone_order_clients?.name || ""} / ${po.order_number}`,
+        memo: `[전화주문] ${clientName} / ${po.order_number}`,
         shipping_status: isPaid ? "ordered" : "pending",
+        sales_channel: "phone",
       })
       .select("id")
       .single();

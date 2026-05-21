@@ -198,11 +198,13 @@ const OrderRow = memo(function OrderRow({
           >
             <option value="">자사몰</option>
             <option value="group">공구주문</option>
+            <option value="phone">전화주문</option>
             <option value="sample">샘플</option>
             <option value="etc">기타</option>
           </select>
         ) : (() => {
           if (o.sales_channel === "group") return <span className="px-1.5 py-0.5 rounded bg-pink-100 text-pink-700 font-medium">공구주문</span>;
+          if (o.sales_channel === "phone") return <span className="px-1.5 py-0.5 rounded bg-teal-100 text-teal-700 font-medium">전화주문</span>;
           if (o.sales_channel === "sample") return <span className="px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 font-medium">샘플</span>;
           if (o.sales_channel === "etc") return <span className="px-1.5 py-0.5 rounded bg-gray-200 text-gray-700 font-medium">기타</span>;
           if (!o.stores?.name) return <span className="text-gray-300">-</span>;
@@ -711,6 +713,7 @@ export default function UnifiedOrdersPage() {
       }
       if (kAddress && !o.receiver_address?.toLowerCase().includes(kAddress)) return false;
       if (colFilterChannel === "group" && o.sales_channel !== "group") return false;
+      if (colFilterChannel === "phone" && o.sales_channel !== "phone") return false;
       if (colFilterChannel === "sample" && o.sales_channel !== "sample") return false;
       if (colFilterChannel === "etc" && o.sales_channel !== "etc") return false;
       if (colFilterChannel === "domestic" && (o.sales_channel || !o.stores?.name)) return false;
@@ -1247,6 +1250,7 @@ export default function UnifiedOrdersPage() {
             <option value="" disabled>판매방식 변경</option>
             <option value="__none__">자사몰</option>
             <option value="group">공구주문</option>
+            <option value="phone">전화주문</option>
             <option value="sample">샘플</option>
             <option value="etc">기타</option>
           </select>
@@ -1431,6 +1435,7 @@ export default function UnifiedOrdersPage() {
                     className="w-full text-[10px] border border-gray-200 rounded px-0.5 py-px bg-white">
                     <option value="">전체</option>
                     <option value="group">공구</option>
+                    <option value="phone">전화</option>
                     <option value="sample">샘플</option>
                     <option value="etc">기타</option>
                     <option value="domestic">자사몰</option>
