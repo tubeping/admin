@@ -123,9 +123,9 @@ const OrderRow = memo(function OrderRow({
 }: {
   o: Order; idx: number; displayedCount: number; isSelected: boolean;
   toggleSelect: (id: string) => void;
-  editingField: "channel" | "store" | null;
-  onStartEdit: (orderId: string, field: "channel" | "store") => void;
-  saveCellEdit: (orderId: string, field: "channel" | "store", value: string) => void;
+  editingField: "channel" | "store" | "orderId" | null;
+  onStartEdit: (orderId: string, field: "channel" | "store" | "orderId") => void;
+  saveCellEdit: (orderId: string, field: "channel" | "store" | "orderId", value: string) => void;
   stores: Store[];
   fetchOrders: () => void;
   trackingEdit: { company: string; number: string } | undefined;
@@ -152,9 +152,43 @@ const OrderRow = memo(function OrderRow({
       </td>
       {/* 2. No */}
       <td className="px-1.5 py-1.5 text-[11px] text-gray-400">{displayedCount - idx}</td>
-      {/* 3. 주문번호 */}
-      <td className="px-1.5 py-1.5 whitespace-nowrap">
-        <div className="text-xs font-medium text-gray-900">{o.cafe24_order_id}</div>
+      {/* 3. 주문번호 (inline editable) */}
+      <td
+        className="px-1.5 py-1.5 whitespace-nowrap cursor-pointer hover:bg-gray-100/60"
+        onClick={(e) => { e.stopPropagation(); if (editingField !== "orderId") onStartEdit(o.id, "orderId"); }}
+        title="클릭해서 주문번호 수정"
+      >
+        {editingField === "orderId" ? (
+          <input
+            autoFocus
+            type="text"
+            defaultValue={o.cafe24_order_id}
+            onClick={(e) => e.stopPropagation()}
+            onBlur={(e) => {
+              const val = e.target.value.trim();
+              if (val && val !== o.cafe24_order_id) {
+                saveCellEdit(o.id, "orderId", val);
+              } else {
+                onStartEdit("", "orderId");
+              }
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                const val = (e.target as HTMLInputElement).value.trim();
+                if (val && val !== o.cafe24_order_id) {
+                  saveCellEdit(o.id, "orderId", val);
+                } else {
+                  onStartEdit("", "orderId");
+                }
+              } else if (e.key === "Escape") {
+                onStartEdit("", "orderId");
+              }
+            }}
+            className="w-full text-xs font-medium border border-gray-400 rounded px-1 py-0.5 bg-white"
+          />
+        ) : (
+          <div className="text-xs font-medium text-gray-900">{o.cafe24_order_id}</div>
+        )}
         <div className="text-[10px] text-gray-400">{formatDateTime(o.order_date)}</div>
       </td>
       {/* 4. 상품/옵션 */}
@@ -397,8 +431,8 @@ export default function UnifiedOrdersPage() {
   const [saving, setSaving] = useState(false);
   const [ocrProcessing, setOcrProcessing] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [editingCell, setEditingCell] = useState<{ orderId: string; field: "channel" | "store" } | null>(null);
-  const onStartEdit = useCallback((orderId: string, field: "channel" | "store") => {
+  const [editingCell, setEditingCell] = useState<{ orderId: string; field: "channel" | "store" | "orderId" } | null>(null);
+  const onStartEdit = useCallback((orderId: string, field: "channel" | "store" | "orderId") => {
     setEditingCell(orderId ? { orderId, field } : null);
   }, []);
 
@@ -872,10 +906,12 @@ export default function UnifiedOrdersPage() {
     }
   };
 
-  const saveCellEdit = useCallback(async (orderId: string, field: "channel" | "store", value: string) => {
+  const saveCellEdit = useCallback(async (orderId: string, field: "channel" | "store" | "orderId", value: string) => {
     const updates: Record<string, string | null> = {};
     if (field === "channel") {
       updates.sales_channel = value === "" ? null : value;
+    } else if (field === "orderId") {
+      updates.cafe24_order_id = value;
     } else {
       updates.store_id = value;
     }

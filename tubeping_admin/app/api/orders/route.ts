@@ -122,6 +122,7 @@ export async function PATCH(request: NextRequest) {
   }
 
   const allowedFields = [
+    "cafe24_order_id",
     "supplier_id", "shipping_status", "memo", "purchase_order_id",
     "is_sample", "auto_assign_status",
     "tracking_number", "shipping_company",
