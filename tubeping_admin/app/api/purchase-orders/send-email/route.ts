@@ -121,7 +121,7 @@ export async function POST(request: NextRequest) {
       .eq("id", po.supplier_id)
       .single();
     poConfig = supplierData?.po_config || null;
-  } catch { /* po_config 컬럼 미존재 시 무시 */ }
+  } catch (e) { console.error("[purchase-orders/send-email] fetch po_config failed:", e); }
 
   // 포털 URL 생성
   const baseUrl = publicEnv.NEXT_PUBLIC_BASE_URL;

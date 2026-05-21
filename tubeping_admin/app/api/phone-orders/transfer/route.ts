@@ -189,7 +189,7 @@ export async function POST(request: NextRequest) {
   if (insertedIds.length > 0) {
     try {
       await autoAssignSuppliers(sb, { orderIds: insertedIds });
-    } catch { /* ignore */ }
+    } catch (e) { console.error("[phone-orders/transfer] auto-assign suppliers failed:", e); }
   }
 
   return NextResponse.json({

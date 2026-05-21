@@ -3,24 +3,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { useParams } from "next/navigation";
 
-interface PhoneOrder {
-  id: string;
-  order_number: string;
-  order_date: string;
-  product_name: string;
-  option_text: string | null;
-  quantity: number;
-  unit_price: number;
-  total_amount: number;
-  recipient_name: string;
-  status: string;
-  payment_status: string;
-  shipping_company: string | null;
-  tracking_number: string | null;
-  shipped_at: string | null;
-  created_at: string;
-}
-
 interface MallOrder {
   id: string;
   cafe24_order_id: string;
@@ -43,15 +25,6 @@ interface Stats {
   phone: { total: number; pending: number; confirmed: number; shipping: number; delivered: number; unpaid: number; totalAmount: number };
   mall: { total: number; pending: number; shipping: number; delivered: number; totalAmount: number };
 }
-
-const PHONE_STATUS: Record<string, { label: string; color: string; bg: string }> = {
-  pending: { label: "접수", color: "text-amber-700", bg: "bg-amber-50" },
-  confirmed: { label: "확정", color: "text-blue-700", bg: "bg-blue-50" },
-  transferred: { label: "이관", color: "text-teal-700", bg: "bg-teal-50" },
-  shipping: { label: "배송중", color: "text-violet-700", bg: "bg-violet-50" },
-  delivered: { label: "배송완료", color: "text-emerald-700", bg: "bg-emerald-50" },
-  cancelled: { label: "취소", color: "text-red-700", bg: "bg-red-50" },
-};
 
 const MALL_STATUS: Record<string, { label: string; color: string; bg: string }> = {
   pending: { label: "대기", color: "text-amber-700", bg: "bg-amber-50" },
@@ -97,11 +70,10 @@ export default function SellerPortalPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [clientName, setClientName] = useState("");
-  const [phoneOrders, setPhoneOrders] = useState<PhoneOrder[]>([]);
   const [mallOrders, setMallOrders] = useState<MallOrder[]>([]);
   const [stats, setStats] = useState<Stats | null>(null);
   const [period, setPeriod] = useState("");
-  const [tab, setTab] = useState<"all" | "phone" | "mall">("all");
+  const [tab, setTab] = useState<string>("all");
   const [lastRefresh, setLastRefresh] = useState<Date>(new Date());
 
   const fetchData = useCallback(async () => {
@@ -115,7 +87,6 @@ export default function SellerPortalPage() {
       }
       const data = await res.json();
       setClientName(data.client.name);
-      setPhoneOrders(data.phoneOrders || []);
       setMallOrders(data.mallOrders || []);
       setStats(data.stats);
       setPeriod(data.period || "");
@@ -160,14 +131,33 @@ export default function SellerPortalPage() {
     );
   }
 
-  // mallOrders 중 전화주문 패턴을 분리해서 카운트
-  const mallPhoneOrders = mallOrders.filter((o) => detectChannel(o.sales_channel, o.cafe24_order_id) === "전화주문");
-  const mallNonPhoneOrders = mallOrders.filter((o) => detectChannel(o.sales_channel, o.cafe24_order_id) !== "전화주문");
-  const phoneCount = (stats?.phone.total || 0) + mallPhoneOrders.length;
-  const mallCount = mallNonPhoneOrders.length;
-  const totalOrders = phoneCount + mallCount;
-  const totalAmount = (stats?.phone.totalAmount || 0) + (stats?.mall.totalAmount || 0);
+  // 채널별 분류
+  const channelGroups = { 자사몰: [] as MallOrder[], 전화주문: [] as MallOrder[], 샘플: [] as MallOrder[], 기타: [] as MallOrder[] };
+  for (const o of mallOrders) {
+    const ch = detectChannel(o.sales_channel, o.cafe24_order_id);
+    if (ch === "자사몰") channelGroups.자사몰.push(o);
+    else if (ch === "전화주문") channelGroups.전화주문.push(o);
+    else if (ch === "샘플") channelGroups.샘플.push(o);
+    else channelGroups.기타.push(o);
+  }
+  const totalOrders = mallOrders.length;
+  const totalAmount = (stats?.mall.totalAmount || 0);
   const periodLabel = period ? `${period.slice(0, 4)}년 ${parseInt(period.slice(5, 7))}월` : "";
+
+  const tabs = [
+    { key: "all", label: "전체", count: totalOrders },
+    { key: "mall", label: "자사몰", count: channelGroups.자사몰.length },
+    { key: "phone", label: "전화주문", count: channelGroups.전화주문.length },
+    { key: "sample", label: "샘플", count: channelGroups.샘플.length },
+    { key: "etc", label: "기타", count: channelGroups.기타.length },
+  ].filter((t) => t.key === "all" || t.count > 0);
+
+  const filteredMallOrders = tab === "all" ? mallOrders
+    : tab === "mall" ? channelGroups.자사몰
+    : tab === "phone" ? channelGroups.전화주문
+    : tab === "sample" ? channelGroups.샘플
+    : tab === "etc" ? channelGroups.기타
+    : mallOrders;
 
   return (
     <div className="min-h-screen bg-[#f8f9fb]">
@@ -204,32 +194,17 @@ export default function SellerPortalPage() {
         <div className="grid grid-cols-4 gap-2.5">
           <StatCard label="전체 주문" value={totalOrders} suffix="건" color="gray" />
           <StatCard label="총 금액" value={totalAmount} suffix="원" format color="blue" />
-          <StatCard label="배송중" value={(stats?.phone.shipping || 0) + (stats?.mall.shipping || 0)} suffix="건" color="violet" />
-          <StatCard label="배송완료" value={(stats?.phone.delivered || 0) + (stats?.mall.delivered || 0)} suffix="건" color="green" />
+          <StatCard label="배송중" value={stats?.mall.shipping || 0} suffix="건" color="violet" />
+          <StatCard label="배송완료" value={stats?.mall.delivered || 0} suffix="건" color="green" />
         </div>
 
-        {/* 전화주문 미입금 알림 */}
-        {(stats?.phone.unpaid || 0) > 0 && (
-          <div className="bg-red-50 border border-red-100 rounded-lg px-3.5 py-2.5 flex items-center gap-2">
-            <div className="w-1.5 h-1.5 bg-red-500 rounded-full shrink-0" />
-            <span className="text-red-600 text-xs font-medium">
-              미입금 {stats?.phone.unpaid}건
-            </span>
-            <span className="text-red-400 text-[11px]">입금 확인이 필요합니다</span>
-          </div>
-        )}
-
         {/* 탭 */}
-        <div className="flex gap-0.5 bg-gray-100 rounded-lg p-0.5 w-fit">
-          {[
-            { key: "all" as const, label: "전체", count: totalOrders },
-            { key: "phone" as const, label: "전화주문", count: phoneCount },
-            { key: "mall" as const, label: "주문", count: mallCount },
-          ].map((t) => (
+        <div className="flex gap-0.5 bg-gray-100 rounded-lg p-0.5 w-fit overflow-x-auto">
+          {tabs.map((t) => (
             <button
               key={t.key}
               onClick={() => setTab(t.key)}
-              className={`px-3 py-1.5 text-xs font-medium rounded-md transition-all ${
+              className={`px-3 py-1.5 text-xs font-medium rounded-md transition-all whitespace-nowrap ${
                 tab === t.key
                   ? "bg-white text-gray-900 shadow-sm"
                   : "text-gray-400 hover:text-gray-600"
@@ -243,84 +218,9 @@ export default function SellerPortalPage() {
           ))}
         </div>
 
-        {/* 전화주문 테이블 */}
-        {(tab === "all" || tab === "phone") && phoneOrders.length > 0 && (
+        {/* 통합 주문 테이블 */}
+        {filteredMallOrders.length > 0 && (
           <section className="bg-white rounded-lg border border-gray-200 overflow-hidden shadow-sm">
-            {tab === "all" && (
-              <div className="px-4 py-2.5 border-b border-gray-100">
-                <h3 className="text-xs font-bold text-gray-500 uppercase tracking-wider">전화주문</h3>
-              </div>
-            )}
-            <div className="overflow-x-auto">
-              <table className="w-full">
-                <thead>
-                  <tr className="border-b border-gray-100">
-                    <th className="px-3 py-2 text-left text-[11px] font-semibold text-gray-400 whitespace-nowrap">주문번호</th>
-                    <th className="px-3 py-2 text-center text-[11px] font-semibold text-gray-400 whitespace-nowrap">날짜</th>
-                    <th className="px-3 py-2 text-left text-[11px] font-semibold text-gray-400">상품명</th>
-                    <th className="px-3 py-2 text-center text-[11px] font-semibold text-gray-400 whitespace-nowrap">수량</th>
-                    <th className="px-3 py-2 text-right text-[11px] font-semibold text-gray-400 whitespace-nowrap">금액</th>
-                    <th className="px-3 py-2 text-left text-[11px] font-semibold text-gray-400 whitespace-nowrap">수령인</th>
-                    <th className="px-3 py-2 text-center text-[11px] font-semibold text-gray-400 whitespace-nowrap">상태</th>
-                    <th className="px-3 py-2 text-center text-[11px] font-semibold text-gray-400 whitespace-nowrap">입금</th>
-                    <th className="px-3 py-2 text-left text-[11px] font-semibold text-gray-400 whitespace-nowrap">운송장</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-50">
-                  {phoneOrders.map((o) => {
-                    const st = PHONE_STATUS[o.status] || PHONE_STATUS.pending;
-                    return (
-                      <tr key={o.id} className="hover:bg-gray-50/60 transition-colors">
-                        <td className="px-3 py-2 font-mono text-[11px] text-gray-500 whitespace-nowrap">{o.order_number}</td>
-                        <td className="px-3 py-2 text-[11px] text-gray-500 text-center whitespace-nowrap">{formatDate(o.order_date)}</td>
-                        <td className="px-3 py-2 text-xs text-gray-900 max-w-[220px]">
-                          <div className="truncate">{o.product_name}</div>
-                          {o.option_text && <div className="truncate text-[11px] text-gray-400">{o.option_text}</div>}
-                        </td>
-                        <td className="px-3 py-2 text-center text-xs text-gray-600">{o.quantity}</td>
-                        <td className="px-3 py-2 text-right text-xs font-medium text-gray-900 whitespace-nowrap">
-                          {formatAmount(o.total_amount)}
-                        </td>
-                        <td className="px-3 py-2 text-xs text-gray-700 whitespace-nowrap">{o.recipient_name}</td>
-                        <td className="px-3 py-2 text-center">
-                          <span className={`inline-block text-[11px] font-medium px-1.5 py-0.5 rounded ${st.color} ${st.bg} whitespace-nowrap`}>
-                            {st.label}
-                          </span>
-                        </td>
-                        <td className="px-3 py-2 text-center">
-                          <span className={`inline-block text-[11px] font-medium px-1.5 py-0.5 rounded whitespace-nowrap ${
-                            o.payment_status === "paid" ? "text-emerald-700 bg-emerald-50" : "text-red-600 bg-red-50"
-                          }`}>
-                            {o.payment_status === "paid" ? "완료" : "미입금"}
-                          </span>
-                        </td>
-                        <td className="px-3 py-2 text-[11px] text-gray-500 whitespace-nowrap">
-                          {o.tracking_number ? (
-                            <span>{o.shipping_company} {o.tracking_number}</span>
-                          ) : (
-                            <span className="text-gray-300">-</span>
-                          )}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          </section>
-        )}
-
-        {/* 주문 테이블 */}
-        {(tab === "all" || tab === "mall" || tab === "phone") && mallOrders.length > 0 && (() => {
-          const filteredMallOrders = tab === "phone" ? mallPhoneOrders : tab === "mall" ? mallNonPhoneOrders : mallOrders;
-          if (filteredMallOrders.length === 0) return null;
-          return (
-          <section className="bg-white rounded-lg border border-gray-200 overflow-hidden shadow-sm">
-            {tab === "all" && (
-              <div className="px-4 py-2.5 border-b border-gray-100">
-                <h3 className="text-xs font-bold text-gray-500 uppercase tracking-wider">주문</h3>
-              </div>
-            )}
             <div className="overflow-x-auto">
               <table className="w-full">
                 <thead>
@@ -359,7 +259,6 @@ export default function SellerPortalPage() {
                             channel === "자사몰" ? "text-indigo-600 bg-indigo-50" :
                             channel === "샘플" ? "text-orange-600 bg-orange-50" :
                             channel === "전화주문" ? "text-teal-600 bg-teal-50" :
-                            channel === "수동" ? "text-sky-600 bg-sky-50" :
                             "text-gray-500 bg-gray-50"
                           }`}>
                             {channel}
@@ -384,8 +283,7 @@ export default function SellerPortalPage() {
               </table>
             </div>
           </section>
-          );
-        })()}
+        )}
 
         {/* 주문 없음 */}
         {totalOrders === 0 && (

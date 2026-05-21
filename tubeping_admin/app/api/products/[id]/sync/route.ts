@@ -205,7 +205,7 @@ export async function POST(
           const vData = await vRes.json();
           storeVariants = vData?.product?.variants || [];
         }
-      } catch { /* skip */ }
+      } catch (e) { console.error("[products/sync] fetch cafe24 variants failed:", e); }
 
       for (const v of tpVariants) {
         // 1. 같은 variant_code가 있으면 그대로 사용

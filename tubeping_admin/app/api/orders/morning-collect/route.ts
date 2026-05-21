@@ -216,7 +216,7 @@ export async function POST(request: NextRequest) {
 
   // 9. 공급사 자동 배정
   if (importedIds.length > 0) {
-    try { await autoAssignSuppliers(sb, { orderIds: importedIds }); } catch { /* ignore */ }
+    try { await autoAssignSuppliers(sb, { orderIds: importedIds }); } catch (e) { console.error("[morning-collect] auto-assign suppliers failed:", e); }
   }
 
   return NextResponse.json({

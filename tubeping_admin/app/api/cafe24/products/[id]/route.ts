@@ -1,78 +1,25 @@
 import { NextRequest, NextResponse } from "next/server";
-import { env } from "@/lib/env.server";
+import { getActiveStores, cafe24Fetch, type StoreInfo } from "@/lib/cafe24";
 
-const MALL_ID = env.CAFE24_MALL_ID;
-const CLIENT_ID = env.CAFE24_CLIENT_ID;
-const CLIENT_SECRET = env.CAFE24_CLIENT_SECRET;
-const API_VERSION = "2026-03-01";
+const MALL_ID = "tubeping";
 
-let cachedToken = {
-  access: env.CAFE24_ACCESS_TOKEN,
-  refresh: env.CAFE24_REFRESH_TOKEN,
-  expiresAt: Date.now() + 2 * 60 * 60 * 1000,
-};
-
-async function refreshToken(): Promise<string> {
-  const res = await fetch(
-    `https://${MALL_ID}.cafe24api.com/api/v2/oauth/token`,
-    {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/x-www-form-urlencoded",
-        Authorization: `Basic ${Buffer.from(`${CLIENT_ID}:${CLIENT_SECRET}`).toString("base64")}`,
-      },
-      body: new URLSearchParams({
-        grant_type: "refresh_token",
-        refresh_token: cachedToken.refresh,
-      }),
-    }
-  );
-  if (!res.ok) throw new Error(`Token refresh failed: ${res.status}`);
-  const data = await res.json();
-  cachedToken = {
-    access: data.access_token,
-    refresh: data.refresh_token,
-    expiresAt: new Date(data.expires_at).getTime(),
-  };
-  return data.access_token;
+let _store: StoreInfo | null = null;
+async function getMasterStore(): Promise<StoreInfo | null> {
+  if (_store) return _store;
+  const stores = await getActiveStores();
+  _store = stores.find((s) => s.mall_id === MALL_ID) || null;
+  return _store;
 }
 
-async function getToken(): Promise<string> {
-  if (cachedToken.access && cachedToken.expiresAt > Date.now() + 60000) {
-    return cachedToken.access;
-  }
-  return refreshToken();
-}
+async function cafe24Request(path: string, options?: RequestInit) {
+  const store = await getMasterStore();
+  if (!store) return { ok: false, status: 500, data: null, error: "마스터 스토어 없음" };
 
-async function cafe24Request(url: string, options?: RequestInit) {
-  const token = await getToken();
-  const headers = {
-    Authorization: `Bearer ${token}`,
-    "Content-Type": "application/json",
-    "X-Cafe24-Api-Version": API_VERSION,
-    ...options?.headers,
-  };
-
-  const res = await fetch(url, { ...options, headers });
-
-  if (res.status === 401) {
-    const newToken = await refreshToken();
-    const retry = await fetch(url, {
-      ...options,
-      headers: { ...headers, Authorization: `Bearer ${newToken}` },
-    });
-    if (!retry.ok) {
-      const err = await retry.text();
-      return { ok: false, status: retry.status, data: null, error: err };
-    }
-    return { ok: true, status: retry.status, data: await retry.json(), error: null };
-  }
-
+  const res = await cafe24Fetch(store, path, options);
   if (!res.ok) {
     const err = await res.text();
     return { ok: false, status: res.status, data: null, error: err };
   }
-
   return { ok: true, status: res.status, data: await res.json(), error: null };
 }
 
@@ -86,10 +33,7 @@ export async function GET(
 ) {
   const { id } = await params;
 
-  // 상품 기본 정보
-  const productRes = await cafe24Request(
-    `https://${MALL_ID}.cafe24api.com/api/v2/admin/products/${id}?embed=options,variants`
-  );
+  const productRes = await cafe24Request(`/products/${id}?embed=options,variants`);
 
   if (!productRes.ok) {
     return NextResponse.json(
@@ -112,7 +56,7 @@ export async function PUT(
   const { id } = await params;
   const body = await request.json();
 
-  // 1. 상품 기본 정보 수정 (가격, 이름, 배송 등)
+  // 1. 상품 기본 정보 수정
   const productUpdate: Record<string, unknown> = {};
 
   if (body.product_name !== undefined) productUpdate.product_name = body.product_name;
@@ -131,15 +75,11 @@ export async function PUT(
   if (body.prepaid_shipping_fee !== undefined) productUpdate.prepaid_shipping_fee = body.prepaid_shipping_fee;
   if (body.clearance_category_code !== undefined) productUpdate.clearance_category_code = body.clearance_category_code;
 
-  // 상품 기본 정보 업데이트
   if (Object.keys(productUpdate).length > 0) {
-    const res = await cafe24Request(
-      `https://${MALL_ID}.cafe24api.com/api/v2/admin/products/${id}`,
-      {
-        method: "PUT",
-        body: JSON.stringify({ shop_no: 1, request: productUpdate }),
-      }
-    );
+    const res = await cafe24Request(`/products/${id}`, {
+      method: "PUT",
+      body: JSON.stringify({ shop_no: 1, request: productUpdate }),
+    });
 
     if (!res.ok) {
       return NextResponse.json(
@@ -161,21 +101,16 @@ export async function PUT(
       if (variant.selling !== undefined) variantUpdate.selling = variant.selling;
 
       if (Object.keys(variantUpdate).length > 0) {
-        await cafe24Request(
-          `https://${MALL_ID}.cafe24api.com/api/v2/admin/products/${id}/variants/${variant.variant_code}`,
-          {
-            method: "PUT",
-            body: JSON.stringify({ shop_no: 1, request: variantUpdate }),
-          }
-        );
+        await cafe24Request(`/products/${id}/variants/${variant.variant_code}`, {
+          method: "PUT",
+          body: JSON.stringify({ shop_no: 1, request: variantUpdate }),
+        });
       }
     }
   }
 
   // 수정 후 최신 상품 정보 반환
-  const updatedRes = await cafe24Request(
-    `https://${MALL_ID}.cafe24api.com/api/v2/admin/products/${id}?embed=options,variants`
-  );
+  const updatedRes = await cafe24Request(`/products/${id}?embed=options,variants`);
 
   if (!updatedRes.ok) {
     return NextResponse.json({ success: true, message: "수정 완료 (상세 재조회 실패)" });

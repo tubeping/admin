@@ -151,7 +151,7 @@ export async function GET(request: NextRequest) {
   let autoAssign: { total: number; assigned: number; failed: number } | undefined;
   try {
     autoAssign = await autoAssignSuppliers(sb);
-  } catch { /* ignore */ }
+  } catch (e) { console.error("[cron/collect-orders] auto-assign suppliers failed:", e); }
 
   return NextResponse.json({
     period: { start_date: startDate, end_date: endDate },

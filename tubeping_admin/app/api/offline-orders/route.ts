@@ -9,7 +9,7 @@ export async function GET(request: NextRequest) {
   const startDate = searchParams.get("start_date");
   const endDate = searchParams.get("end_date");
   const keyword = searchParams.get("keyword");
-  const limit = parseInt(searchParams.get("limit") || "500", 10);
+  const limit = Math.min(parseInt(searchParams.get("limit") || "500", 10), 1000);
 
   const sb = getServiceClient();
   let query = sb

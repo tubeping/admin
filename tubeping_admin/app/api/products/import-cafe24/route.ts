@@ -214,14 +214,16 @@ export async function POST(request: NextRequest) {
     }
   }
 
-  // 병렬 배치 처리 (동시 20)
+  // 병렬 배치 처리 (동시 20, allSettled로 개별 실패 격리)
+  let errors = 0;
   const BATCH = 20;
   for (let i = 0; i < jobs.length; i += BATCH) {
     const slice = jobs.slice(i, i + BATCH);
-    await Promise.all(
+    const results = await Promise.allSettled(
       slice.map(async (job) => {
         if (job.kind === "update") {
-          await sb.from("products").update(job.fields).eq("id", job.productId);
+          const { error: updErr } = await sb.from("products").update(job.fields).eq("id", job.productId);
+          if (updErr) throw updErr;
           await sb
             .from("product_cafe24_mappings")
             .upsert(job.mapping, { onConflict: "product_id,store_id" });
@@ -239,6 +241,12 @@ export async function POST(request: NextRequest) {
         }
       })
     );
+    for (const r of results) {
+      if (r.status === "rejected") {
+        errors++;
+        console.error("[import-cafe24] batch item failed:", r.reason);
+      }
+    }
   }
 
   return NextResponse.json({
@@ -249,6 +257,7 @@ export async function POST(request: NextRequest) {
     updated,
     skipped,
     conflicts,
-    message: `카페24 전체 ${cafeTotalCount}건 / fetch ${allCafeProducts.length}건 → 신규 ${imported}건, 갱신 ${updated}건, 스킵 ${skipped}건${conflicts.length ? `, 코드충돌 ${conflicts.length}건` : ""}`,
+    errors,
+    message: `카페24 전체 ${cafeTotalCount}건 / fetch ${allCafeProducts.length}건 → 신규 ${imported}건, 갱신 ${updated}건, 스킵 ${skipped}건${errors ? `, 에러 ${errors}건` : ""}${conflicts.length ? `, 코드충돌 ${conflicts.length}건` : ""}`,
   });
 }

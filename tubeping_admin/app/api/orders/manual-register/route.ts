@@ -109,7 +109,7 @@ export async function POST(request: NextRequest) {
   if (insertedIds.length > 0) {
     try {
       await autoAssignSuppliers(sb, { orderIds: insertedIds });
-    } catch { /* 매칭 실패해도 주문은 유지 */ }
+    } catch (e) { console.error("[manual-register] auto-assign suppliers failed:", e); }
   }
 
   return NextResponse.json({

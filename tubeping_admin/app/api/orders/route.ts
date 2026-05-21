@@ -13,8 +13,8 @@ export async function GET(request: NextRequest) {
   const supplierId = searchParams.get("supplier_id");
   const startDate = searchParams.get("start_date");
   const endDate = searchParams.get("end_date");
-  const limit = parseInt(searchParams.get("limit") || "50", 10);
-  const offset = parseInt(searchParams.get("offset") || "0", 10);
+  const limit = Math.min(parseInt(searchParams.get("limit") || "50", 10), 500);
+  const offset = Math.max(parseInt(searchParams.get("offset") || "0", 10), 0);
   const poId = searchParams.get("purchase_order_id");
   const includeDraft = searchParams.get("include_draft") === "true";
 

@@ -73,7 +73,7 @@ export async function POST(request: NextRequest) {
           details.push({ order_id: our.id, cafe24_order_id: cafeOrderId, item_code: our.cafe24_order_item_code, tracking: cafeTracking, status: cafeStatus });
         }
       }
-    } catch { /* ignore */ }
+    } catch (e) { console.error("[orders/reconcile] reconcile order failed:", e); }
     await new Promise((r) => setTimeout(r, 50));
   }
 

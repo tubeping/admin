@@ -35,7 +35,7 @@ async function fetchStoreCarriers(store: any): Promise<Record<string, string>> {
         out[normalizeCarrier(name)] = code;
       }
     }
-  } catch { /* ignore */ }
+  } catch (e) { console.error("[cafe24/shipments] fetchStoreCarriers failed:", e); }
   return out;
 }
 
@@ -163,7 +163,7 @@ export async function POST(request: NextRequest) {
             requests: [{ order_id: order.cafe24_order_id, process_status: "prepare" }],
           }),
         });
-      } catch { /* 이미 N20 이상이면 무시 */ }
+      } catch (e) { console.error("[cafe24/shipments] set prepare status failed (이미 N20 이상일 수 있음):", e); }
 
       // 카페24 배송정보 등록 API
       const res = await cafe24Fetch(store, `/orders/${order.cafe24_order_id}/shipments`, {
@@ -223,7 +223,7 @@ export async function POST(request: NextRequest) {
                 continue;
               }
             }
-          } catch { /* ignore */ }
+          } catch (e) { console.error("[cafe24/shipments] shipment retry/fallback failed:", e); }
         }
         results.push({
           order_id: order.id,

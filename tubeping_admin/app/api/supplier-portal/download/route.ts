@@ -67,7 +67,7 @@ export async function GET(request: NextRequest) {
       .eq("id", po.supplier_id)
       .single();
     poConfig = supplierData?.po_config || null;
-  } catch { /* ignore */ }
+  } catch (e) { console.error("[supplier-portal/download] fetch po_config failed:", e); }
 
   const enriched = await enrichWithTpCode(sb, orders);
   const hideSeller = poConfig?.hide_seller ?? true;
