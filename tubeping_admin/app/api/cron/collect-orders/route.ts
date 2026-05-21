@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServiceClient } from "@/lib/supabase";
 import { getActiveStores, cafe24Fetch } from "@/lib/cafe24";
+import { autoAssignSuppliers } from "@/lib/autoAssignSuppliers";
 import { env } from "@/lib/env.server";
 
 const CRON_SECRET = env.CRON_SECRET;
@@ -145,10 +146,18 @@ export async function GET(request: NextRequest) {
   const totalFetched = results.reduce((s, r) => s + r.fetched, 0);
   const totalSaved = results.reduce((s, r) => s + r.saved, 0);
 
+  // 신규 주문에 공급사 자동 매칭 (supplier_id IS NULL인 주문 대상)
+  // 실패해도 수집 결과는 반환되도록 try/catch
+  let autoAssign: { total: number; assigned: number; failed: number } | undefined;
+  try {
+    autoAssign = await autoAssignSuppliers(sb);
+  } catch { /* ignore */ }
+
   return NextResponse.json({
     period: { start_date: startDate, end_date: endDate },
     total_fetched: totalFetched,
     total_saved: totalSaved,
+    auto_assign: autoAssign,
     results,
   });
 }
