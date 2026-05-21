@@ -1287,8 +1287,8 @@ export default function SettlementPage() {
                 <div className="flex gap-3 items-center">
                   <button
                     onClick={() => handleCreate()}
-                    disabled={creating || !createStore}
-                    className="px-5 py-2.5 bg-[#C41E1E] text-white text-sm font-medium rounded-lg hover:bg-[#A01818] disabled:opacity-50 cursor-pointer"
+                    disabled={creating}
+                    className={`px-5 py-2.5 text-sm font-medium rounded-lg cursor-pointer ${!createStore ? "bg-gray-300 text-gray-500" : "bg-[#C41E1E] text-white hover:bg-[#A01818]"} disabled:opacity-50`}
                   >
                     {creating ? "계산 중..." : "정산서 만들기"}
                   </button>
