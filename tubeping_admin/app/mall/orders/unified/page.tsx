@@ -1380,15 +1380,15 @@ export default function UnifiedOrdersPage() {
               <col className="w-[40px]" />{/* CS */}
               <col className="w-[80px]" />{/* 주문일 */}
             </colgroup>
-            <thead>
+            <thead className="sticky top-0 z-10">
               {/* Parent header row for column groups */}
-              <tr className="text-[10px] text-gray-400 border-b border-gray-100 bg-gray-50 sticky top-0 z-10">
+              <tr className="text-[10px] text-gray-400 border-b border-gray-100 bg-gray-50">
                 <th colSpan={10} className="py-0.5"></th>
                 <th colSpan={2} className="py-0.5 text-center font-semibold text-blue-500 bg-blue-50/50 border-x border-blue-100/50">공급</th>
                 <th colSpan={2} className="py-0.5 text-center font-semibold text-green-600 bg-green-50/50 border-x border-green-100/50">판매</th>
                 <th colSpan={6} className="py-0.5"></th>
               </tr>
-              <tr className="text-[11px] text-gray-500 border-b border-gray-100 bg-gray-50 sticky top-[21px] z-10">
+              <tr className="text-[11px] text-gray-500 border-b border-gray-100 bg-gray-50">
                 <th className="px-2 py-2 w-8">
                   <input type="checkbox" checked={pagedOrders.length > 0 && pagedOrders.every((o) => selected.has(o.id))} onChange={toggleAll} className="rounded w-3.5 h-3.5" />
                 </th>
@@ -1413,7 +1413,7 @@ export default function UnifiedOrdersPage() {
                 <th className="text-right px-2 py-2 font-medium">주문일</th>
               </tr>
               {/* Column filters — compact */}
-              <tr className="text-[10px] border-b border-gray-200 bg-gray-50 sticky top-[53px] z-10">
+              <tr className="text-[10px] border-b border-gray-200 bg-gray-50">
                 {/* 1. Reset button */}
                 <th className="px-1 py-0.5">
                   {(colFilterOrderNo || colFilterProduct || colFilterCustomer || colFilterAddress || colFilterChannel || colFilterPayment || colFilterPOStatus || colFilterQty || colFilterAmount || colFilterTracking || filterStore || filterSupplier || filterStatus) && (
