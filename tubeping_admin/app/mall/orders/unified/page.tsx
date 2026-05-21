@@ -376,6 +376,12 @@ const OrderRow = memo(function OrderRow({
    Unified Orders Page
    ═══════════════════════════════════════════════════ */
 
+const FILTER_STORAGE_KEY = "unified-orders-filters";
+function loadSavedFilters() {
+  if (typeof window === "undefined") return null;
+  try { return JSON.parse(localStorage.getItem(FILTER_STORAGE_KEY) || "null"); } catch { return null; }
+}
+
 export default function UnifiedOrdersPage() {
   const pageSize = 50;
 
@@ -395,12 +401,7 @@ export default function UnifiedOrdersPage() {
     setEditingCell(orderId ? { orderId, field } : null);
   }, []);
 
-  // Filters — localStorage 키
-  const FILTER_STORAGE_KEY = "unified-orders-filters";
-  const loadSavedFilters = () => {
-    if (typeof window === "undefined") return null;
-    try { return JSON.parse(localStorage.getItem(FILTER_STORAGE_KEY) || "null"); } catch { return null; }
-  };
+  // Filters — localStorage 복원
   const saved = useRef(loadSavedFilters());
 
   const [filterStatus, setFilterStatus] = useState(saved.current?.filterStatus || "");

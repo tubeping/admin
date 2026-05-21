@@ -301,9 +301,9 @@ export default function PhoneOrdersPage() {
 
   const fetchProducts = useCallback(async () => {
     try {
-      const res = await fetch("/admin/api/products?limit=1000&selling=T");
+      const res = await fetch("/admin/api/products/search?all=1");
       const data = await res.json();
-      setProducts((data.products || []).map((p: ProductSearchResult & Record<string, unknown>) => ({ id: p.id, tp_code: p.tp_code, product_name: p.product_name, selling: p.selling })));
+      setProducts(data.products || []);
     } catch { /* ignore */ }
   }, []);
 
@@ -484,11 +484,11 @@ export default function PhoneOrdersPage() {
     return stores.filter((s) => s.name.toLowerCase().includes(lower));
   };
 
-  const getFilteredProducts = (text: string) => {
+  const getFilteredProducts = useCallback((text: string) => {
     if (!text) return products.slice(0, 20);
     const lower = text.toLowerCase();
     return products.filter((p) => p.product_name.toLowerCase().includes(lower) || p.tp_code.toLowerCase().includes(lower)).slice(0, 20);
-  };
+  }, [products]);
 
   return (
     <div className="space-y-5">

@@ -8,19 +8,26 @@ import { getServiceClient } from "@/lib/supabase";
 export async function GET(request: NextRequest) {
   const { searchParams } = request.nextUrl;
   const q = (searchParams.get("q") || "").trim();
-  const limit = Math.min(Number(searchParams.get("limit") || "20"), 50);
-  if (q.length < 2) {
-    return NextResponse.json({ products: [] });
-  }
+  const all = searchParams.get("all") === "1";
+  const limit = Math.min(Number(searchParams.get("limit") || "20"), all ? 2000 : 50);
 
   const sb = getServiceClient();
-  const { data, error } = await sb
+  let query = sb
     .from("products")
     .select("id, tp_code, product_name, selling, supplier_id")
-    .or(`product_name.ilike.%${q}%,tp_code.ilike.%${q}%`)
     .order("product_name")
     .limit(limit);
 
+  if (all) {
+    query = query.eq("selling", "T");
+  } else {
+    if (q.length < 2) {
+      return NextResponse.json({ products: [] });
+    }
+    query = query.or(`product_name.ilike.%${q}%,tp_code.ilike.%${q}%`);
+  }
+
+  const { data, error } = await query;
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return NextResponse.json({ products: data || [] });
 }
