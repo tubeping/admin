@@ -269,6 +269,7 @@ function AddressSearchInput({
 export default function PhoneOrdersPage() {
   const [orders, setOrders] = useState<PhoneOrder[]>([]);
   const [stores, setStores] = useState<Store[]>([]);
+  const [products, setProducts] = useState<ProductSearchResult[]>([]);
   const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [saving, setSaving] = useState(false);
@@ -290,15 +291,19 @@ export default function PhoneOrdersPage() {
   // 신규 입력 (기본 5행)
   const [newRows, setNewRows] = useState<NewRow[]>([makeEmptyRow(), makeEmptyRow(), makeEmptyRow(), makeEmptyRow(), makeEmptyRow()]);
 
-  // 상품 검색 결과 (행별)
-  const [productResults, setProductResults] = useState<Record<string, ProductSearchResult[]>>({});
-  const productTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
-
   const fetchStores = useCallback(async () => {
     try {
       const res = await fetch("/admin/api/stores");
       const data = await res.json();
       setStores((data.stores || data || []).filter((s: Store) => s.status === "active"));
+    } catch { /* ignore */ }
+  }, []);
+
+  const fetchProducts = useCallback(async () => {
+    try {
+      const res = await fetch("/admin/api/products?limit=1000&selling=T");
+      const data = await res.json();
+      setProducts((data.products || []).map((p: ProductSearchResult & Record<string, unknown>) => ({ id: p.id, tp_code: p.tp_code, product_name: p.product_name, selling: p.selling })));
     } catch { /* ignore */ }
   }, []);
 
@@ -320,25 +325,12 @@ export default function PhoneOrdersPage() {
   }, [clientFilter, statusFilter, paymentFilter, keyword, startDate, endDate]);
 
   useEffect(() => { fetchStores(); }, [fetchStores]);
+  useEffect(() => { fetchProducts(); }, [fetchProducts]);
   useEffect(() => { fetchOrders(); }, [fetchOrders]);
-
-  // === 상품 검색 ===
-  const searchProducts = useCallback(async (rowId: string, q: string) => {
-    if (q.length < 2) { setProductResults((prev) => ({ ...prev, [rowId]: [] })); return; }
-    try {
-      const res = await fetch(`/admin/api/products/search?q=${encodeURIComponent(q)}&limit=10`);
-      const data = await res.json();
-      setProductResults((prev) => ({ ...prev, [rowId]: data.products || [] }));
-    } catch { /* ignore */ }
-  }, []);
 
   // === 신규 행 관리 ===
   const updateNewRow = (id: string, field: keyof NewRow, value: string) => {
     setNewRows((prev) => prev.map((r) => (r.id === id ? { ...r, [field]: value } : r)));
-    if (field === "product_name") {
-      if (productTimers.current[id]) clearTimeout(productTimers.current[id]);
-      productTimers.current[id] = setTimeout(() => searchProducts(id, value), 300);
-    }
   };
 
   const addNewRow = () => setNewRows((prev) => [...prev, makeEmptyRow()]);
@@ -492,6 +484,12 @@ export default function PhoneOrdersPage() {
     return stores.filter((s) => s.name.toLowerCase().includes(lower));
   };
 
+  const getFilteredProducts = (text: string) => {
+    if (!text) return products.slice(0, 20);
+    const lower = text.toLowerCase();
+    return products.filter((p) => p.product_name.toLowerCase().includes(lower) || p.tp_code.toLowerCase().includes(lower)).slice(0, 20);
+  };
+
   return (
     <div className="space-y-5">
       {/* 헤더 */}
@@ -582,7 +580,8 @@ export default function PhoneOrdersPage() {
                         value={row.product_name}
                         onChange={(v) => updateNewRow(row.id, "product_name", v)}
                         onSelect={(item) => updateNewRow(row.id, "product_name", item.label)}
-                        items={(productResults[row.id] || []).map((p) => ({ id: p.id, label: p.product_name, sub: p.tp_code }))}
+                        items={getFilteredProducts(row.product_name).map((p) => ({ id: p.id, label: p.product_name, sub: p.tp_code }))}
+                        allItems={products.map((p) => ({ id: p.id, label: p.product_name }))}
                         placeholder="상품명 검색"
                         className={cellInput}
                         renderItem={(item) => (
