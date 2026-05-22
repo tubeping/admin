@@ -210,8 +210,10 @@ const OrderRow = memo(function OrderRow({
       <td className="px-1.5 py-1.5 max-w-[180px]">
         <div className="flex items-center gap-1">
           {(() => {
-            const status = addrStatus?.status || o.address_verify_status;
-            const title = addrStatus
+            // 1회 이상 valid 판정된 주문은 영구 초록
+            const dbValid = o.address_verify_status === "valid";
+            const status = dbValid ? "valid" : (addrStatus?.status || o.address_verify_status);
+            const title = dbValid ? "검증 완료" : addrStatus
               ? (addrStatus.reason || addrStatus.suggestion || (addrStatus.status === "valid" ? "검증 완료" : addrStatus.status === "invalid" ? "검증 오류" : "미검증"))
               : (o.address_verify_reason || (status === "valid" ? "검증 완료" : status === "invalid" ? "검증 오류" : "미검증"));
             const color = status === "valid" ? "bg-green-500" : status === "invalid" ? "bg-red-500" : "bg-yellow-400";
@@ -578,8 +580,8 @@ export default function UnifiedOrdersPage() {
   // Address verification
   const handleAddressVerify = async (scope: "selected" | "all") => {
     const targets = scope === "selected"
-      ? orders.filter((o) => selected.has(o.id) && o.receiver_address)
-      : orders.filter((o) => o.receiver_address && o.shipping_status !== "cancelled" && o.shipping_status !== "delivered");
+      ? orders.filter((o) => selected.has(o.id) && o.receiver_address && o.address_verify_status !== "valid")
+      : orders.filter((o) => o.receiver_address && o.address_verify_status !== "valid" && o.shipping_status !== "cancelled" && o.shipping_status !== "delivered");
     if (targets.length === 0) { alert("검증할 주소 없음"); return; }
     setAddrVerifying(true);
     try {

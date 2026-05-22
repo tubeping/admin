@@ -100,11 +100,11 @@ export async function autoVerifyAddresses(
     return { total: 0, valid: 0, invalid: 0, unknown: 0 };
   }
 
-  // 미검증 주문 조회
+  // 미검증 주문 조회 (이미 valid인 주문은 재검증하지 않음)
   let q = sb
     .from("orders")
     .select("id, receiver_address")
-    .is("address_verify_status", null)
+    .neq("address_verify_status", "valid")
     .neq("shipping_status", "cancelled")
     .not("receiver_address", "is", null);
   if (opts.orderIds && opts.orderIds.length > 0) q = q.in("id", opts.orderIds);
