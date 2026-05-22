@@ -1306,7 +1306,7 @@ export default function UnifiedOrdersPage() {
           <div className="w-px h-4 bg-blue-200" />
           <select onChange={(e) => { const v = e.target.value; e.target.value = ""; if (v !== "") bulkUpdateChannel(v === "__none__" ? "" : v); }}
             defaultValue=""
-            className="text-[11px] border border-blue-200 rounded px-1.5 py-0.5 bg-white">
+            className="text-[11px] border border-blue-200 rounded px-1.5 py-0.5 bg-white w-[120px]">
             <option value="" disabled>판매방식 변경</option>
             <option value="__none__">자사몰</option>
             <option value="group">공구주문</option>
@@ -1316,15 +1316,15 @@ export default function UnifiedOrdersPage() {
           </select>
           <select onChange={(e) => { const v = e.target.value; e.target.value = ""; if (v) bulkUpdateStore(v); }}
             defaultValue=""
-            className="text-[11px] border border-blue-200 rounded px-1.5 py-0.5 bg-white">
+            className="text-[11px] border border-blue-200 rounded px-1.5 py-0.5 bg-white w-[120px]">
             <option value="" disabled>판매사 변경</option>
             {stores
               .filter((s) => !["공구주문", "엑셀등록", "수기주문"].includes(s.name))
               .map((s) => (<option key={s.id} value={s.id}>{s.name}</option>))}
           </select>
           <select onChange={(e) => { if (e.target.value) handleAssignSupplier(e.target.value); e.target.value = ""; }}
-            className="text-[11px] border border-blue-200 rounded px-1.5 py-0.5 bg-white">
-            <option value="">공급사 배정</option>
+            className="text-[11px] border border-blue-200 rounded px-1.5 py-0.5 bg-white w-[120px]">
+            <option value="">공급사 변경</option>
             {suppliers.map((s) => (<option key={s.id} value={s.id}>{s.name}</option>))}
           </select>
           <button
