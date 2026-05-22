@@ -463,6 +463,7 @@ export default function UnifiedOrdersPage() {
   const [colFilterProduct, setColFilterProduct] = useState(saved.current?.colFilterProduct || "");
   const [colFilterCustomer, setColFilterCustomer] = useState(saved.current?.colFilterCustomer || "");
   const [colFilterAddress, setColFilterAddress] = useState(saved.current?.colFilterAddress || "");
+  const [colFilterAddrStatus, setColFilterAddrStatus] = useState(saved.current?.colFilterAddrStatus || "");
   const [colFilterChannel, setColFilterChannel] = useState(saved.current?.colFilterChannel || "");
   const [colFilterPayment, setColFilterPayment] = useState(saved.current?.colFilterPayment || "");
   const [colFilterPOStatus, setColFilterPOStatus] = useState(saved.current?.colFilterPOStatus || "");
@@ -476,13 +477,13 @@ export default function UnifiedOrdersPage() {
     const data = {
       filterStatus, filterStore, filterSupplier, dateFrom, dateTo, searchKeyword,
       filterNoTracking, filterNoSupplier, colFilterOrderNo, colFilterProduct,
-      colFilterCustomer, colFilterAddress, colFilterChannel, colFilterPayment,
+      colFilterCustomer, colFilterAddress, colFilterAddrStatus, colFilterChannel, colFilterPayment,
       colFilterPOStatus, colFilterQty, colFilterAmount, colFilterTracking, poTab,
     };
     localStorage.setItem(FILTER_STORAGE_KEY, JSON.stringify(data));
   }, [filterStatus, filterStore, filterSupplier, dateFrom, dateTo, searchKeyword,
     filterNoTracking, filterNoSupplier, colFilterOrderNo, colFilterProduct,
-    colFilterCustomer, colFilterAddress, colFilterChannel, colFilterPayment,
+    colFilterCustomer, colFilterAddress, colFilterAddrStatus, colFilterChannel, colFilterPayment,
     colFilterPOStatus, colFilterQty, colFilterAmount, colFilterTracking, poTab]);
 
   // Address verification
@@ -788,6 +789,12 @@ export default function UnifiedOrdersPage() {
         if (!(o.buyer_name?.toLowerCase().includes(kCustomer) || o.receiver_name?.toLowerCase().includes(kCustomer) || phoneMatch)) return false;
       }
       if (kAddress && !o.receiver_address?.toLowerCase().includes(kAddress)) return false;
+      if (colFilterAddrStatus) {
+        const s = addrResults[o.id]?.status || o.address_verify_status;
+        if (colFilterAddrStatus === "valid" && s !== "valid") return false;
+        if (colFilterAddrStatus === "invalid" && s !== "invalid") return false;
+        if (colFilterAddrStatus === "unverified" && (s === "valid" || s === "invalid")) return false;
+      }
       if (colFilterChannel === "group" && o.sales_channel !== "group") return false;
       if (colFilterChannel === "phone" && o.sales_channel !== "phone") return false;
       if (colFilterChannel === "sample" && o.sales_channel !== "sample") return false;
@@ -812,10 +819,10 @@ export default function UnifiedOrdersPage() {
       }
       return true;
     });
-  }, [rawOrders, filterSupplier, filterNoTracking, filterNoSupplier, poTab, searchKeyword, colFilterOrderNo, colFilterProduct, colFilterCustomer, colFilterAddress, colFilterChannel, colFilterPayment, colFilterPOStatus, colFilterQty, colFilterAmount, colFilterTracking]);
+  }, [rawOrders, filterSupplier, filterNoTracking, filterNoSupplier, poTab, searchKeyword, colFilterOrderNo, colFilterProduct, colFilterCustomer, colFilterAddress, colFilterAddrStatus, addrResults, colFilterChannel, colFilterPayment, colFilterPOStatus, colFilterQty, colFilterAmount, colFilterTracking]);
 
   // Reset page on filter change
-  useEffect(() => { setPage(0); }, [rawOrders, filterSupplier, filterNoTracking, filterNoSupplier, poTab, searchKeyword, colFilterOrderNo, colFilterProduct, colFilterCustomer, colFilterAddress, colFilterChannel, colFilterPayment, colFilterPOStatus, colFilterQty, colFilterAmount, colFilterTracking]);
+  useEffect(() => { setPage(0); }, [rawOrders, filterSupplier, filterNoTracking, filterNoSupplier, poTab, searchKeyword, colFilterOrderNo, colFilterProduct, colFilterCustomer, colFilterAddress, colFilterAddrStatus, colFilterChannel, colFilterPayment, colFilterPOStatus, colFilterQty, colFilterAmount, colFilterTracking]);
 
   const totalPages = Math.max(1, Math.ceil(orders.length / pageSize));
   const pagedOrders = useMemo(() => orders.slice(page * pageSize, (page + 1) * pageSize), [orders, page, pageSize]);
@@ -1470,10 +1477,10 @@ export default function UnifiedOrdersPage() {
               <tr className="text-[10px] [&>th]:bg-gray-50 [&>th]:border-b [&>th]:border-gray-200" style={{ boxShadow: "0 2px 4px -1px rgba(0,0,0,0.1)" }}>
                 {/* 1. Reset button */}
                 <th className="px-1 py-0.5">
-                  {(colFilterOrderNo || colFilterProduct || colFilterCustomer || colFilterAddress || colFilterChannel || colFilterPayment || colFilterPOStatus || colFilterQty || colFilterAmount || colFilterTracking || filterStore || filterSupplier || filterStatus) && (
+                  {(colFilterOrderNo || colFilterProduct || colFilterCustomer || colFilterAddress || colFilterAddrStatus || colFilterChannel || colFilterPayment || colFilterPOStatus || colFilterQty || colFilterAmount || colFilterTracking || filterStore || filterSupplier || filterStatus) && (
                     <button
                       onClick={() => {
-                        setColFilterOrderNo(""); setColFilterProduct(""); setColFilterCustomer(""); setColFilterAddress("");
+                        setColFilterOrderNo(""); setColFilterProduct(""); setColFilterCustomer(""); setColFilterAddress(""); setColFilterAddrStatus("");
                         setColFilterChannel(""); setColFilterPayment(""); setColFilterPOStatus("");
                         setColFilterQty(""); setColFilterAmount(""); setColFilterTracking("");
                         setFilterStore(""); setFilterSupplier(""); setFilterStatus("");
@@ -1500,10 +1507,20 @@ export default function UnifiedOrdersPage() {
                   <input type="text" value={colFilterCustomer} onChange={(e) => setColFilterCustomer(e.target.value)}
                     placeholder="이름/연락처" className="w-full text-[10px] border border-gray-200 rounded px-1 py-px bg-white" />
                 </th>
-                {/* 6. 주소 input */}
+                {/* 6. 주소 input + 검증상태 필터 */}
                 <th className="px-0.5 py-0.5">
-                  <input type="text" value={colFilterAddress} onChange={(e) => setColFilterAddress(e.target.value)}
-                    placeholder="주소" className="w-full text-[10px] border border-gray-200 rounded px-1 py-px bg-white" />
+                  <div className="flex gap-0.5">
+                    <input type="text" value={colFilterAddress} onChange={(e) => setColFilterAddress(e.target.value)}
+                      placeholder="주소" className="flex-1 min-w-0 text-[10px] border border-gray-200 rounded px-1 py-px bg-white" />
+                    <select value={colFilterAddrStatus} onChange={(e) => setColFilterAddrStatus(e.target.value)}
+                      className="text-[10px] border border-gray-200 rounded px-0.5 py-px bg-white shrink-0"
+                      style={{ width: "auto", maxWidth: "52px" }}>
+                      <option value="">●</option>
+                      <option value="valid">🟢</option>
+                      <option value="invalid">🔴</option>
+                      <option value="unverified">🟡</option>
+                    </select>
+                  </div>
                 </th>
                 {/* 7. 판매방식 select */}
                 <th className="px-0.5 py-0.5">
