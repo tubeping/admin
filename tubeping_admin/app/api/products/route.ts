@@ -23,7 +23,7 @@ export async function GET(request: NextRequest) {
   let query = sb
     .from("products")
     .select(
-      "id, tp_code, product_name, price, supply_price, retail_price, image_url, selling, display, approval_status, category, supplier, total_stock, fulfillment_warehouse_supplier_id, created_at, updated_at, product_cafe24_mappings(store_id), product_variants(id)",
+      "id, tp_code, product_name, price, supply_price, retail_price, image_url, selling, display, approval_status, category, supplier, total_stock, fulfillment_warehouse_supplier_id, created_at, updated_at, product_cafe24_mappings(id, store_id, sync_status), product_variants(id)",
       withCount ? { count: "exact" } : undefined
     )
     .order("created_at", { ascending: false })

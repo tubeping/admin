@@ -146,6 +146,9 @@ export default function ProductsPage() {
   const [total, setTotal] = useState(0);
   const PAGE_SIZE = 50;
 
+  // 전체 통계 (서버에서 별도 로드 — 현재 페이지가 아닌 전체 기준)
+  const [summaryStats, setSummaryStats] = useState({ total: 0, selling: 0, totalMappings: 0, unmapped: 0, categories: [] as string[] });
+
   const [selectedProducts, setSelectedProducts] = useState<Set<string>>(new Set());
   const [showAssignDropdown, setShowAssignDropdown] = useState(false);
   const [showFulfillmentDropdown, setShowFulfillmentDropdown] = useState(false);
@@ -170,27 +173,15 @@ export default function ProductsPage() {
   const assignDropdownRef = useRef<HTMLDivElement>(null);
   const fulfillmentDropdownRef = useRef<HTMLDivElement>(null);
 
-  /* ── 카페24 가져오기 ── */
-  const importFromCafe24 = async () => {
-    if (!confirm("카페24 마스터몰(tubeping)에서 자체상품코드가 있는 상품을 모두 가져옵니다.\n계속할까요?")) return;
-    setImporting(true);
-    setImportResult("");
+  /* ── 전체 통계 로드 ── */
+  const fetchSummary = useCallback(async () => {
     try {
-      const res = await fetch("/admin/api/products/import-cafe24", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({}),
-      });
-      if (!res.ok) throw new Error("가져오기 실패");
+      const res = await fetch("/admin/api/products/summary-stats");
+      if (!res.ok) return;
       const data = await res.json();
-      setImportResult(data.message);
-      fetchProducts(true);
-    } catch (e) {
-      setImportResult(e instanceof Error ? e.message : "가져오기 실패");
-    } finally {
-      setImporting(false);
-    }
-  };
+      setSummaryStats(data);
+    } catch { /* ignore */ }
+  }, []);
 
   /* ── 데이터 로드 (서버사이드 페이지네이션) ── */
   const fetchProducts = useCallback(async (resetPage = false) => {
@@ -198,7 +189,10 @@ export default function ProductsPage() {
     setError("");
 
     const currentPage = resetPage ? 0 : page;
-    if (resetPage) setPage(0);
+    if (resetPage) {
+      setPage(0);
+      setSelectedProducts(new Set());
+    }
 
     const params = new URLSearchParams();
     params.set("limit", String(PAGE_SIZE));
@@ -216,13 +210,45 @@ export default function ProductsPage() {
       if (!res.ok) throw new Error(`API 오류 (${res.status})`);
       const data = await res.json();
       setProducts(data.products || []);
-      setTotal(data.total || 0);
+      setTotal(data.total ?? 0);
     } catch (e) {
       setError(e instanceof Error ? e.message : "알 수 없는 오류");
     } finally {
       setLoading(false);
     }
   }, [keyword, catFilter, sellingFilter, displayFilter, page]);
+
+  // ref로 최신 fetchProducts를 추적 (useEffect에서 stale closure 방지)
+  const fetchProductsRef = useRef(fetchProducts);
+  fetchProductsRef.current = fetchProducts;
+
+  /** 데이터 변경 후 목록 + 통계 모두 갱신 */
+  const refreshAll = useCallback(() => {
+    fetchProductsRef.current(true);
+    fetchSummary();
+  }, [fetchSummary]);
+
+  /* ── 카페24 가져오기 ── */
+  const importFromCafe24 = async () => {
+    if (!confirm("카페24 마스터몰(tubeping)에서 자체상품코드가 있는 상품을 모두 가져옵니다.\n계속할까요?")) return;
+    setImporting(true);
+    setImportResult("");
+    try {
+      const res = await fetch("/admin/api/products/import-cafe24", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+      });
+      if (!res.ok) throw new Error("가져오기 실패");
+      const data = await res.json();
+      setImportResult(data.message);
+      refreshAll();
+    } catch (e) {
+      setImportResult(e instanceof Error ? e.message : "가져오기 실패");
+    } finally {
+      setImporting(false);
+    }
+  };
 
   const fetchStores = useCallback(async () => {
     setStoresLoading(true);
@@ -243,9 +269,10 @@ export default function ProductsPage() {
     finally { setStoresLoading(false); }
   }, []);
 
-  // 초기 로드: 스토어 + 창고
+  // 초기 로드: 스토어 + 창고 + 전체 통계
   useEffect(() => {
     fetchStores();
+    fetchSummary();
     (async () => {
       try {
         const res = await fetch("/admin/api/suppliers?status=active");
@@ -260,10 +287,10 @@ export default function ProductsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // 필터/페이지 변경 시 자동 fetch
+  // 필터/페이지 변경 시 자동 fetch + 선택 초기화
   useEffect(() => {
-    fetchProducts();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    fetchProductsRef.current?.();
+    setSelectedProducts(new Set());
   }, [sellingFilter, displayFilter, catFilter, page]);
 
   // 드롭다운 외부 클릭 닫기
@@ -325,55 +352,56 @@ export default function ProductsPage() {
     else setSelectedProducts(new Set(sortedProducts.map((p) => p.id)));
   };
 
-  /* ── 대량 상태 변경 ── */
+  /* ── 대량 상태 변경 (병렬) ── */
   const bulkUpdateSelling = async (selling: "T" | "F") => {
     const label = selling === "T" ? "판매중" : "미판매";
-    for (const pid of selectedProducts) {
-      try {
-        await fetch(`/admin/api/products/${pid}`, {
+    const count = selectedProducts.size;
+    await Promise.allSettled(
+      [...selectedProducts].map((pid) =>
+        fetch(`/admin/api/products/${pid}`, {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ selling }),
-        });
-      } catch { /* skip */ }
-    }
+        })
+      )
+    );
     setSelectedProducts(new Set());
-    fetchProducts(true);
-    alert(`${selectedProducts.size}개 상품을 "${label}"로 변경했습니다.`);
+    refreshAll();
+    alert(`${count}개 상품을 "${label}"로 변경했습니다.`);
   };
 
-  /* ── 카페24 매핑 ── */
+  /* ── 카페24 매핑 (병렬) ── */
   const assignToStore = async (storeId: string) => {
-    for (const pid of selectedProducts) {
-      try {
-        await fetch(`/admin/api/products/${pid}/mappings`, {
+    await Promise.allSettled(
+      [...selectedProducts].map((pid) =>
+        fetch(`/admin/api/products/${pid}/mappings`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ store_id: storeId }),
-        });
-      } catch { /* skip */ }
-    }
+        })
+      )
+    );
     setSelectedProducts(new Set());
     setShowAssignDropdown(false);
-    fetchProducts(true);
+    refreshAll();
   };
 
   const assignToAll = async () => {
     const activeStoreIds = stores.filter((s) => s.status === "active" || s.status === "connected").map((s) => s.id);
-    for (const pid of selectedProducts) {
-      for (const sid of activeStoreIds) {
-        try {
-          await fetch(`/admin/api/products/${pid}/mappings`, {
+    await Promise.allSettled(
+      [...selectedProducts].flatMap((pid) =>
+        activeStoreIds.map((sid) =>
+          fetch(`/admin/api/products/${pid}/mappings`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ store_id: sid }),
-          });
-        } catch { /* skip */ }
-      }
-    }
+          })
+        )
+      )
+    );
     setSelectedProducts(new Set());
     setShowAssignDropdown(false);
-    fetchProducts(true);
+    refreshAll();
   };
 
   const removeMapping = async (productId: string, storeId: string) => {
@@ -383,27 +411,27 @@ export default function ProductsPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ store_id: storeId }),
       });
-      fetchProducts(true);
+      refreshAll();
     } catch { /* skip */ }
   };
 
-  /* ── 대량 출고 방식 변경 ── */
+  /* ── 대량 출고 방식 변경 (병렬) ── */
   const bulkSetFulfillment = async (warehouseId: string | null) => {
     const label = warehouseId ? "창고발주" : "직배송";
     if (!confirm(`${selectedProducts.size}개 상품을 "${label}"(으)로 변경합니다.\n계속할까요?`)) return;
-    for (const pid of selectedProducts) {
-      try {
-        await fetch(`/admin/api/products/${pid}`, {
+    const count = selectedProducts.size;
+    await Promise.allSettled(
+      [...selectedProducts].map((pid) =>
+        fetch(`/admin/api/products/${pid}`, {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ fulfillment_warehouse_supplier_id: warehouseId }),
-        });
-      } catch { /* skip */ }
-    }
-    const count = selectedProducts.size;
+        })
+      )
+    );
     setSelectedProducts(new Set());
     setShowFulfillmentDropdown(false);
-    fetchProducts(true);
+    refreshAll();
     alert(`${count}개 상품을 "${label}"(으)로 변경했습니다.`);
   };
 
@@ -421,7 +449,7 @@ export default function ProductsPage() {
       const data = await res.json();
       alert(data.message);
       setSelectedProducts(new Set());
-      fetchProducts(true);
+      refreshAll();
     } catch (e) {
       alert(e instanceof Error ? e.message : "동기화 실패");
     } finally {
@@ -433,20 +461,22 @@ export default function ProductsPage() {
     if (!confirm("이 상품을 삭제하시겠습니까?")) return;
     try {
       await fetch(`/admin/api/products/${id}`, { method: "DELETE" });
-      fetchProducts(true);
+      refreshAll();
     } catch { /* skip */ }
   };
 
   const activeStores = useMemo(() => stores.filter((s) => s.status === "active" || s.status === "connected"), [stores]);
   const getStoreName = useCallback((storeId: string) => stores.find((s) => s.id === storeId)?.name || storeId, [stores]);
 
+  // 전체 통계는 서버에서 로드한 summaryStats 사용
   const { totalMappings, unmappedCount, sellingCount } = useMemo(() => ({
-    totalMappings: products.reduce((sum, p) => sum + (p.product_cafe24_mappings?.length || 0), 0),
-    unmappedCount: products.filter((p) => !p.product_cafe24_mappings?.length).length,
-    sellingCount: products.filter((p) => p.selling === "T").length,
-  }), [products]);
+    totalMappings: summaryStats.totalMappings,
+    unmappedCount: summaryStats.unmapped,
+    sellingCount: summaryStats.selling,
+  }), [summaryStats]);
 
-  const categories = useMemo(() => [...new Set(products.map((p) => p.category).filter(Boolean))] as string[], [products]);
+  // 카테고리는 서버에서 전체 목록을 가져옴
+  const categories = summaryStats.categories;
 
   const SortIcon = ({ field }: { field: SortKey }) => {
     if (sortKey !== field) return <span className="text-gray-300 ml-1">↕</span>;
@@ -499,12 +529,12 @@ export default function ProductsPage() {
         </div>
       )}
 
-      {/* Stats */}
+      {/* Stats — 전체 기준 (서버 통계) */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4 mb-6">
         {[
-          { label: "전체 상품", value: total, color: "text-gray-900" },
+          { label: "전체 상품", value: summaryStats.total, color: "text-gray-900" },
           { label: "판매중", value: sellingCount, color: "text-green-600" },
-          { label: "미판매", value: total - sellingCount, color: total - sellingCount > 0 ? "text-orange-500" : "text-gray-400" },
+          { label: "미판매", value: summaryStats.total - sellingCount, color: summaryStats.total - sellingCount > 0 ? "text-orange-500" : "text-gray-400" },
           { label: "카페24 매핑", value: totalMappings, color: "text-[#C41E1E]" },
           { label: "미매핑", value: unmappedCount, color: unmappedCount > 0 ? "text-yellow-600" : "text-gray-400" },
         ].map((s) => (
@@ -680,7 +710,7 @@ export default function ProductsPage() {
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
               </svg>
               {error}
-              <button onClick={() => fetchProducts(true)} className="ml-auto text-xs text-red-500 hover:text-red-700 font-medium cursor-pointer">재시도</button>
+              <button onClick={refreshAll} className="ml-auto text-xs text-red-500 hover:text-red-700 font-medium cursor-pointer">재시도</button>
             </div>
           )}
 
@@ -827,7 +857,7 @@ export default function ProductsPage() {
 
               <div className="px-6 py-3 border-t border-gray-100 flex items-center justify-between">
                 <span className="text-xs text-gray-500">
-                  {page * PAGE_SIZE + 1}~{Math.min((page + 1) * PAGE_SIZE, total)}개 / 총 {total}개
+                  {total === 0 ? "0개" : `${page * PAGE_SIZE + 1}~${Math.min((page + 1) * PAGE_SIZE, total)}개`} / 총 {total}개
                 </span>
                 <div className="flex items-center gap-2">
                   {loading && <span className="text-xs text-gray-400">로딩 중...</span>}
@@ -907,7 +937,7 @@ export default function ProductsPage() {
               )}
               <div className="mt-4 flex items-center justify-between">
                 <span className="text-xs text-gray-500">
-                  {page * PAGE_SIZE + 1}~{Math.min((page + 1) * PAGE_SIZE, total)}개 / 총 {total}개
+                  {total === 0 ? "0개" : `${page * PAGE_SIZE + 1}~${Math.min((page + 1) * PAGE_SIZE, total)}개`} / 총 {total}개
                 </span>
                 <div className="flex items-center gap-2">
                   <button
@@ -947,14 +977,14 @@ export default function ProductsPage() {
 
       {/* ─── 현황 탭 ─── */}
       {tab === "overview" && (
-        <OverviewTab products={products} stores={stores} getStoreName={getStoreName} />
+        <OverviewTab products={products} stores={stores} getStoreName={getStoreName} summaryStats={summaryStats} />
       )}
 
       {/* 상품 등록 모달 */}
       {showAddModal && (
         <AddProductModal
           onClose={() => setShowAddModal(false)}
-          onCreated={() => { setShowAddModal(false); fetchProducts(true); }}
+          onCreated={() => { setShowAddModal(false); refreshAll(); }}
           stores={stores}
         />
       )}
@@ -966,7 +996,7 @@ export default function ProductsPage() {
           stores={stores}
           getStoreName={getStoreName}
           onClose={() => setEditingProduct(null)}
-          onSaved={() => { setEditingProduct(null); fetchProducts(true); }}
+          onSaved={() => { setEditingProduct(null); refreshAll(); }}
         />
       )}
     </div>
@@ -1850,43 +1880,44 @@ function MappingsTab({
    ══════════════════════════════════════════ */
 
 function OverviewTab({
-  products, stores, getStoreName,
+  products, stores, getStoreName, summaryStats,
 }: {
   products: Product[];
   stores: Store[];
   getStoreName: (id: string) => string;
+  summaryStats: { total: number; selling: number; totalMappings: number; unmapped: number; categories: string[] };
 }) {
-  const totalMappings = products.reduce((sum, p) => sum + p.product_cafe24_mappings.length, 0);
-  const unmappedCount = products.filter((p) => p.product_cafe24_mappings.length === 0).length;
-  const sellingCount = products.filter((p) => p.selling === "T").length;
+  const [mappingStats, setMappingStats] = useState<{ id: string; name: string; mapped: number; total: number }[]>([]);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await fetch("/admin/api/products/mapping-stats");
+        if (!res.ok) return;
+        const data = await res.json();
+        setMappingStats((data.stats || []).map((s: Record<string, unknown>) => ({
+          id: s.id as string,
+          name: s.name as string,
+          mapped: (s.mapped as number) || 0,
+          total: (s.total as number) || 0,
+        })));
+      } catch { /* ignore */ }
+    })();
+  }, []);
+
   const avgMargin = products.length > 0
     ? products.reduce((sum, p) => sum + marginNum(p.price, p.supply_price), 0) / products.length
     : 0;
-
-  // 카테고리별
-  const catMap = new Map<string, number>();
-  for (const p of products) {
-    const cat = p.category || "미분류";
-    catMap.set(cat, (catMap.get(cat) || 0) + 1);
-  }
-
-  // 스토어별 매핑 수
-  const storeMappingCount = new Map<string, number>();
-  for (const p of products) {
-    for (const m of p.product_cafe24_mappings) {
-      storeMappingCount.set(m.store_id, (storeMappingCount.get(m.store_id) || 0) + 1);
-    }
-  }
 
   return (
     <div className="space-y-6">
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
         {[
-          { label: "전체 상품", value: products.length, color: "text-gray-900" },
-          { label: "판매중", value: sellingCount, color: "text-green-600" },
-          { label: "미판매", value: products.length - sellingCount, color: products.length - sellingCount > 0 ? "text-orange-500" : "text-gray-400" },
-          { label: "카페24 매핑", value: totalMappings, color: "text-[#C41E1E]" },
-          { label: "미매핑", value: unmappedCount, color: unmappedCount > 0 ? "text-yellow-600" : "text-gray-400" },
+          { label: "전체 상품", value: summaryStats.total, color: "text-gray-900" },
+          { label: "판매중", value: summaryStats.selling, color: "text-green-600" },
+          { label: "미판매", value: summaryStats.total - summaryStats.selling, color: summaryStats.total - summaryStats.selling > 0 ? "text-orange-500" : "text-gray-400" },
+          { label: "카페24 매핑", value: summaryStats.totalMappings, color: "text-[#C41E1E]" },
+          { label: "미매핑", value: summaryStats.unmapped, color: summaryStats.unmapped > 0 ? "text-yellow-600" : "text-gray-400" },
           { label: "평균 마진", value: `${avgMargin.toFixed(1)}%`, color: avgMargin >= 30 ? "text-green-600" : "text-blue-600" },
         ].map((s) => (
           <div key={s.label} className="bg-white rounded-xl border border-gray-200 p-4 text-center hover:shadow-sm transition-shadow">
@@ -1900,19 +1931,13 @@ function OverviewTab({
         {/* 카테고리별 */}
         <div className="bg-white rounded-xl border border-gray-200 p-5">
           <h3 className="text-sm font-semibold text-gray-900 mb-4">카테고리별 상품</h3>
-          {catMap.size === 0 ? (
+          {summaryStats.categories.length === 0 ? (
             <p className="text-xs text-gray-400">데이터 없음</p>
           ) : (
             <div className="space-y-2">
-              {[...catMap.entries()].sort((a, b) => b[1] - a[1]).map(([cat, count]) => (
+              {summaryStats.categories.map((cat) => (
                 <div key={cat} className="flex items-center justify-between">
                   <span className="text-sm text-gray-700">{cat}</span>
-                  <div className="flex items-center gap-2">
-                    <div className="w-32 h-2 bg-gray-100 rounded-full overflow-hidden">
-                      <div className="h-full bg-[#C41E1E] rounded-full" style={{ width: `${(count / products.length) * 100}%` }} />
-                    </div>
-                    <span className="text-xs text-gray-500 w-8 text-right">{count}</span>
-                  </div>
                 </div>
               ))}
             </div>
@@ -1922,18 +1947,18 @@ function OverviewTab({
         {/* 스토어별 매핑 */}
         <div className="bg-white rounded-xl border border-gray-200 p-5">
           <h3 className="text-sm font-semibold text-gray-900 mb-4">스토어별 매핑 현황</h3>
-          {storeMappingCount.size === 0 ? (
+          {mappingStats.length === 0 ? (
             <p className="text-xs text-gray-400">매핑된 스토어 없음</p>
           ) : (
             <div className="space-y-2">
-              {[...storeMappingCount.entries()].sort((a, b) => b[1] - a[1]).map(([sid, count]) => (
-                <div key={sid} className="flex items-center justify-between">
-                  <span className="text-sm text-gray-700">{getStoreName(sid)}</span>
+              {mappingStats.map((s) => (
+                <div key={s.id} className="flex items-center justify-between">
+                  <span className="text-sm text-gray-700">{s.name}</span>
                   <div className="flex items-center gap-2">
                     <div className="w-32 h-2 bg-gray-100 rounded-full overflow-hidden">
-                      <div className="h-full bg-green-500 rounded-full" style={{ width: `${Math.min((count / products.length) * 100, 100)}%` }} />
+                      <div className="h-full bg-green-500 rounded-full" style={{ width: `${s.total > 0 ? Math.min((s.mapped / s.total) * 100, 100) : 0}%` }} />
                     </div>
-                    <span className="text-xs text-gray-500 w-8 text-right">{count}</span>
+                    <span className="text-xs text-gray-500 w-8 text-right">{s.mapped}</span>
                   </div>
                 </div>
               ))}
