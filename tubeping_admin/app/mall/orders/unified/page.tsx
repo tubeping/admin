@@ -450,11 +450,10 @@ export default function UnifiedOrdersPage() {
   const [filterStore, setFilterStore] = useState(saved.current?.filterStore || "");
   const [filterSupplier, setFilterSupplier] = useState(saved.current?.filterSupplier || "");
   const [dateFrom, setDateFrom] = useState(() => {
-    if (saved.current?.dateFrom) return saved.current.dateFrom;
     const d = new Date();
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-01`;
   });
-  const [dateTo, setDateTo] = useState(saved.current?.dateTo || today());
+  const [dateTo, setDateTo] = useState(today());
   const [searchKeyword, setSearchKeyword] = useState(saved.current?.searchKeyword || "");
 
   const [filterNoTracking, setFilterNoTracking] = useState(saved.current?.filterNoTracking || false);
