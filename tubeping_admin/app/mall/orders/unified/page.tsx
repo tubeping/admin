@@ -423,7 +423,7 @@ function loadSavedFilters() {
 }
 
 export default function UnifiedOrdersPage() {
-  const pageSize = 50;
+  const pageSize = 1000;
 
   const [rawOrders, setRawOrders] = useState<Order[]>([]);
   const [stores, setStores] = useState<Store[]>([]);
