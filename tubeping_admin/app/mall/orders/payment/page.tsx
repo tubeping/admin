@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useRef } from "react";
+import { useState, useCallback, useRef, useEffect } from "react";
 
 // ── 타입 ──
 interface BankRow {
@@ -155,14 +155,15 @@ export default function PaymentPage() {
           if (usedOrderIds.has(o.id)) return false;
           const dn = (o.depositor_name || "").toLowerCase().replace(/\s/g, "");
           const rn = (o.recipient_name || "").toLowerCase().replace(/\s/g, "");
-          return (
-            dn === depositorLower ||
-            rn === depositorLower ||
-            (dn.length >= 2 && depositorLower.includes(dn)) ||
-            (depositorLower.length >= 2 && dn.includes(depositorLower)) ||
-            (rn.length >= 2 && depositorLower.includes(rn)) ||
-            (depositorLower.length >= 2 && rn.includes(depositorLower))
-          );
+          if (!dn && !rn) return false;
+          // 정확 매칭
+          if (dn === depositorLower || rn === depositorLower) return true;
+          // 부분 매칭: 양쪽 중 짧은 쪽이 3글자 이상일 때만 (2글자 부분매칭 오탐 방지)
+          const minDn = Math.min(dn.length, depositorLower.length);
+          const minRn = Math.min(rn.length, depositorLower.length);
+          if (minDn >= 3 && (depositorLower.includes(dn) || dn.includes(depositorLower))) return true;
+          if (minRn >= 3 && (depositorLower.includes(rn) || rn.includes(depositorLower))) return true;
+          return false;
         });
 
         if (matchingOrders.length > 0) {
@@ -240,19 +241,17 @@ export default function PaymentPage() {
     setConfirming(false);
   };
 
-  // ── SMS 모드 ──
-  const handleSmsInput = useCallback(async (text: string) => {
-    setSmsInput(text);
-    const result = parseBankSms(text);
-    setSmsParsed(result);
-    if (!result || result.name.length < 2) { setSmsMatches([]); return; }
+  // ── SMS 모드: 검색 함수 (디바운스 대상) ──
+  const smsTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  const searchByName = useCallback(async (name: string) => {
+    if (!name || name.length < 2) { setSmsMatches([]); setSmsSearching(false); return; }
     setSmsSearching(true);
     try {
-      const res = await fetch(`/admin/api/phone-orders?${new URLSearchParams({ keyword: result.name, payment_status: "unpaid" })}`);
+      const res = await fetch(`/admin/api/phone-orders?${new URLSearchParams({ keyword: name, payment_status: "unpaid" })}`);
       if (!res.ok) { setSmsMatches([]); return; }
       const data = await res.json();
-      const n = result.name.toLowerCase();
+      const n = name.toLowerCase();
       const filtered = (data.orders || []).filter((o: { depositor_name?: string; recipient_name?: string }) => {
         const dn = (o.depositor_name || "").toLowerCase();
         const rn = (o.recipient_name || "").toLowerCase();
@@ -272,6 +271,22 @@ export default function PaymentPage() {
     } catch { setSmsMatches([]); }
     setSmsSearching(false);
   }, []);
+
+  // SMS 텍스트 변경 시 파싱만 하고, 검색은 디바운스
+  const handleSmsChange = (text: string) => {
+    setSmsInput(text);
+    const result = parseBankSms(text);
+    setSmsParsed(result);
+    if (smsTimerRef.current) clearTimeout(smsTimerRef.current);
+    if (result && result.name.length >= 2) {
+      smsTimerRef.current = setTimeout(() => searchByName(result.name), 500);
+    } else {
+      setSmsMatches([]);
+    }
+  };
+
+  // cleanup
+  useEffect(() => () => { if (smsTimerRef.current) clearTimeout(smsTimerRef.current); }, []);
 
   const confirmSmsOrder = async (order: PhoneOrder) => {
     setConfirming(true);
@@ -533,8 +548,16 @@ export default function PaymentPage() {
             <label className="block text-sm font-semibold text-gray-700 mb-2">은행 입금 문자 붙여넣기</label>
             <textarea
               value={smsInput}
-              onChange={(e) => handleSmsInput(e.target.value)}
-              onPaste={(e) => { setTimeout(() => handleSmsInput((e.target as HTMLTextAreaElement).value), 0); }}
+              onChange={(e) => handleSmsChange(e.target.value)}
+              onPaste={(e) => {
+                setTimeout(() => {
+                  const val = (e.target as HTMLTextAreaElement).value;
+                  handleSmsChange(val);
+                  // 붙여넣기는 즉시 검색
+                  const result = parseBankSms(val);
+                  if (result && result.name.length >= 2) searchByName(result.name);
+                }, 0);
+              }}
               placeholder="[신한은행] 입금 50,000원 홍길동 잔액 1,234,567원"
               rows={2}
               className="w-full border border-gray-200 rounded-lg px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
@@ -563,7 +586,7 @@ export default function PaymentPage() {
                     const val = (e.target as HTMLInputElement).value.trim();
                     if (val.length >= 2) {
                       setSmsParsed({ name: val, amount: 0 });
-                      handleSmsInput(val);
+                      searchByName(val);
                     }
                   }
                 }}

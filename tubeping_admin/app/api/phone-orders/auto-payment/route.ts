@@ -1,13 +1,21 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServiceClient } from "@/lib/supabase";
+import { env } from "@/lib/env.server";
+
+const CRON_SECRET = env.CRON_SECRET;
 
 /**
  * 뱅크다A 크롤러 → 자동 입금확인 API
  * POST body: { deposits: [{ datetime, depositor, amount, content }] }
- *
- * 입금자명으로 미입금 전화주문 매칭 후 자동 확인 처리
+ * Authorization: Bearer <CRON_SECRET>
  */
 export async function POST(request: NextRequest) {
+  // 인증 확인
+  const authHeader = request.headers.get("authorization");
+  if (CRON_SECRET && authHeader !== `Bearer ${CRON_SECRET}`) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
   const { deposits } = await request.json();
   if (!deposits?.length) {
     return NextResponse.json({ error: "deposits required" }, { status: 400 });
@@ -45,14 +53,20 @@ export async function POST(request: NextRequest) {
       if (usedOrderIds.has(o.id)) return false;
       const dn = (o.depositor_name || "").toLowerCase().replace(/\s/g, "");
       const rn = (o.recipient_name || "").toLowerCase().replace(/\s/g, "");
-      return (
-        dn === depositorLower ||
-        rn === depositorLower ||
-        (dn.length >= 2 && depositorLower.includes(dn)) ||
-        (depositorLower.length >= 2 && dn.includes(depositorLower)) ||
-        (rn.length >= 2 && depositorLower.includes(rn)) ||
-        (depositorLower.length >= 2 && rn.includes(depositorLower))
-      );
+      if (!dn && !rn) return false;
+
+      // 정확 매칭 우선
+      if (dn === depositorLower || rn === depositorLower) return true;
+
+      // 부분 매칭: 최소 2글자 이상이고 한쪽이 다른 쪽을 포함
+      // 단, 양쪽 모두 3글자 이상일 때만 부분 매칭 허용 (2글자 부분매칭은 오탐 높음)
+      const minLen = Math.min(dn.length, depositorLower.length);
+      if (minLen >= 3 && dn.length >= 2 && depositorLower.includes(dn)) return true;
+      if (minLen >= 3 && depositorLower.length >= 2 && dn.includes(depositorLower)) return true;
+      if (minLen >= 3 && rn.length >= 2 && depositorLower.includes(rn)) return true;
+      if (minLen >= 3 && depositorLower.length >= 2 && rn.includes(depositorLower)) return true;
+
+      return false;
     });
 
     if (matchingOrders.length > 0) {
