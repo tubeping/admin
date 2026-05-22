@@ -70,6 +70,7 @@ interface NewRow {
   recipient_zipcode: string;
   recipient_address: string;
   address_detail: string;
+  addr_verified: boolean; // juso.go.kr에서 선택한 주소인지
 }
 
 const STATUS_MAP: Record<string, { label: string; color: string; bg: string; dot: string }> = {
@@ -98,6 +99,7 @@ function makeEmptyRow(): NewRow {
     recipient_zipcode: "",
     recipient_address: "",
     address_detail: "",
+    addr_verified: false,
   };
 }
 
@@ -182,12 +184,13 @@ function AutocompleteInput({
 // 주소 검색 인풋
 // ============================================================
 function AddressSearchInput({
-  value, onChange, onSelect, className,
+  value, onChange, onSelect, className, addrStatus,
 }: {
   value: string;
   onChange: (v: string) => void;
   onSelect: (addr: { zipNo: string; roadAddr: string }) => void;
   className: string;
+  addrStatus?: "valid" | "invalid" | "unverified";
 }) {
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<JusoResult[]>([]);
@@ -223,15 +226,21 @@ function AddressSearchInput({
     timerRef.current = setTimeout(() => searchAddress(v), 400);
   };
 
+  const dotColor = addrStatus === "valid" ? "bg-green-500" : addrStatus === "invalid" ? "bg-red-500" : "bg-yellow-400";
+  const dotTitle = addrStatus === "valid" ? "검증 완료" : addrStatus === "invalid" ? "검증 오류" : "미검증";
+
   return (
     <div className="relative" ref={ref}>
-      <input
-        value={value || query}
-        onChange={(e) => handleChange(e.target.value)}
-        onFocus={() => { if (results.length > 0) setOpen(true); }}
-        placeholder="도로명 주소 검색"
-        className={className}
-      />
+      <div className="flex items-center gap-1">
+        <span className={`shrink-0 w-2 h-2 rounded-full ${dotColor}`} title={dotTitle} />
+        <input
+          value={value || query}
+          onChange={(e) => handleChange(e.target.value)}
+          onFocus={() => { if (results.length > 0) setOpen(true); }}
+          placeholder="도로명 주소 검색"
+          className={className}
+        />
+      </div>
       {searching && (
         <div className="absolute right-1.5 top-1/2 -translate-y-1/2">
           <div className="w-3 h-3 border border-gray-300 border-t-[#C41E1E] rounded-full animate-spin" />
@@ -326,7 +335,7 @@ export default function PhoneOrdersPage() {
   useEffect(() => { fetchOrders(); }, [fetchOrders]);
 
   // === 신규 행 관리 ===
-  const updateNewRow = (id: string, field: keyof NewRow, value: string) => {
+  const updateNewRow = (id: string, field: keyof NewRow, value: string | boolean) => {
     setNewRows((prev) => prev.map((r) => (r.id === id ? { ...r, [field]: value } : r)));
   };
 
@@ -603,12 +612,14 @@ export default function PhoneOrdersPage() {
                     <td className="px-2 py-1.5">
                       <AddressSearchInput
                         value={row.recipient_address}
-                        onChange={(v) => updateNewRow(row.id, "recipient_address", v)}
+                        onChange={(v) => { updateNewRow(row.id, "recipient_address", v); updateNewRow(row.id, "addr_verified", false); }}
                         onSelect={({ zipNo, roadAddr }) => {
                           updateNewRow(row.id, "recipient_address", roadAddr);
                           updateNewRow(row.id, "recipient_zipcode", zipNo);
+                          updateNewRow(row.id, "addr_verified", true);
                         }}
                         className={cellInput}
+                        addrStatus={row.addr_verified ? "valid" : row.recipient_address ? "invalid" : "unverified"}
                       />
                     </td>
                     <td className="px-2 py-1.5">
