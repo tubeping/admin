@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServiceClient } from "@/lib/supabase";
 import { autoAssignSuppliers } from "@/lib/autoAssignSuppliers";
+import { autoVerifyAddresses } from "@/lib/autoVerifyAddresses";
 
 /**
  * POST /api/orders/manual-register — 수기/OCR 주문 일괄 등록
@@ -110,6 +111,9 @@ export async function POST(request: NextRequest) {
     try {
       await autoAssignSuppliers(sb, { orderIds: insertedIds });
     } catch (e) { console.error("[manual-register] auto-assign suppliers failed:", e); }
+    try {
+      await autoVerifyAddresses(sb, { orderIds: insertedIds });
+    } catch (e) { console.error("[manual-register] auto-verify addresses failed:", e); }
   }
 
   return NextResponse.json({

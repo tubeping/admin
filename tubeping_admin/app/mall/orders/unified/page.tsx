@@ -40,6 +40,8 @@ interface Order {
   suppliers: { name: string; email: string } | null;
   warehouse_name: string | null;
   purchase_orders: { id: string; po_number: string; status: string; sent_at: string | null; viewed_at: string | null; completed_at: string | null } | null;
+  address_verify_status: "valid" | "invalid" | "unknown" | null;
+  address_verify_reason: string | null;
 }
 
 /* ── Status helpers ── */
@@ -207,11 +209,14 @@ const OrderRow = memo(function OrderRow({
       {/* 6. 배송주소 */}
       <td className="px-1.5 py-1.5 max-w-[180px]">
         <div className="flex items-center gap-1">
-          {addrStatus && (
-            <span title={addrStatus.reason || addrStatus.suggestion || (addrStatus.status === "valid" ? "검증 완료" : "")} className={`shrink-0 w-1.5 h-1.5 rounded-full ${
-              addrStatus.status === "valid" ? "bg-green-500" : addrStatus.status === "invalid" ? "bg-red-500" : "bg-gray-400"
-            }`} />
-          )}
+          {(() => {
+            const status = addrStatus?.status || o.address_verify_status;
+            const title = addrStatus
+              ? (addrStatus.reason || addrStatus.suggestion || (addrStatus.status === "valid" ? "검증 완료" : addrStatus.status === "invalid" ? "검증 오류" : "미검증"))
+              : (o.address_verify_reason || (status === "valid" ? "검증 완료" : status === "invalid" ? "검증 오류" : "미검증"));
+            const color = status === "valid" ? "bg-green-500" : status === "invalid" ? "bg-red-500" : "bg-yellow-400";
+            return <span title={title} className={`shrink-0 w-2 h-2 rounded-full ${color}`} />;
+          })()}
           <div className="text-[11px] text-gray-600 truncate" title={o.receiver_address || ""}>{o.receiver_address || <span className="text-gray-300">-</span>}</div>
         </div>
       </td>

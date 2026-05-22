@@ -308,6 +308,13 @@ export async function POST(request: NextRequest) {
   const { autoAssignSuppliers } = await import("@/lib/autoAssignSuppliers");
   const assignResult = await autoAssignSuppliers(sb);
 
+  // 주소 자동 검증
+  let addrVerify;
+  try {
+    const { autoVerifyAddresses } = await import("@/lib/autoVerifyAddresses");
+    addrVerify = await autoVerifyAddresses(sb);
+  } catch (e) { console.error("[orders/import] auto-verify addresses failed:", e); }
+
   // 디버깅: 어떤 헤더가 어떤 필드로 매칭됐는지 응답에 포함
   const matchedColumns: Record<string, string> = {};
   for (const [key, idx] of Object.entries(col)) {

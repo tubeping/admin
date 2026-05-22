@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServiceClient } from "@/lib/supabase";
 import { autoAssignSuppliers } from "@/lib/autoAssignSuppliers";
+import { autoVerifyAddresses } from "@/lib/autoVerifyAddresses";
 
 /**
  * POST /api/orders/morning-collect — 구글 시트에서 입금완료된 전화주문 자동 수집
@@ -217,6 +218,7 @@ export async function POST(request: NextRequest) {
   // 9. 공급사 자동 배정
   if (importedIds.length > 0) {
     try { await autoAssignSuppliers(sb, { orderIds: importedIds }); } catch (e) { console.error("[morning-collect] auto-assign suppliers failed:", e); }
+    try { await autoVerifyAddresses(sb, { orderIds: importedIds }); } catch (e) { console.error("[morning-collect] auto-verify addresses failed:", e); }
   }
 
   return NextResponse.json({

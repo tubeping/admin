@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServiceClient } from "@/lib/supabase";
 import { getActiveStores, cafe24Fetch } from "@/lib/cafe24";
 import { autoAssignSuppliers } from "@/lib/autoAssignSuppliers";
+import { autoVerifyAddresses } from "@/lib/autoVerifyAddresses";
 import { env } from "@/lib/env.server";
 
 const CRON_SECRET = env.CRON_SECRET;
@@ -153,11 +154,18 @@ export async function GET(request: NextRequest) {
     autoAssign = await autoAssignSuppliers(sb);
   } catch (e) { console.error("[cron/collect-orders] auto-assign suppliers failed:", e); }
 
+  // 주소 자동 검증
+  let addrVerify: { total: number; valid: number; invalid: number; unknown: number } | undefined;
+  try {
+    addrVerify = await autoVerifyAddresses(sb);
+  } catch (e) { console.error("[cron/collect-orders] auto-verify addresses failed:", e); }
+
   return NextResponse.json({
     period: { start_date: startDate, end_date: endDate },
     total_fetched: totalFetched,
     total_saved: totalSaved,
     auto_assign: autoAssign,
+    address_verify: addrVerify,
     results,
   });
 }

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServiceClient } from "@/lib/supabase";
 import { autoAssignSuppliers } from "@/lib/autoAssignSuppliers";
+import { autoVerifyAddresses } from "@/lib/autoVerifyAddresses";
 
 /**
  * POST /api/phone-orders/transfer — 전화주문을 orders 테이블로 이관
@@ -190,6 +191,9 @@ export async function POST(request: NextRequest) {
     try {
       await autoAssignSuppliers(sb, { orderIds: insertedIds });
     } catch (e) { console.error("[phone-orders/transfer] auto-assign suppliers failed:", e); }
+    try {
+      await autoVerifyAddresses(sb, { orderIds: insertedIds });
+    } catch (e) { console.error("[phone-orders/transfer] auto-verify addresses failed:", e); }
   }
 
   return NextResponse.json({

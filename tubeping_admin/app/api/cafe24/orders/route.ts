@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServiceClient } from "@/lib/supabase";
 import { getCafe24Stores, cafe24Fetch } from "@/lib/cafe24";
 import { autoAssignSuppliers } from "@/lib/autoAssignSuppliers";
+import { autoVerifyAddresses } from "@/lib/autoVerifyAddresses";
 
 /**
  * GET /api/cafe24/orders — 전체 스토어의 주문 수집 (카페24 → Supabase)
@@ -358,10 +359,17 @@ export async function GET(request: NextRequest) {
       autoAssign = await autoAssignSuppliers(sb);
     } catch (e) { console.error("[cafe24/orders] auto-assign suppliers failed:", e); }
 
+    // 주소 자동 검증 (미검증 주문 대상)
+    let addrVerify: { total: number; valid: number; invalid: number; unknown: number } | null = null;
+    try {
+      addrVerify = await autoVerifyAddresses(sb);
+    } catch (e) { console.error("[cafe24/orders] auto-verify addresses failed:", e); }
+
     return NextResponse.json({
       period: { start_date: startDate, end_date: endDate },
       results,
       auto_assign: autoAssign,
+      address_verify: addrVerify,
     });
   } catch (err) {
     return NextResponse.json(
