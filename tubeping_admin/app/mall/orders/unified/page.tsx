@@ -522,8 +522,19 @@ export default function UnifiedOrdersPage() {
     const res = await fetch(`/admin/api/orders?${params}`);
     if (!res.ok) { setLoading(false); return; }
     const data = await res.json();
-    setRawOrders(data.orders || []);
+    const fetchedOrders = data.orders || [];
+    setRawOrders(fetchedOrders);
     setTotal(data.total || 0);
+    // DB에 저장된 주소검증 결과를 addrResults에 반영 (기존 client state와 merge)
+    const dbAddrMap: Record<string, AddrVerifyResult> = {};
+    for (const o of fetchedOrders) {
+      if (o.address_verify_status) {
+        dbAddrMap[o.id] = { id: o.id, status: o.address_verify_status, reason: o.address_verify_reason };
+      }
+    }
+    if (Object.keys(dbAddrMap).length > 0) {
+      setAddrResults((prev) => ({ ...dbAddrMap, ...prev }));
+    }
     setLoading(false);
   }, [filterStatus, filterStore, filterSupplier, dateFrom, dateTo]);
 

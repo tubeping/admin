@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { env } from "@/lib/env.server";
+import { getServiceClient } from "@/lib/supabase";
 
 /**
  * POST /api/address-verify — 주소 검증 (juso.go.kr 기반)
@@ -108,6 +109,23 @@ export async function POST(request: NextRequest) {
       }
     })
   );
+
+  // DB에 검증 결과 영구 저장 (address_verify_status 컬럼이 있는 경우)
+  try {
+    const sb = getServiceClient();
+    await Promise.all(
+      results.map((r) =>
+        sb.from("orders").update({
+          address_verify_status: r.status,
+          address_verify_reason: r.reason || null,
+          address_verified_at: new Date().toISOString(),
+        }).eq("id", r.id)
+      )
+    );
+  } catch (e) {
+    // 컬럼 미존재 등 에러 시 조용히 스킵 — 클라이언트 state로 fallback
+    console.warn("[address-verify] DB persist skipped:", (e as Error).message);
+  }
 
   return NextResponse.json({ results });
 }
