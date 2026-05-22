@@ -1237,7 +1237,7 @@ export default function UnifiedOrdersPage() {
           disabled={addrVerifying || orders.length === 0}
           className="px-2.5 py-1 bg-purple-600 text-white text-xs font-medium rounded-lg hover:bg-purple-700 cursor-pointer disabled:opacity-50"
         >
-          {addrVerifying ? "검증중..." : selected.size > 0 ? `주소검증 (${selected.size})` : "주소검증"}
+          {addrVerifying ? "검증중..." : selected.size > 0 ? `주소검증 (${orders.filter((o) => selected.has(o.id) && o.address_verify_status !== "valid").length})` : "주소검증"}
         </button>
 
         {/* Right side: Import area */}
