@@ -74,10 +74,7 @@ interface NewRow {
 
 const STATUS_MAP: Record<string, { label: string; color: string; bg: string; dot: string }> = {
   pending: { label: "접수", color: "text-amber-700", bg: "bg-amber-50 border-amber-200", dot: "bg-amber-400" },
-  confirmed: { label: "확정", color: "text-blue-700", bg: "bg-blue-50 border-blue-200", dot: "bg-blue-400" },
   transferred: { label: "이관완료", color: "text-teal-700", bg: "bg-teal-50 border-teal-200", dot: "bg-teal-400" },
-  shipping: { label: "배송중", color: "text-violet-700", bg: "bg-violet-50 border-violet-200", dot: "bg-violet-400" },
-  delivered: { label: "배송완료", color: "text-emerald-700", bg: "bg-emerald-50 border-emerald-200", dot: "bg-emerald-400" },
   cancelled: { label: "취소", color: "text-red-700", bg: "bg-red-50 border-red-200", dot: "bg-red-400" },
 };
 
@@ -456,9 +453,7 @@ export default function PhoneOrdersPage() {
   // 통계
   const totalCount = orders.length;
   const pendingCount = orders.filter((o) => o.status === "pending").length;
-  const confirmedCount = orders.filter((o) => o.status === "confirmed").length;
   const transferredCount = orders.filter((o) => o.status === "transferred").length;
-  const shippingCount = orders.filter((o) => o.status === "shipping").length;
   const unpaidCount = orders.filter((o) => o.payment_status === "unpaid").length;
 
   // 인라인 편집 셀
@@ -510,13 +505,11 @@ export default function PhoneOrdersPage() {
       </div>
 
       {/* 통계 카드 */}
-      <div className="grid grid-cols-6 gap-4">
+      <div className="grid grid-cols-4 gap-4">
         {[
           { label: "전체 주문", value: totalCount, color: "text-gray-900", iconBg: "bg-gray-100", icon: "M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" },
           { label: "접수 대기", value: pendingCount, color: "text-amber-600", iconBg: "bg-amber-50", icon: "M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" },
-          { label: "확정", value: confirmedCount, color: "text-blue-600", iconBg: "bg-blue-50", icon: "M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" },
           { label: "이관완료", value: transferredCount, color: "text-teal-600", iconBg: "bg-teal-50", icon: "M13 7l5 5m0 0l-5 5m5-5H6" },
-          { label: "배송중", value: shippingCount, color: "text-violet-600", iconBg: "bg-violet-50", icon: "M13 16V6a1 1 0 00-1-1H4a1 1 0 00-1 1v10a1 1 0 001 1h1m8-1a1 1 0 01-1 1H9m4-1V8a1 1 0 011-1h2.586a1 1 0 01.707.293l3.414 3.414a1 1 0 01.293.707V16a1 1 0 01-1 1h-1m-6-1a1 1 0 001 1h1M5 17a2 2 0 104 0m-4 0a2 2 0 114 0m6 0a2 2 0 104 0m-4 0a2 2 0 114 0" },
           { label: "미입금", value: unpaidCount, color: "text-red-600", iconBg: "bg-red-50", icon: "M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" },
         ].map((s) => (
           <div key={s.label} className="bg-white rounded-xl border border-gray-200 p-4 flex items-center gap-4">
@@ -690,9 +683,6 @@ export default function PhoneOrdersPage() {
             <span className="text-xs font-medium text-[#C41E1E]">건 선택</span>
           </div>
           <div className="flex gap-1.5 ml-auto">
-            <button onClick={() => bulkUpdate({ status: "confirmed" })} className="px-3 py-1.5 text-[11px] font-semibold bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors shadow-sm">확정</button>
-            <button onClick={() => bulkUpdate({ status: "shipping" })} className="px-3 py-1.5 text-[11px] font-semibold bg-violet-500 text-white rounded-lg hover:bg-violet-600 transition-colors shadow-sm">배송중</button>
-            <button onClick={() => bulkUpdate({ status: "delivered" })} className="px-3 py-1.5 text-[11px] font-semibold bg-emerald-500 text-white rounded-lg hover:bg-emerald-600 transition-colors shadow-sm">배송완료</button>
             <button onClick={() => bulkUpdate({ payment_status: "paid", paid_at: new Date().toISOString() })} className="px-3 py-1.5 text-[11px] font-semibold bg-teal-500 text-white rounded-lg hover:bg-teal-600 transition-colors shadow-sm">입금확인</button>
             <div className="w-px h-6 bg-[#C41E1E]/20 mx-1" />
             <button onClick={transferToOrders} disabled={transferring} className="px-3.5 py-1.5 text-[11px] font-semibold bg-[#C41E1E] text-white rounded-lg hover:bg-[#A01818] disabled:opacity-50 transition-colors shadow-sm flex items-center gap-1">
@@ -781,9 +771,7 @@ export default function PhoneOrdersPage() {
                           </span>
                         ) : (
                           <select value={order.status} onChange={(e) => {
-                            const updates: Record<string, unknown> = { status: e.target.value };
-                            if (e.target.value === "shipping" && !order.shipped_at) updates.shipped_at = new Date().toISOString();
-                            singleUpdate(order.id, updates);
+                            singleUpdate(order.id, { status: e.target.value });
                           }} className={`text-[11px] font-medium px-2 py-0.5 rounded-full border cursor-pointer transition-colors ${st.color} ${st.bg}`}>
                             {Object.entries(STATUS_MAP).filter(([k]) => k !== "transferred").map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
                           </select>
