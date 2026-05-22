@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 
 /* ══════════════════════════════════════════
    타입
@@ -142,9 +142,9 @@ export default function ProductsPage() {
   const [displayFilter, setDisplayFilter] = useState<DisplayFilter>("all");
   const [fulfillmentFilter, setFulfillmentFilter] = useState<FulfillmentFilter>("all");
   const [catFilter, setCatFilter] = useState("");
-  const [offset, setOffset] = useState(0);
+  const [page, setPage] = useState(0);
   const [total, setTotal] = useState(0);
-  const [hasMore, setHasMore] = useState(true);
+  const PAGE_SIZE = 50;
 
   const [selectedProducts, setSelectedProducts] = useState<Set<string>>(new Set());
   const [showAssignDropdown, setShowAssignDropdown] = useState(false);
@@ -192,72 +192,37 @@ export default function ProductsPage() {
     }
   };
 
-  /* ── 데이터 로드 (전체 로드) ── */
-  const fetchProducts = useCallback(async (reset = false) => {
+  /* ── 데이터 로드 (서버사이드 페이지네이션) ── */
+  const fetchProducts = useCallback(async (resetPage = false) => {
     setLoading(true);
     setError("");
 
-    const baseParams = new URLSearchParams();
-    if (keyword) baseParams.set("keyword", keyword);
-    if (catFilter) baseParams.set("category", catFilter);
-    if (sellingFilter === "selling") baseParams.set("selling", "T");
-    if (sellingFilter === "not_selling") baseParams.set("selling", "F");
-    if (displayFilter === "displayed") baseParams.set("display", "T");
-    if (displayFilter === "hidden") baseParams.set("display", "F");
+    const currentPage = resetPage ? 0 : page;
+    if (resetPage) setPage(0);
+
+    const params = new URLSearchParams();
+    params.set("limit", String(PAGE_SIZE));
+    params.set("offset", String(currentPage * PAGE_SIZE));
+    params.set("with_count", "1");
+    if (keyword) params.set("keyword", keyword);
+    if (catFilter) params.set("category", catFilter);
+    if (sellingFilter === "selling") params.set("selling", "T");
+    if (sellingFilter === "not_selling") params.set("selling", "F");
+    if (displayFilter === "displayed") params.set("display", "T");
+    if (displayFilter === "hidden") params.set("display", "F");
 
     try {
-      const pageSize = 500;
-
-      // 첫 페이지 + count head 병렬 호출
-      // count head: limit=0 + with_count=1 으로 데이터 없이 total만 받음 (~50ms)
-      // 첫 페이지: 데이터 500개 (~250ms)
-      const firstParams = new URLSearchParams(baseParams);
-      firstParams.set("limit", String(pageSize));
-      firstParams.set("offset", "0");
-
-      const countParams = new URLSearchParams(baseParams);
-      countParams.set("with_count", "1");
-      countParams.set("limit", "0");
-
-      const [firstRes, countRes] = await Promise.all([
-        fetch(`/admin/api/products?${firstParams}`),
-        fetch(`/admin/api/products?${countParams}`),
-      ]);
-      if (!firstRes.ok) throw new Error(`API 오류 (${firstRes.status})`);
-      if (!countRes.ok) throw new Error(`API 오류 (${countRes.status})`);
-      const firstData = await firstRes.json();
-      const countData = await countRes.json();
-      const totalCount: number = countData.total || 0;
-      setTotal(totalCount);
-      const firstBatch: Product[] = firstData.products || [];
-
-      // 나머지 페이지 동시 fetch (count 생략)
-      const remainingPages: number[] = [];
-      for (let off = pageSize; off < totalCount; off += pageSize) {
-        remainingPages.push(off);
-      }
-      const restBatches = await Promise.all(
-        remainingPages.map(async (off) => {
-          const p = new URLSearchParams(baseParams);
-          p.set("limit", String(pageSize));
-          p.set("offset", String(off));
-          const r = await fetch(`/admin/api/products?${p}`);
-          if (!r.ok) throw new Error(`API 오류 (${r.status})`);
-          const d = await r.json();
-          return (d.products || []) as Product[];
-        })
-      );
-      const allProducts = firstBatch.concat(...restBatches);
-
-      setProducts(allProducts);
-      setOffset(allProducts.length);
-      setHasMore(false);
+      const res = await fetch(`/admin/api/products?${params}`);
+      if (!res.ok) throw new Error(`API 오류 (${res.status})`);
+      const data = await res.json();
+      setProducts(data.products || []);
+      setTotal(data.total || 0);
     } catch (e) {
       setError(e instanceof Error ? e.message : "알 수 없는 오류");
     } finally {
       setLoading(false);
     }
-  }, [keyword, catFilter, sellingFilter, displayFilter]);
+  }, [keyword, catFilter, sellingFilter, displayFilter, page]);
 
   const fetchStores = useCallback(async () => {
     setStoresLoading(true);
@@ -278,10 +243,9 @@ export default function ProductsPage() {
     finally { setStoresLoading(false); }
   }, []);
 
+  // 초기 로드: 스토어 + 창고
   useEffect(() => {
-    fetchProducts(true);
     fetchStores();
-    // 창고 공급사 로드 — short_code 가 "WH"로 시작하는 공급사만 창고 후보로 노출
     (async () => {
       try {
         const res = await fetch("/admin/api/suppliers?status=active");
@@ -295,6 +259,12 @@ export default function ProductsPage() {
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // 필터/페이지 변경 시 자동 fetch
+  useEffect(() => {
+    fetchProducts();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sellingFilter, displayFilter, catFilter, page]);
 
   // 드롭다운 외부 클릭 닫기
   useEffect(() => {
@@ -311,7 +281,7 @@ export default function ProductsPage() {
   }, []);
 
   const handleSearch = () => {
-    setOffset(0);
+    setPage(0);
     fetchProducts(true);
   };
 
@@ -321,13 +291,13 @@ export default function ProductsPage() {
     else { setSortKey(key); setSortDir("asc"); }
   };
 
-  const filteredProducts = products.filter((p) => {
+  const filteredProducts = useMemo(() => products.filter((p) => {
     if (fulfillmentFilter === "warehouse") return !!p.fulfillment_warehouse_supplier_id;
     if (fulfillmentFilter === "direct") return !p.fulfillment_warehouse_supplier_id;
     return true;
-  });
+  }), [products, fulfillmentFilter]);
 
-  const sortedProducts = [...filteredProducts].sort((a, b) => {
+  const sortedProducts = useMemo(() => [...filteredProducts].sort((a, b) => {
     const dir = sortDir === "asc" ? 1 : -1;
     switch (sortKey) {
       case "tp_code": return dir * a.tp_code.localeCompare(b.tp_code);
@@ -338,7 +308,7 @@ export default function ProductsPage() {
       case "updated": return dir * (a.updated_at.localeCompare(b.updated_at));
       default: return 0;
     }
-  });
+  }), [filteredProducts, sortKey, sortDir]);
 
   /* ── 선택 ── */
   const toggleSelect = (id: string) => {
@@ -467,13 +437,16 @@ export default function ProductsPage() {
     } catch { /* skip */ }
   };
 
-  const activeStores = stores.filter((s) => s.status === "active" || s.status === "connected");
-  const getStoreName = (storeId: string) => stores.find((s) => s.id === storeId)?.name || storeId;
-  const totalMappings = products.reduce((sum, p) => sum + p.product_cafe24_mappings.length, 0);
-  const unmappedCount = products.filter((p) => p.product_cafe24_mappings.length === 0).length;
-  const sellingCount = products.filter((p) => p.selling === "T").length;
+  const activeStores = useMemo(() => stores.filter((s) => s.status === "active" || s.status === "connected"), [stores]);
+  const getStoreName = useCallback((storeId: string) => stores.find((s) => s.id === storeId)?.name || storeId, [stores]);
 
-  const categories = [...new Set(products.map((p) => p.category).filter(Boolean))] as string[];
+  const { totalMappings, unmappedCount, sellingCount } = useMemo(() => ({
+    totalMappings: products.reduce((sum, p) => sum + (p.product_cafe24_mappings?.length || 0), 0),
+    unmappedCount: products.filter((p) => !p.product_cafe24_mappings?.length).length,
+    sellingCount: products.filter((p) => p.selling === "T").length,
+  }), [products]);
+
+  const categories = useMemo(() => [...new Set(products.map((p) => p.category).filter(Boolean))] as string[], [products]);
 
   const SortIcon = ({ field }: { field: SortKey }) => {
     if (sortKey !== field) return <span className="text-gray-300 ml-1">↕</span>;
@@ -603,7 +576,7 @@ export default function ProductsPage() {
             )}
             <select
               value={sellingFilter}
-              onChange={(e) => { setSellingFilter(e.target.value as SellingFilter); setTimeout(() => { setOffset(0); fetchProducts(true); }, 0); }}
+              onChange={(e) => setSellingFilter(e.target.value as SellingFilter)}
               className="px-3 py-2.5 text-sm border border-gray-200 rounded-lg text-gray-600 focus:outline-none cursor-pointer"
             >
               <option value="all">전체 상태</option>
@@ -853,14 +826,28 @@ export default function ProductsPage() {
               </table>
 
               <div className="px-6 py-3 border-t border-gray-100 flex items-center justify-between">
-                <span className="text-xs text-gray-500">{sortedProducts.length}개 표시 / 총 {total}개</span>
-                <div className="flex items-center gap-3">
+                <span className="text-xs text-gray-500">
+                  {page * PAGE_SIZE + 1}~{Math.min((page + 1) * PAGE_SIZE, total)}개 / 총 {total}개
+                </span>
+                <div className="flex items-center gap-2">
                   {loading && <span className="text-xs text-gray-400">로딩 중...</span>}
-                  {hasMore && !loading && (
-                    <button onClick={() => fetchProducts(false)} className="px-4 py-2 text-sm text-[#C41E1E] font-medium border border-[#C41E1E]/30 rounded-lg hover:bg-[#FFF0F5] cursor-pointer">
-                      더 불러오기
-                    </button>
-                  )}
+                  <button
+                    onClick={() => setPage((p) => Math.max(0, p - 1))}
+                    disabled={page === 0 || loading}
+                    className="px-3 py-1.5 text-xs font-medium border border-gray-200 rounded-lg hover:bg-gray-50 disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
+                  >
+                    ← 이전
+                  </button>
+                  <span className="text-xs text-gray-600 font-medium px-2">
+                    {page + 1} / {Math.max(1, Math.ceil(total / PAGE_SIZE))}
+                  </span>
+                  <button
+                    onClick={() => setPage((p) => p + 1)}
+                    disabled={(page + 1) * PAGE_SIZE >= total || loading}
+                    className="px-3 py-1.5 text-xs font-medium border border-gray-200 rounded-lg hover:bg-gray-50 disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
+                  >
+                    다음 →
+                  </button>
                 </div>
               </div>
             </div>
@@ -919,10 +906,28 @@ export default function ProductsPage() {
                 <div className="text-center py-16 text-sm text-gray-400">등록된 상품이 없습니다.</div>
               )}
               <div className="mt-4 flex items-center justify-between">
-                <span className="text-xs text-gray-500">{sortedProducts.length}개 표시 / 총 {total}개</span>
-                {hasMore && !loading && (
-                  <button onClick={() => fetchProducts(false)} className="px-4 py-2 text-sm text-[#C41E1E] font-medium border border-[#C41E1E]/30 rounded-lg hover:bg-[#FFF0F5] cursor-pointer">더 불러오기</button>
-                )}
+                <span className="text-xs text-gray-500">
+                  {page * PAGE_SIZE + 1}~{Math.min((page + 1) * PAGE_SIZE, total)}개 / 총 {total}개
+                </span>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => setPage((p) => Math.max(0, p - 1))}
+                    disabled={page === 0 || loading}
+                    className="px-3 py-1.5 text-xs font-medium border border-gray-200 rounded-lg hover:bg-gray-50 disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
+                  >
+                    ← 이전
+                  </button>
+                  <span className="text-xs text-gray-600 font-medium px-2">
+                    {page + 1} / {Math.max(1, Math.ceil(total / PAGE_SIZE))}
+                  </span>
+                  <button
+                    onClick={() => setPage((p) => p + 1)}
+                    disabled={(page + 1) * PAGE_SIZE >= total || loading}
+                    className="px-3 py-1.5 text-xs font-medium border border-gray-200 rounded-lg hover:bg-gray-50 disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
+                  >
+                    다음 →
+                  </button>
+                </div>
               </div>
             </div>
           )}
