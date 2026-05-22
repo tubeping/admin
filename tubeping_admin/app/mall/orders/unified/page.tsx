@@ -528,7 +528,7 @@ export default function UnifiedOrdersPage() {
     const fetchedOrders = data.orders || [];
     setRawOrders(fetchedOrders);
     setTotal(data.total || 0);
-    // DB에 저장된 주소검증 결과를 addrResults에 반영 (기존 client state와 merge)
+    // DB에 저장된 주소검증 결과를 addrResults에 반영 (DB가 우선)
     const dbAddrMap: Record<string, AddrVerifyResult> = {};
     for (const o of fetchedOrders) {
       if (o.address_verify_status) {
@@ -536,7 +536,7 @@ export default function UnifiedOrdersPage() {
       }
     }
     if (Object.keys(dbAddrMap).length > 0) {
-      setAddrResults((prev) => ({ ...dbAddrMap, ...prev }));
+      setAddrResults((prev) => ({ ...prev, ...dbAddrMap }));
     }
     setLoading(false);
   }, [filterStatus, filterStore, filterSupplier, dateFrom, dateTo]);
@@ -597,12 +597,10 @@ export default function UnifiedOrdersPage() {
         if (!res.ok) { alert(`주소 검증 오류: ${data.error}`); setAddrVerifying(false); return; }
         allResults.push(...(data.results || []));
       }
-      const map: Record<string, AddrVerifyResult> = {};
-      for (const r of allResults) map[r.id] = r;
-      setAddrResults((prev) => ({ ...prev, ...map }));
       const valid = allResults.filter((r) => r.status === "valid").length;
       const invalid = allResults.filter((r) => r.status === "invalid").length;
       alert(`주소 검증 완료 (${allResults.length}건)\n\n● 정상: ${valid}건\n● 오류: ${invalid}건`);
+      fetchOrders(); // DB에 저장된 결과 반영
     } catch (e) { alert(`주소 검증 실패: ${(e as Error).message}`); }
     finally { setAddrVerifying(false); }
   };
@@ -790,7 +788,7 @@ export default function UnifiedOrdersPage() {
       }
       if (kAddress && !o.receiver_address?.toLowerCase().includes(kAddress)) return false;
       if (colFilterAddrStatus) {
-        const s = addrResults[o.id]?.status || o.address_verify_status;
+        const s = o.address_verify_status || addrResults[o.id]?.status || null;
         if (colFilterAddrStatus === "valid" && s !== "valid") return false;
         if (colFilterAddrStatus === "invalid" && s !== "invalid") return false;
         if (colFilterAddrStatus === "unverified" && (s === "valid" || s === "invalid")) return false;
@@ -819,7 +817,7 @@ export default function UnifiedOrdersPage() {
       }
       return true;
     });
-  }, [rawOrders, filterSupplier, filterNoTracking, filterNoSupplier, poTab, searchKeyword, colFilterOrderNo, colFilterProduct, colFilterCustomer, colFilterAddress, colFilterAddrStatus, addrResults, colFilterChannel, colFilterPayment, colFilterPOStatus, colFilterQty, colFilterAmount, colFilterTracking]);
+  }, [rawOrders, filterSupplier, filterNoTracking, filterNoSupplier, poTab, searchKeyword, colFilterOrderNo, colFilterProduct, colFilterCustomer, colFilterAddress, colFilterAddrStatus, colFilterChannel, colFilterPayment, colFilterPOStatus, colFilterQty, colFilterAmount, colFilterTracking]);
 
   // Reset page on filter change
   useEffect(() => { setPage(0); }, [rawOrders, filterSupplier, filterNoTracking, filterNoSupplier, poTab, searchKeyword, colFilterOrderNo, colFilterProduct, colFilterCustomer, colFilterAddress, colFilterAddrStatus, colFilterChannel, colFilterPayment, colFilterPOStatus, colFilterQty, colFilterAmount, colFilterTracking]);

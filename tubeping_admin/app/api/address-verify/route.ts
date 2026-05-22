@@ -28,30 +28,47 @@ export async function POST(request: NextRequest) {
 
   // Rate limit: max 50 at a time
   const batch = addresses.slice(0, 50);
+  const sb = getServiceClient();
 
-  const results = await Promise.all(
-    batch.map(async ({ id, address }) => {
+  // 이미 valid인 주문은 재검증 스킵
+  const ids = batch.map((a) => a.id);
+  const { data: existing } = await sb
+    .from("orders")
+    .select("id, address_verify_status")
+    .in("id", ids)
+    .eq("address_verify_status", "valid");
+  const alreadyValid = new Set((existing || []).map((o) => o.id));
+  const toVerify = batch.filter((a) => !alreadyValid.has(a.id));
+
+  // valid인 건은 그대로 반환
+  const skippedResults = batch
+    .filter((a) => alreadyValid.has(a.id))
+    .map((a) => ({ id: a.id, status: "valid" as const, reason: null, suggestion: null, matched: null, zipNo: null }));
+
+  const verifiedResults = await Promise.all(
+    toVerify.map(async ({ id, address }) => {
       const r = await verifyOneAddress(confmKey, address, true);
       return { id, ...r };
     })
   );
 
-  // DB에 검증 결과 영구 저장
-  try {
-    const sb = getServiceClient();
-    const now = new Date().toISOString();
-    await Promise.all(
-      results.map((r) =>
-        sb.from("orders").update({
-          address_verify_status: r.status,
-          address_verify_reason: r.reason || null,
-          address_verified_at: now,
-        }).eq("id", r.id)
-      )
-    );
-  } catch (e) {
-    console.warn("[address-verify] DB persist skipped:", (e as Error).message);
+  // DB에 검증 결과 영구 저장 (새로 검증한 것만)
+  if (verifiedResults.length > 0) {
+    try {
+      const now = new Date().toISOString();
+      await Promise.all(
+        verifiedResults.map((r) =>
+          sb.from("orders").update({
+            address_verify_status: r.status,
+            address_verify_reason: r.reason || null,
+            address_verified_at: now,
+          }).eq("id", r.id)
+        )
+      );
+    } catch (e) {
+      console.warn("[address-verify] DB persist skipped:", (e as Error).message);
+    }
   }
 
-  return NextResponse.json({ results });
+  return NextResponse.json({ results: [...skippedResults, ...verifiedResults] });
 }
