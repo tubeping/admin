@@ -491,12 +491,12 @@ export default function PhoneOrdersPage() {
   }, [products]);
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-6">
       {/* 헤더 */}
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">전화주문 관리</h1>
-          <p className="text-sm text-gray-500 mt-1">전화/문자로 접수된 주문을 등록하고 발주 이관합니다</p>
+          <p className="text-sm text-gray-500 mt-2">전화/문자로 접수된 주문을 등록하고 발주 이관합니다</p>
         </div>
         <button
           onClick={() => setShowInput(!showInput)}
@@ -510,7 +510,7 @@ export default function PhoneOrdersPage() {
       </div>
 
       {/* 통계 카드 */}
-      <div className="grid grid-cols-6 gap-3">
+      <div className="grid grid-cols-6 gap-4">
         {[
           { label: "전체 주문", value: totalCount, color: "text-gray-900", iconBg: "bg-gray-100", icon: "M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" },
           { label: "접수 대기", value: pendingCount, color: "text-amber-600", iconBg: "bg-amber-50", icon: "M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" },
@@ -519,7 +519,7 @@ export default function PhoneOrdersPage() {
           { label: "배송중", value: shippingCount, color: "text-violet-600", iconBg: "bg-violet-50", icon: "M13 16V6a1 1 0 00-1-1H4a1 1 0 00-1 1v10a1 1 0 001 1h1m8-1a1 1 0 01-1 1H9m4-1V8a1 1 0 011-1h2.586a1 1 0 01.707.293l3.414 3.414a1 1 0 01.293.707V16a1 1 0 01-1 1h-1m-6-1a1 1 0 001 1h1M5 17a2 2 0 104 0m-4 0a2 2 0 114 0m6 0a2 2 0 104 0m-4 0a2 2 0 114 0" },
           { label: "미입금", value: unpaidCount, color: "text-red-600", iconBg: "bg-red-50", icon: "M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" },
         ].map((s) => (
-          <div key={s.label} className="bg-white rounded-xl border border-gray-200 p-4 flex items-center gap-3">
+          <div key={s.label} className="bg-white rounded-xl border border-gray-200 p-4 flex items-center gap-4">
             <div className={`w-10 h-10 rounded-lg ${s.iconBg} flex items-center justify-center flex-shrink-0`}>
               <svg className={`w-5 h-5 ${s.color}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d={s.icon} />
@@ -536,7 +536,7 @@ export default function PhoneOrdersPage() {
       {/* ====== 스프레드시트 신규 입력 ====== */}
       {showInput && (
         <div className="bg-white rounded-xl border border-gray-200 overflow-hidden shadow-sm">
-          <div className="px-4 py-3 bg-gradient-to-r from-gray-50 to-white border-b border-gray-200 flex items-center gap-2">
+          <div className="px-5 py-3.5 bg-gradient-to-r from-gray-50 to-white border-b border-gray-200 flex items-center gap-2.5">
             <svg className="w-4 h-4 text-[#C41E1E]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
             </svg>
@@ -546,25 +546,25 @@ export default function PhoneOrdersPage() {
             <table className="w-full text-xs">
               <thead>
                 <tr className="bg-gray-50/80">
-                  <th className="w-8 px-2 py-2.5"></th>
-                  <th className="px-2 py-2.5 text-left text-[11px] font-semibold text-gray-500 min-w-[110px]">판매처 *</th>
-                  <th className="px-2 py-2.5 text-left text-[11px] font-semibold text-gray-500 min-w-[200px]">상품명 *</th>
-                  <th className="px-2 py-2.5 text-left text-[11px] font-semibold text-gray-500 min-w-[100px]">옵션</th>
-                  <th className="px-2 py-2.5 text-center text-[11px] font-semibold text-gray-500 w-14">수량</th>
-                  <th className="px-2 py-2.5 text-left text-[11px] font-semibold text-gray-500 min-w-[80px]">수령인 *</th>
-                  <th className="px-2 py-2.5 text-left text-[11px] font-semibold text-gray-500 min-w-[70px]">입금자</th>
-                  <th className="px-2 py-2.5 text-left text-[11px] font-semibold text-gray-500 min-w-[110px]">전화번호</th>
-                  <th className="px-2 py-2.5 text-left text-[11px] font-semibold text-gray-500 min-w-[200px]">주소 검색</th>
-                  <th className="px-2 py-2.5 text-left text-[11px] font-semibold text-gray-500 min-w-[140px]">상세주소</th>
-                  <th className="px-2 py-2.5 text-left text-[11px] font-semibold text-gray-500 w-20">우편번호</th>
-                  <th className="w-8 px-2 py-2.5"></th>
+                  <th className="w-8 px-3 py-3"></th>
+                  <th className="px-3 py-3 text-left text-[11px] font-semibold text-gray-500 min-w-[110px]">판매처 *</th>
+                  <th className="px-3 py-3 text-left text-[11px] font-semibold text-gray-500 min-w-[200px]">상품명 *</th>
+                  <th className="px-3 py-3 text-left text-[11px] font-semibold text-gray-500 min-w-[100px]">옵션</th>
+                  <th className="px-3 py-3 text-center text-[11px] font-semibold text-gray-500 w-14">수량</th>
+                  <th className="px-3 py-3 text-left text-[11px] font-semibold text-gray-500 min-w-[80px]">수령인 *</th>
+                  <th className="px-3 py-3 text-left text-[11px] font-semibold text-gray-500 min-w-[70px]">입금자</th>
+                  <th className="px-3 py-3 text-left text-[11px] font-semibold text-gray-500 min-w-[110px]">전화번호</th>
+                  <th className="px-3 py-3 text-left text-[11px] font-semibold text-gray-500 min-w-[200px]">주소 검색</th>
+                  <th className="px-3 py-3 text-left text-[11px] font-semibold text-gray-500 min-w-[140px]">상세주소</th>
+                  <th className="px-3 py-3 text-left text-[11px] font-semibold text-gray-500 w-20">우편번호</th>
+                  <th className="w-8 px-3 py-3"></th>
                 </tr>
               </thead>
               <tbody>
                 {newRows.map((row, idx) => (
                   <tr key={row.id} className="border-b border-gray-100 hover:bg-[#FFFBFC] transition-colors">
-                    <td className="px-2 py-1.5 text-center text-[11px] text-gray-400 font-mono">{idx + 1}</td>
-                    <td className="px-1 py-1">
+                    <td className="px-3 py-2 text-center text-[11px] text-gray-400 font-mono">{idx + 1}</td>
+                    <td className="px-2 py-1.5">
                       <AutocompleteInput
                         value={row.client_text}
                         onChange={(v) => updateNewRow(row.id, "client_text", v)}
@@ -575,7 +575,7 @@ export default function PhoneOrdersPage() {
                         className={cellInput}
                       />
                     </td>
-                    <td className="px-1 py-1">
+                    <td className="px-2 py-1.5">
                       <AutocompleteInput
                         value={row.product_name}
                         onChange={(v) => updateNewRow(row.id, "product_name", v)}
@@ -592,22 +592,22 @@ export default function PhoneOrdersPage() {
                         )}
                       />
                     </td>
-                    <td className="px-1 py-1">
+                    <td className="px-2 py-1.5">
                       <input value={row.option_text} onChange={(e) => updateNewRow(row.id, "option_text", e.target.value)} placeholder="옵션" className={cellInput} />
                     </td>
-                    <td className="px-1 py-1">
+                    <td className="px-2 py-1.5">
                       <input type="number" min={1} value={row.quantity} onChange={(e) => updateNewRow(row.id, "quantity", e.target.value)} className={`${cellInput} text-center`} />
                     </td>
-                    <td className="px-1 py-1">
+                    <td className="px-2 py-1.5">
                       <input value={row.recipient_name} onChange={(e) => updateNewRow(row.id, "recipient_name", e.target.value)} placeholder="수령인" className={cellInput} />
                     </td>
-                    <td className="px-1 py-1">
+                    <td className="px-2 py-1.5">
                       <input value={row.depositor_name} onChange={(e) => updateNewRow(row.id, "depositor_name", e.target.value)} placeholder="입금자" className={cellInput} />
                     </td>
-                    <td className="px-1 py-1">
+                    <td className="px-2 py-1.5">
                       <input value={row.recipient_phone} onChange={(e) => updateNewRow(row.id, "recipient_phone", e.target.value)} placeholder="010-0000-0000" className={cellInput} />
                     </td>
-                    <td className="px-1 py-1">
+                    <td className="px-2 py-1.5">
                       <AddressSearchInput
                         value={row.recipient_address}
                         onChange={(v) => updateNewRow(row.id, "recipient_address", v)}
@@ -618,10 +618,10 @@ export default function PhoneOrdersPage() {
                         className={cellInput}
                       />
                     </td>
-                    <td className="px-1 py-1">
+                    <td className="px-2 py-1.5">
                       <input value={row.address_detail} onChange={(e) => updateNewRow(row.id, "address_detail", e.target.value)} placeholder="상세주소" className={cellInput} />
                     </td>
-                    <td className="px-1 py-1">
+                    <td className="px-2 py-1.5">
                       <input value={row.recipient_zipcode} readOnly placeholder="자동" className={`${cellInput} bg-gray-50 text-gray-500`} />
                     </td>
                     <td className="px-1 py-1 text-center">
@@ -636,7 +636,7 @@ export default function PhoneOrdersPage() {
               </tbody>
             </table>
           </div>
-          <div className="px-4 py-3 bg-gray-50 border-t border-gray-200 flex items-center justify-between">
+          <div className="px-5 py-3.5 bg-gray-50 border-t border-gray-200 flex items-center justify-between">
             <button onClick={addNewRow} className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-gray-600 border border-gray-300 rounded-lg hover:bg-white transition-colors">
               <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
@@ -654,8 +654,8 @@ export default function PhoneOrdersPage() {
       )}
 
       {/* 필터 */}
-      <div className="bg-white rounded-xl border border-gray-200 p-3.5 shadow-sm">
-        <div className="flex flex-wrap items-center gap-2">
+      <div className="bg-white rounded-xl border border-gray-200 p-4 shadow-sm">
+        <div className="flex flex-wrap items-center gap-3">
           <select value={clientFilter} onChange={(e) => setClientFilter(e.target.value)} className="px-3 py-1.5 text-xs border border-gray-300 rounded-lg bg-white">
             <option value="">전체 판매처</option>
             {stores.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
