@@ -3,12 +3,19 @@
 import { useState, useEffect, useCallback } from "react";
 import { usePathname, useRouter } from "next/navigation";
 
+type SubMenuItem = {
+  key: string;
+  label: string;
+  href: string;
+};
+
 type MenuItem = {
   key: string;
   label: string;
   icon: React.ReactNode;
   href: string;
   badge?: number;
+  children?: SubMenuItem[];
 };
 
 type MenuGroup = {
@@ -64,6 +71,23 @@ const MENU_GROUPS: MenuGroup[] = [
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
           </svg>
         ),
+        children: [
+          { key: "outreach-youtube", label: "유튜브", href: "/sales/outreach" },
+          { key: "outreach-instagram", label: "인스타", href: "/sales/outreach/instagram" },
+          { key: "outreach-suppliers", label: "공급사", href: "/sales/outreach/suppliers" },
+        ],
+      },
+      {
+        key: "instagram-groupbuy",
+        label: "인스타 공동구매",
+        href: "/marketing/instagram-groupbuy",
+        icon: (
+          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <rect x="3" y="3" width="18" height="18" rx="5" strokeWidth={1.5} />
+            <circle cx="12" cy="12" r="4" strokeWidth={1.5} />
+            <circle cx="17.5" cy="6.5" r="1.1" fill="currentColor" stroke="none" />
+          </svg>
+        ),
       },
     ],
   },
@@ -79,6 +103,10 @@ const MENU_GROUPS: MenuGroup[] = [
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
           </svg>
         ),
+        children: [
+          { key: "products-list", label: "상품 목록", href: "/mall/products" },
+          { key: "stock-alerts", label: "품절/재입고 알림", href: "/mall/stock-alerts" },
+        ],
       },
       {
         key: "orders",
@@ -89,6 +117,14 @@ const MENU_GROUPS: MenuGroup[] = [
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" />
           </svg>
         ),
+        children: [
+          { key: "phone-orders-list", label: "전화주문", href: "/mall/phone-orders" },
+          { key: "sms-orders-list", label: "문자주문", href: "/mall/sms-orders" },
+          { key: "orders-unified", label: "주문수집 및 조회", href: "/mall/orders/unified" },
+          { key: "orders-payment", label: "입금확인", href: "/mall/orders/payment" },
+          { key: "orders-verification", label: "매핑 검증", href: "/mall/orders/verification" },
+          { key: "supplier-holidays", label: "공급사 휴무", href: "/mall/supplier-holidays" },
+        ],
       },
       {
         key: "purchase-orders",
@@ -137,6 +173,26 @@ const MENU_GROUPS: MenuGroup[] = [
         icon: (
           <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+          </svg>
+        ),
+      },
+      {
+        key: "offline",
+        label: "오프라인 납품",
+        href: "/mall/offline",
+        icon: (
+          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M8 14v3m4-3v3m4-3v3M3 21h18M3 10h18M3 7l9-4 9 4M4 10h16v11H4V10z" />
+          </svg>
+        ),
+      },
+      {
+        key: "seller-dashboard",
+        label: "판매사 대시보드",
+        href: "/mall/seller-dashboard",
+        icon: (
+          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
           </svg>
         ),
       },
@@ -221,6 +277,16 @@ const MENU_GROUPS: MenuGroup[] = [
         ),
       },
       {
+        key: "team-workboard",
+        label: "업무관리",
+        href: "/system/team-workboard",
+        icon: (
+          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
+          </svg>
+        ),
+      },
+      {
         key: "members",
         label: "멤버 관리",
         href: "/system/organization",
@@ -243,6 +309,21 @@ const MENU_GROUPS: MenuGroup[] = [
       },
     ],
   },
+  {
+    title: "리뷰양이",
+    items: [
+      {
+        key: "reviewyangi-kpi",
+        label: "KPI 대시보드",
+        href: "/reviewyangi/kpi",
+        icon: (
+          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3 3v18h18M7 14l3-3 4 4 5-5" />
+          </svg>
+        ),
+      },
+    ],
+  },
 ];
 
 type SidebarProps = {
@@ -254,6 +335,7 @@ export default function Sidebar({ collapsed, onToggle }: SidebarProps) {
   const pathname = usePathname();
   const router = useRouter();
   const [csOpen, setCsOpen] = useState(0);
+  const [expandedKeys, setExpandedKeys] = useState<Set<string>>(new Set());
 
   const fetchCsCount = useCallback(async () => {
     try {
@@ -269,9 +351,49 @@ export default function Sidebar({ collapsed, onToggle }: SidebarProps) {
     return () => clearInterval(interval);
   }, [fetchCsCount]);
 
+  // 현재 경로에 해당하는 부모메뉴는 자동으로 펼침
+  useEffect(() => {
+    const autoExpand = new Set<string>();
+    for (const group of MENU_GROUPS) {
+      for (const item of group.items) {
+        if (item.children) {
+          const childMatch = item.children.some(
+            (c) => pathname === c.href || pathname.startsWith(c.href + "/")
+          );
+          const parentMatch = pathname === item.href || pathname.startsWith(item.href + "/");
+          if (childMatch || parentMatch) {
+            autoExpand.add(item.key);
+          }
+        }
+      }
+    }
+    setExpandedKeys((prev) => {
+      const next = new Set(prev);
+      autoExpand.forEach((k) => next.add(k));
+      return next;
+    });
+  }, [pathname]);
+
+  const toggleExpand = (key: string) => {
+    setExpandedKeys((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  };
+
   const isActive = (href: string) => {
     if (href === "/") return pathname === "/";
     return pathname.startsWith(href);
+  };
+
+  const isChildActive = (item: MenuItem, child: SubMenuItem) => {
+    if (!item.children) return false;
+    const matches = item.children
+      .filter((c) => pathname === c.href || pathname.startsWith(c.href + "/"))
+      .sort((a, b) => b.href.length - a.href.length);
+    return matches[0]?.key === child.key;
   };
 
   return (
@@ -330,40 +452,79 @@ export default function Sidebar({ collapsed, onToggle }: SidebarProps) {
               </p>
             )}
             {group.items.map((item) => {
-              const active = isActive(item.href);
+              // 부모 또는 자식 중 하나라도 활성이면 부모를 활성으로 — 자식 경로가 부모 href의 prefix가 아닌 경우(예: /mall/stock-alerts under 상품관리 /mall/products)에도 메뉴 펼친 상태 유지
+              const active = isActive(item.href) || (item.children?.some((c) => isActive(c.href)) ?? false);
+              const expanded = expandedKeys.has(item.key);
               const badge = item.key === "cs" ? csOpen : 0;
               return (
-                <button
-                  key={item.key}
-                  onClick={() => router.push(item.href)}
-                  title={collapsed ? item.label : undefined}
-                  className={`w-full flex items-center gap-3 text-sm font-medium transition-colors cursor-pointer relative ${
-                    collapsed ? "px-0 py-3 justify-center" : "px-5 py-2.5"
-                  } ${
-                    active
-                      ? "text-[#C41E1E] bg-[#FFF0F5]"
-                      : "text-gray-600 hover:text-gray-900 hover:bg-gray-50"
-                  }`}
-                >
-                  <span className={`relative ${active ? "text-[#C41E1E]" : "text-gray-400"}`}>
-                    {item.icon}
-                    {collapsed && badge > 0 && (
-                      <span className="absolute -top-1.5 -right-1.5 min-w-[16px] h-4 bg-[#C41E1E] text-white text-[10px] font-bold rounded-full flex items-center justify-center px-1">
-                        {badge > 99 ? "99+" : badge}
-                      </span>
-                    )}
-                  </span>
-                  {!collapsed && (
-                    <>
-                      <span>{item.label}</span>
-                      {badge > 0 && (
-                        <span className="ml-auto min-w-[20px] h-5 bg-[#C41E1E] text-white text-[11px] font-bold rounded-full flex items-center justify-center px-1.5">
+                <div key={item.key}>
+                  <button
+                    onClick={() => {
+                      if (item.children) {
+                        toggleExpand(item.key);
+                      } else {
+                        router.push(item.href);
+                      }
+                    }}
+                    title={collapsed ? item.label : undefined}
+                    className={`w-full flex items-center gap-3 text-sm font-medium transition-colors cursor-pointer relative ${
+                      collapsed ? "px-0 py-3 justify-center" : "px-5 py-2.5"
+                    } ${
+                      active
+                        ? "text-[#C41E1E] bg-[#FFF0F5]"
+                        : "text-gray-600 hover:text-gray-900 hover:bg-gray-50"
+                    }`}
+                  >
+                    <span className={`relative ${active ? "text-[#C41E1E]" : "text-gray-400"}`}>
+                      {item.icon}
+                      {collapsed && badge > 0 && (
+                        <span className="absolute -top-1.5 -right-1.5 min-w-[16px] h-4 bg-[#C41E1E] text-white text-[10px] font-bold rounded-full flex items-center justify-center px-1">
                           {badge > 99 ? "99+" : badge}
                         </span>
                       )}
-                    </>
+                    </span>
+                    {!collapsed && (
+                      <>
+                        <span className="flex-1 text-left">{item.label}</span>
+                        {badge > 0 && (
+                          <span className="min-w-[20px] h-5 bg-[#C41E1E] text-white text-[11px] font-bold rounded-full flex items-center justify-center px-1.5">
+                            {badge > 99 ? "99+" : badge}
+                          </span>
+                        )}
+                        {item.children && (
+                          <svg
+                            className={`w-4 h-4 text-gray-400 transition-transform ${expanded ? "rotate-90" : ""}`}
+                            fill="none"
+                            stroke="currentColor"
+                            viewBox="0 0 24 24"
+                          >
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                          </svg>
+                        )}
+                      </>
+                    )}
+                  </button>
+                  {!collapsed && item.children && expanded && (
+                    <div className="ml-[44px] border-l border-gray-200">
+                      {item.children.map((child) => {
+                        const childActive = isChildActive(item, child);
+                        return (
+                          <button
+                            key={child.key}
+                            onClick={() => router.push(child.href)}
+                            className={`w-full text-left text-[13px] py-1.5 pl-4 pr-3 transition-colors cursor-pointer border-l-2 -ml-[1px] ${
+                              childActive
+                                ? "text-[#C41E1E] border-[#C41E1E] font-semibold"
+                                : "text-gray-500 border-transparent hover:text-gray-900"
+                            }`}
+                          >
+                            {child.label}
+                          </button>
+                        );
+                      })}
+                    </div>
                   )}
-                </button>
+                </div>
               );
             })}
           </div>

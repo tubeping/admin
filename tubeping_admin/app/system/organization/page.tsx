@@ -54,7 +54,7 @@ const TEAMS: Team[] = [
     color: "bg-green-100 border-green-300",
     members: [
       { name: "블로거", nameEn: "Blogger", icon: "✍️", role: "콘텐츠팀", desc: "SEO 최적화 블로그 콘텐츠 기획·작성·발행", file: ".claude/agents/tubeping-blogger.md", status: "활성", skills: ["키워드 리서치", "SEO 최적화", "콘텐츠 작성", "E-E-A-T"], permission: "RW" },
-      { name: "리뷰엉이", nameEn: "Review Owl", icon: "🦉", role: "콘텐츠팀", desc: "노써치 스타일 상품 리뷰·추천 사이트 구축", file: ".claude/agents/review-owl.md", status: "활성", skills: ["상품 리뷰", "점수 시스템", "구매가이드", "랭킹"], permission: "RW" },
+      { name: "리뷰양이", nameEn: "Review Owl", icon: "🦉", role: "콘텐츠팀", desc: "노써치 스타일 상품 리뷰·추천 사이트 구축", file: ".claude/agents/reviewyangi.md", status: "활성", skills: ["상품 리뷰", "점수 시스템", "구매가이드", "랭킹"], permission: "RW" },
       { name: "키워디", nameEn: "Keywordy", icon: "🔑", role: "콘텐츠팀", desc: "키워드 리서치 + 경쟁 분석", file: "", status: "예정", skills: ["키워드 분석", "검색량 조회", "경쟁도 분석"], permission: "RO" },
       { name: "머시니", nameEn: "Machiny", icon: "⚙️", role: "콘텐츠팀", desc: "콘텐츠 머신 대기열 자동 처리", file: "", status: "예정", skills: ["자동 발행", "대기열 관리", "스케줄링"], permission: "RW" },
       { name: "썸네일러", nameEn: "Thumbnailer", icon: "🎨", role: "콘텐츠팀", desc: "상품 이미지/배너 자동 생성", file: "", status: "예정", skills: ["이미지 생성", "배너 디자인", "썸네일"], permission: "RW" },
@@ -135,7 +135,7 @@ const PROJECTS: Project[] = [
     ],
   },
   {
-    title: "리뷰엉이 (Review Owl) 사이트",
+    title: "리뷰양이 (Review Owl) 사이트",
     status: "진행중",
     progress: 30,
     desc: "노써치 스타일 상품 리뷰·추천 사이트. 구매가이드/랭킹/비교 제공",

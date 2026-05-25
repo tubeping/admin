@@ -115,7 +115,6 @@ export default function SellersPage() {
 
   const totalOrders = sellers.reduce((s, v) => s + (v.order_count || 0), 0);
   const totalAmount = sellers.reduce((s, v) => s + (v.total_amount || 0), 0);
-  const activeSellers = sellers.filter((s) => s.status === "active").length;
 
   return (
     <div className="p-8">
@@ -128,10 +127,9 @@ export default function SellersPage() {
       </div>
 
       {/* Summary */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+      <div className="grid grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
         {[
           { label: "전체 판매자", value: `${sellers.length}개` },
-          { label: "활성", value: `${activeSellers}개` },
           { label: "총 주문", value: `${totalOrders.toLocaleString()}건` },
           { label: "총 매출", value: `₩${totalAmount.toLocaleString()}` },
         ].map((s) => (
@@ -182,7 +180,6 @@ export default function SellersPage() {
                 <th className="text-center px-3 py-3 font-medium">정산방식</th>
                 <th className="text-right px-3 py-3 font-medium">주문 수</th>
                 <th className="text-right px-3 py-3 font-medium">총 매출</th>
-                <th className="text-center px-3 py-3 font-medium">상태</th>
                 <th className="text-center px-6 py-3 font-medium">설정</th>
               </tr>
             </thead>
@@ -199,11 +196,6 @@ export default function SellersPage() {
                   </td>
                   <td className="px-3 py-3.5 text-sm text-gray-700 text-right font-medium">{(s.order_count || 0).toLocaleString()}건</td>
                   <td className="px-3 py-3.5 text-sm text-gray-700 text-right">₩{(s.total_amount || 0).toLocaleString()}</td>
-                  <td className="px-3 py-3.5 text-center">
-                    <span className={`text-xs font-medium px-2 py-1 rounded-full ${s.status === "active" ? "bg-green-100 text-green-700" : "bg-gray-100 text-gray-500"}`}>
-                      {s.status === "active" ? "활성" : s.status === "pending" ? "대기" : s.status}
-                    </span>
-                  </td>
                   <td className="px-6 py-3.5 text-center">
                     <button onClick={() => openConfig(s)} className="text-xs text-[#C41E1E] hover:underline cursor-pointer font-medium">정산설정</button>
                   </td>

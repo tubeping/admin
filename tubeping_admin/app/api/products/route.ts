@@ -3,7 +3,8 @@ import { getServiceClient } from "@/lib/supabase";
 
 /**
  * GET /api/products — 자체 상품 목록
- * params: limit, offset, keyword, category, selling
+ * params: limit, offset, keyword, category, selling, with_count
+ *   with_count=1 만 exact count 계산 (첫 페이지에서만 사용 권장 — 매 페이지 호출 시 750ms+ 부담)
  */
 export async function GET(request: NextRequest) {
   const { searchParams } = request.nextUrl;
@@ -13,17 +14,45 @@ export async function GET(request: NextRequest) {
   const category = searchParams.get("category") || "";
   const selling = searchParams.get("selling") || "";
   const display = searchParams.get("display") || "";
+  const withCount = searchParams.get("with_count") === "1";
 
   const sb = getServiceClient();
 
+  // 리스트 뷰는 가벼운 컬럼만 (모달 열릴 때 detail API로 fullload)
+  // count는 with_count=1 일 때만 exact (전체 row 카운트는 비싼 작업)
   let query = sb
     .from("products")
-    .select("*, product_cafe24_mappings(id, store_id, cafe24_product_no, cafe24_product_code, sync_status, last_sync_at), product_variants(id, variant_code, option_name, option_value, price, quantity, display, selling)", { count: "exact" })
+    .select(
+      "id, tp_code, product_name, price, supply_price, retail_price, image_url, selling, display, approval_status, category, supplier, total_stock, fulfillment_warehouse_supplier_id, created_at, updated_at, product_cafe24_mappings(id, store_id, sync_status), product_variants(id)",
+      withCount ? { count: "exact" } : undefined
+    )
     .order("created_at", { ascending: false })
     .range(offset, offset + limit - 1);
 
   if (keyword) {
-    query = query.or(`product_name.ilike.%${keyword}%,tp_code.ilike.%${keyword}%`);
+    // 기본 검색: 상품명 / tp_code / 자유형 supplier 텍스트 (ILIKE는 대소문자 무시)
+    const orClauses = [
+      `product_name.ilike.%${keyword}%`,
+      `tp_code.ilike.%${keyword}%`,
+      `supplier.ilike.%${keyword}%`,
+    ];
+
+    // 공급사명/short_code 기반 추가 매칭:
+    // 키워드로 suppliers를 조회해서 매치된 공급사의 short_code들을 tp_code 패턴으로 확장
+    // (tp_code 포맷: [채널2][공급사코드2][숫자] → 패턴은 '__' + short_code + '%')
+    const { data: matchedSuppliers } = await sb
+      .from("suppliers")
+      .select("short_code")
+      .or(`name.ilike.%${keyword}%,short_code.ilike.%${keyword}%`)
+      .not("short_code", "is", null);
+
+    for (const s of matchedSuppliers || []) {
+      if (s.short_code) {
+        orClauses.push(`tp_code.ilike.__${s.short_code}%`);
+      }
+    }
+
+    query = query.or(orClauses.join(","));
   }
   if (category) {
     query = query.eq("category", category);

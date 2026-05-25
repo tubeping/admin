@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 
 /* ══════════════════════════════════════════
    타입
@@ -44,10 +44,17 @@ type Product = {
   memo: string | null;
   supplier: string | null;
   total_stock: number;
+  fulfillment_warehouse_supplier_id: string | null;
   created_at: string;
   updated_at: string;
   product_cafe24_mappings: Cafe24Mapping[];
   product_variants: Variant[];
+};
+
+type SupplierOption = {
+  id: string;
+  name: string;
+  short_code: string | null;
 };
 
 type Store = {
@@ -65,6 +72,7 @@ type SortDir = "asc" | "desc";
 type ViewMode = "table" | "card";
 type SellingFilter = "all" | "selling" | "not_selling";
 type DisplayFilter = "all" | "displayed" | "hidden";
+type FulfillmentFilter = "all" | "direct" | "warehouse";
 
 /* ══════════════════════════════════════════
    유틸
@@ -132,13 +140,19 @@ export default function ProductsPage() {
   const [keyword, setKeyword] = useState("");
   const [sellingFilter, setSellingFilter] = useState<SellingFilter>("all");
   const [displayFilter, setDisplayFilter] = useState<DisplayFilter>("all");
+  const [fulfillmentFilter, setFulfillmentFilter] = useState<FulfillmentFilter>("all");
   const [catFilter, setCatFilter] = useState("");
-  const [offset, setOffset] = useState(0);
+  const [page, setPage] = useState(0);
   const [total, setTotal] = useState(0);
-  const [hasMore, setHasMore] = useState(true);
+  const PAGE_SIZE = 50;
+
+  // 전체 통계 (서버에서 별도 로드 — 현재 페이지가 아닌 전체 기준)
+  const [summaryStats, setSummaryStats] = useState({ total: 0, selling: 0, totalMappings: 0, unmapped: 0, categories: [] as string[] });
 
   const [selectedProducts, setSelectedProducts] = useState<Set<string>>(new Set());
   const [showAssignDropdown, setShowAssignDropdown] = useState(false);
+  const [showFulfillmentDropdown, setShowFulfillmentDropdown] = useState(false);
+  const [warehouses, setWarehouses] = useState<SupplierOption[]>([]);
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
   const [showAddModal, setShowAddModal] = useState(false);
 
@@ -157,10 +171,66 @@ export default function ProductsPage() {
   const [bulkSyncing, setBulkSyncing] = useState(false);
 
   const assignDropdownRef = useRef<HTMLDivElement>(null);
+  const fulfillmentDropdownRef = useRef<HTMLDivElement>(null);
+
+  /* ── 전체 통계 로드 ── */
+  const fetchSummary = useCallback(async () => {
+    try {
+      const res = await fetch("/admin/api/products/summary-stats");
+      if (!res.ok) return;
+      const data = await res.json();
+      setSummaryStats(data);
+    } catch { /* ignore */ }
+  }, []);
+
+  /* ── 데이터 로드 (서버사이드 페이지네이션) ── */
+  const fetchProducts = useCallback(async (resetPage = false) => {
+    setLoading(true);
+    setError("");
+
+    const currentPage = resetPage ? 0 : page;
+    if (resetPage) {
+      setPage(0);
+      setSelectedProducts(new Set());
+    }
+
+    const params = new URLSearchParams();
+    params.set("limit", String(PAGE_SIZE));
+    params.set("offset", String(currentPage * PAGE_SIZE));
+    params.set("with_count", "1");
+    if (keyword) params.set("keyword", keyword);
+    if (catFilter) params.set("category", catFilter);
+    if (sellingFilter === "selling") params.set("selling", "T");
+    if (sellingFilter === "not_selling") params.set("selling", "F");
+    if (displayFilter === "displayed") params.set("display", "T");
+    if (displayFilter === "hidden") params.set("display", "F");
+
+    try {
+      const res = await fetch(`/admin/api/products?${params}`);
+      if (!res.ok) throw new Error(`API 오류 (${res.status})`);
+      const data = await res.json();
+      setProducts(data.products || []);
+      setTotal(data.total ?? 0);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "알 수 없는 오류");
+    } finally {
+      setLoading(false);
+    }
+  }, [keyword, catFilter, sellingFilter, displayFilter, page]);
+
+  // ref로 최신 fetchProducts를 추적 (useEffect에서 stale closure 방지)
+  const fetchProductsRef = useRef(fetchProducts);
+  fetchProductsRef.current = fetchProducts;
+
+  /** 데이터 변경 후 목록 + 통계 모두 갱신 */
+  const refreshAll = useCallback(() => {
+    fetchProductsRef.current(true);
+    fetchSummary();
+  }, [fetchSummary]);
 
   /* ── 카페24 가져오기 ── */
   const importFromCafe24 = async () => {
-    if (!confirm("카페24 마스터몰(shinsana)에서 자체상품코드가 있는 상품을 모두 가져옵니다.\n계속할까요?")) return;
+    if (!confirm("카페24 마스터몰(tubeping)에서 자체상품코드가 있는 상품을 모두 가져옵니다.\n계속할까요?")) return;
     setImporting(true);
     setImportResult("");
     try {
@@ -172,57 +242,13 @@ export default function ProductsPage() {
       if (!res.ok) throw new Error("가져오기 실패");
       const data = await res.json();
       setImportResult(data.message);
-      fetchProducts(true);
+      refreshAll();
     } catch (e) {
       setImportResult(e instanceof Error ? e.message : "가져오기 실패");
     } finally {
       setImporting(false);
     }
   };
-
-  /* ── 데이터 로드 (전체 로드) ── */
-  const fetchProducts = useCallback(async (reset = false) => {
-    setLoading(true);
-    setError("");
-
-    const baseParams = new URLSearchParams();
-    if (keyword) baseParams.set("keyword", keyword);
-    if (catFilter) baseParams.set("category", catFilter);
-    if (sellingFilter === "selling") baseParams.set("selling", "T");
-    if (sellingFilter === "not_selling") baseParams.set("selling", "F");
-    if (displayFilter === "displayed") baseParams.set("display", "T");
-    if (displayFilter === "hidden") baseParams.set("display", "F");
-
-    try {
-      let allProducts: Product[] = [];
-      let currentOffset = 0;
-      const pageSize = 200;
-
-      while (true) {
-        const params = new URLSearchParams(baseParams);
-        params.set("limit", String(pageSize));
-        params.set("offset", String(currentOffset));
-
-        const res = await fetch(`/admin/api/products?${params}`);
-        if (!res.ok) throw new Error(`API 오류 (${res.status})`);
-        const data = await res.json();
-        const fetched: Product[] = data.products || [];
-        allProducts = allProducts.concat(fetched);
-        setTotal(data.total || allProducts.length);
-
-        if (fetched.length < pageSize) break;
-        currentOffset += pageSize;
-      }
-
-      setProducts(allProducts);
-      setOffset(allProducts.length);
-      setHasMore(false);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "알 수 없는 오류");
-    } finally {
-      setLoading(false);
-    }
-  }, [keyword, catFilter, sellingFilter, displayFilter]);
 
   const fetchStores = useCallback(async () => {
     setStoresLoading(true);
@@ -243,11 +269,29 @@ export default function ProductsPage() {
     finally { setStoresLoading(false); }
   }, []);
 
+  // 초기 로드: 스토어 + 창고 + 전체 통계
   useEffect(() => {
-    fetchProducts(true);
     fetchStores();
+    fetchSummary();
+    (async () => {
+      try {
+        const res = await fetch("/admin/api/suppliers?status=active");
+        if (!res.ok) return;
+        const data = await res.json();
+        const whs = (data.suppliers || [])
+          .filter((s: SupplierOption) => (s.short_code || "").toUpperCase().startsWith("WH"))
+          .map((s: SupplierOption) => ({ id: s.id, name: s.name, short_code: s.short_code }));
+        setWarehouses(whs);
+      } catch { /* ignore */ }
+    })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // 필터/페이지 변경 시 자동 fetch + 선택 초기화
+  useEffect(() => {
+    fetchProductsRef.current?.();
+    setSelectedProducts(new Set());
+  }, [sellingFilter, displayFilter, catFilter, page]);
 
   // 드롭다운 외부 클릭 닫기
   useEffect(() => {
@@ -255,13 +299,16 @@ export default function ProductsPage() {
       if (assignDropdownRef.current && !assignDropdownRef.current.contains(e.target as Node)) {
         setShowAssignDropdown(false);
       }
+      if (fulfillmentDropdownRef.current && !fulfillmentDropdownRef.current.contains(e.target as Node)) {
+        setShowFulfillmentDropdown(false);
+      }
     }
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
   const handleSearch = () => {
-    setOffset(0);
+    setPage(0);
     fetchProducts(true);
   };
 
@@ -271,7 +318,13 @@ export default function ProductsPage() {
     else { setSortKey(key); setSortDir("asc"); }
   };
 
-  const sortedProducts = [...products].sort((a, b) => {
+  const filteredProducts = useMemo(() => products.filter((p) => {
+    if (fulfillmentFilter === "warehouse") return !!p.fulfillment_warehouse_supplier_id;
+    if (fulfillmentFilter === "direct") return !p.fulfillment_warehouse_supplier_id;
+    return true;
+  }), [products, fulfillmentFilter]);
+
+  const sortedProducts = useMemo(() => [...filteredProducts].sort((a, b) => {
     const dir = sortDir === "asc" ? 1 : -1;
     switch (sortKey) {
       case "tp_code": return dir * a.tp_code.localeCompare(b.tp_code);
@@ -282,7 +335,7 @@ export default function ProductsPage() {
       case "updated": return dir * (a.updated_at.localeCompare(b.updated_at));
       default: return 0;
     }
-  });
+  }), [filteredProducts, sortKey, sortDir]);
 
   /* ── 선택 ── */
   const toggleSelect = (id: string) => {
@@ -299,55 +352,56 @@ export default function ProductsPage() {
     else setSelectedProducts(new Set(sortedProducts.map((p) => p.id)));
   };
 
-  /* ── 대량 상태 변경 ── */
+  /* ── 대량 상태 변경 (병렬) ── */
   const bulkUpdateSelling = async (selling: "T" | "F") => {
     const label = selling === "T" ? "판매중" : "미판매";
-    for (const pid of selectedProducts) {
-      try {
-        await fetch(`/admin/api/products/${pid}`, {
+    const count = selectedProducts.size;
+    await Promise.allSettled(
+      [...selectedProducts].map((pid) =>
+        fetch(`/admin/api/products/${pid}`, {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ selling }),
-        });
-      } catch { /* skip */ }
-    }
+        })
+      )
+    );
     setSelectedProducts(new Set());
-    fetchProducts(true);
-    alert(`${selectedProducts.size}개 상품을 "${label}"로 변경했습니다.`);
+    refreshAll();
+    alert(`${count}개 상품을 "${label}"로 변경했습니다.`);
   };
 
-  /* ── 카페24 매핑 ── */
+  /* ── 카페24 매핑 (병렬) ── */
   const assignToStore = async (storeId: string) => {
-    for (const pid of selectedProducts) {
-      try {
-        await fetch(`/admin/api/products/${pid}/mappings`, {
+    await Promise.allSettled(
+      [...selectedProducts].map((pid) =>
+        fetch(`/admin/api/products/${pid}/mappings`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ store_id: storeId }),
-        });
-      } catch { /* skip */ }
-    }
+        })
+      )
+    );
     setSelectedProducts(new Set());
     setShowAssignDropdown(false);
-    fetchProducts(true);
+    refreshAll();
   };
 
   const assignToAll = async () => {
     const activeStoreIds = stores.filter((s) => s.status === "active" || s.status === "connected").map((s) => s.id);
-    for (const pid of selectedProducts) {
-      for (const sid of activeStoreIds) {
-        try {
-          await fetch(`/admin/api/products/${pid}/mappings`, {
+    await Promise.allSettled(
+      [...selectedProducts].flatMap((pid) =>
+        activeStoreIds.map((sid) =>
+          fetch(`/admin/api/products/${pid}/mappings`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ store_id: sid }),
-          });
-        } catch { /* skip */ }
-      }
-    }
+          })
+        )
+      )
+    );
     setSelectedProducts(new Set());
     setShowAssignDropdown(false);
-    fetchProducts(true);
+    refreshAll();
   };
 
   const removeMapping = async (productId: string, storeId: string) => {
@@ -357,11 +411,30 @@ export default function ProductsPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ store_id: storeId }),
       });
-      fetchProducts(true);
+      refreshAll();
     } catch { /* skip */ }
   };
 
-  /* ── 상품 삭제 ── */
+  /* ── 대량 출고 방식 변경 (병렬) ── */
+  const bulkSetFulfillment = async (warehouseId: string | null) => {
+    const label = warehouseId ? "창고발주" : "직배송";
+    if (!confirm(`${selectedProducts.size}개 상품을 "${label}"(으)로 변경합니다.\n계속할까요?`)) return;
+    const count = selectedProducts.size;
+    await Promise.allSettled(
+      [...selectedProducts].map((pid) =>
+        fetch(`/admin/api/products/${pid}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ fulfillment_warehouse_supplier_id: warehouseId }),
+        })
+      )
+    );
+    setSelectedProducts(new Set());
+    setShowFulfillmentDropdown(false);
+    refreshAll();
+    alert(`${count}개 상품을 "${label}"(으)로 변경했습니다.`);
+  };
+
   /* ── 대량 동기화 ── */
   const bulkSync = async () => {
     if (!confirm(`${selectedProducts.size}개 상품을 매핑된 카페24 스토어에 동기화합니다.\n계속할까요?`)) return;
@@ -376,7 +449,7 @@ export default function ProductsPage() {
       const data = await res.json();
       alert(data.message);
       setSelectedProducts(new Set());
-      fetchProducts(true);
+      refreshAll();
     } catch (e) {
       alert(e instanceof Error ? e.message : "동기화 실패");
     } finally {
@@ -388,17 +461,22 @@ export default function ProductsPage() {
     if (!confirm("이 상품을 삭제하시겠습니까?")) return;
     try {
       await fetch(`/admin/api/products/${id}`, { method: "DELETE" });
-      fetchProducts(true);
+      refreshAll();
     } catch { /* skip */ }
   };
 
-  const activeStores = stores.filter((s) => s.status === "active" || s.status === "connected");
-  const getStoreName = (storeId: string) => stores.find((s) => s.id === storeId)?.name || storeId;
-  const totalMappings = products.reduce((sum, p) => sum + p.product_cafe24_mappings.length, 0);
-  const unmappedCount = products.filter((p) => p.product_cafe24_mappings.length === 0).length;
-  const sellingCount = products.filter((p) => p.selling === "T").length;
+  const activeStores = useMemo(() => stores.filter((s) => s.status === "active" || s.status === "connected"), [stores]);
+  const getStoreName = useCallback((storeId: string) => stores.find((s) => s.id === storeId)?.name || storeId, [stores]);
 
-  const categories = [...new Set(products.map((p) => p.category).filter(Boolean))] as string[];
+  // 전체 통계는 서버에서 로드한 summaryStats 사용
+  const { totalMappings, unmappedCount, sellingCount } = useMemo(() => ({
+    totalMappings: summaryStats.totalMappings,
+    unmappedCount: summaryStats.unmapped,
+    sellingCount: summaryStats.selling,
+  }), [summaryStats]);
+
+  // 카테고리는 서버에서 전체 목록을 가져옴
+  const categories = summaryStats.categories;
 
   const SortIcon = ({ field }: { field: SortKey }) => {
     if (sortKey !== field) return <span className="text-gray-300 ml-1">↕</span>;
@@ -451,12 +529,12 @@ export default function ProductsPage() {
         </div>
       )}
 
-      {/* Stats */}
+      {/* Stats — 전체 기준 (서버 통계) */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4 mb-6">
         {[
-          { label: "전체 상품", value: total, color: "text-gray-900" },
+          { label: "전체 상품", value: summaryStats.total, color: "text-gray-900" },
           { label: "판매중", value: sellingCount, color: "text-green-600" },
-          { label: "미판매", value: total - sellingCount, color: total - sellingCount > 0 ? "text-orange-500" : "text-gray-400" },
+          { label: "미판매", value: summaryStats.total - sellingCount, color: summaryStats.total - sellingCount > 0 ? "text-orange-500" : "text-gray-400" },
           { label: "카페24 매핑", value: totalMappings, color: "text-[#C41E1E]" },
           { label: "미매핑", value: unmappedCount, color: unmappedCount > 0 ? "text-yellow-600" : "text-gray-400" },
         ].map((s) => (
@@ -507,7 +585,7 @@ export default function ProductsPage() {
               </svg>
               <input
                 type="text"
-                placeholder="상품명 또는 TP코드 검색..."
+                placeholder="상품명 / TP코드 / 공급사명 / 공급사코드(예: ar) 검색..."
                 value={keyword}
                 onChange={(e) => setKeyword(e.target.value)}
                 onKeyDown={(e) => e.key === "Enter" && handleSearch()}
@@ -528,12 +606,21 @@ export default function ProductsPage() {
             )}
             <select
               value={sellingFilter}
-              onChange={(e) => { setSellingFilter(e.target.value as SellingFilter); setTimeout(() => { setOffset(0); fetchProducts(true); }, 0); }}
+              onChange={(e) => setSellingFilter(e.target.value as SellingFilter)}
               className="px-3 py-2.5 text-sm border border-gray-200 rounded-lg text-gray-600 focus:outline-none cursor-pointer"
             >
               <option value="all">전체 상태</option>
               <option value="selling">판매중</option>
               <option value="not_selling">미판매</option>
+            </select>
+            <select
+              value={fulfillmentFilter}
+              onChange={(e) => setFulfillmentFilter(e.target.value as FulfillmentFilter)}
+              className="px-3 py-2.5 text-sm border border-gray-200 rounded-lg text-gray-600 focus:outline-none cursor-pointer"
+            >
+              <option value="all">전체 출고</option>
+              <option value="direct">직배송</option>
+              <option value="warehouse">창고발주</option>
             </select>
             <button onClick={handleSearch} className="px-4 py-2.5 bg-[#C41E1E] text-white text-sm font-medium rounded-lg hover:bg-[#A01818] cursor-pointer">검색</button>
 
@@ -545,6 +632,37 @@ export default function ProductsPage() {
                 <span className="text-xs text-gray-500 font-medium">{selectedProducts.size}개 선택</span>
                 <button onClick={() => bulkUpdateSelling("T")} className="px-3 py-2 text-xs font-medium text-green-700 bg-green-50 border border-green-200 rounded-lg hover:bg-green-100 cursor-pointer">판매 전환</button>
                 <button onClick={() => bulkUpdateSelling("F")} className="px-3 py-2 text-xs font-medium text-gray-600 bg-gray-50 border border-gray-200 rounded-lg hover:bg-gray-100 cursor-pointer">미판매 전환</button>
+                <div className="relative" ref={fulfillmentDropdownRef}>
+                  <button onClick={() => setShowFulfillmentDropdown(!showFulfillmentDropdown)} className="px-3 py-2 text-xs font-medium text-amber-700 bg-amber-50 border border-amber-200 rounded-lg hover:bg-amber-100 cursor-pointer">출고 방식</button>
+                  {showFulfillmentDropdown && (
+                    <div className="absolute right-0 top-10 w-64 bg-white rounded-xl border border-gray-200 shadow-lg z-50 py-2">
+                      <p className="px-4 py-2 text-xs text-gray-500 font-semibold border-b border-gray-100 mb-1">출고 방식 변경</p>
+                      {warehouses.length === 0 ? (
+                        <p className="px-4 py-3 text-xs text-gray-400 text-center">
+                          등록된 창고 공급사가 없습니다.<br />
+                          (공급사 short_code를 WH로 지정)
+                        </p>
+                      ) : warehouses.map((w) => (
+                        <button
+                          key={w.id}
+                          onClick={() => bulkSetFulfillment(w.id)}
+                          className="w-full px-4 py-2.5 text-left hover:bg-amber-50 flex items-center justify-between cursor-pointer"
+                        >
+                          <div>
+                            <p className="text-sm font-medium text-gray-900">창고발주: {w.name}</p>
+                            {w.short_code && <p className="text-[10px] text-gray-400">{w.short_code}</p>}
+                          </div>
+                        </button>
+                      ))}
+                      <div className="border-t border-gray-100 mt-1 pt-1">
+                        <button onClick={() => bulkSetFulfillment(null)} className="w-full px-4 py-2.5 text-left hover:bg-gray-50 cursor-pointer">
+                          <p className="text-sm font-medium text-gray-700">직배송으로 해제</p>
+                          <p className="text-[10px] text-gray-400">tp_code 공급사가 직접 출고</p>
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
                 <button onClick={bulkSync} disabled={bulkSyncing} className="px-3 py-2 text-xs font-medium text-blue-700 bg-blue-50 border border-blue-200 rounded-lg hover:bg-blue-100 disabled:opacity-50 cursor-pointer flex items-center gap-1">
                   {bulkSyncing ? (
                     <svg className="w-3 h-3 animate-spin" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>
@@ -592,7 +710,7 @@ export default function ProductsPage() {
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
               </svg>
               {error}
-              <button onClick={() => fetchProducts(true)} className="ml-auto text-xs text-red-500 hover:text-red-700 font-medium cursor-pointer">재시도</button>
+              <button onClick={refreshAll} className="ml-auto text-xs text-red-500 hover:text-red-700 font-medium cursor-pointer">재시도</button>
             </div>
           )}
 
@@ -642,8 +760,12 @@ export default function ProductsPage() {
                     const mr = marginNum(p.price, p.supply_price);
                     const mappings = p.product_cafe24_mappings || [];
 
+                    const warehouse = p.fulfillment_warehouse_supplier_id
+                      ? warehouses.find((w) => w.id === p.fulfillment_warehouse_supplier_id)
+                      : null;
+
                     return (
-                      <tr key={p.id} className={`border-b border-gray-50 last:border-0 hover:bg-gray-50/50 transition-colors ${isSelected ? "bg-[#FFF0F5]/40" : ""}`}>
+                      <tr key={p.id} className={`border-b border-gray-50 last:border-0 hover:bg-gray-50/50 transition-colors ${isSelected ? "bg-[#FFF0F5]/40" : warehouse ? "bg-amber-50/40" : ""}`}>
                         <td className="px-4 py-2.5">
                           <input type="checkbox" checked={isSelected} onChange={() => toggleSelect(p.id)} className="rounded border-gray-300 cursor-pointer" />
                         </td>
@@ -664,7 +786,17 @@ export default function ProductsPage() {
                           {p.category && <p className="text-[10px] text-gray-400 mt-0.5">{p.category}</p>}
                         </td>
                         <td className="px-3 py-2.5">
-                          <span className="text-xs text-gray-600">{p.supplier || "-"}</span>
+                          {warehouse ? (
+                            <div className="flex flex-col gap-0.5">
+                              <span className="inline-flex items-center gap-1 text-[10px] font-bold text-amber-800 bg-amber-100 border border-amber-200 px-2 py-0.5 rounded w-fit">
+                                <svg className="w-2.5 h-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 8h14M5 8l-1 4m1-4l1-4h12l1 4M5 12h14M5 12l-1 8h16l-1-8" /></svg>
+                                창고발주
+                              </span>
+                              <span className="text-xs text-gray-700">{p.supplier || "-"}</span>
+                            </div>
+                          ) : (
+                            <span className="text-xs text-gray-600">{p.supplier || "-"}</span>
+                          )}
                         </td>
                         <td className="px-3 py-2.5 text-sm text-gray-900 text-right font-medium">{formatPrice(p.price)}</td>
                         <td className="px-3 py-2.5 text-sm text-gray-500 text-right">{formatPrice(p.supply_price)}</td>
@@ -724,14 +856,28 @@ export default function ProductsPage() {
               </table>
 
               <div className="px-6 py-3 border-t border-gray-100 flex items-center justify-between">
-                <span className="text-xs text-gray-500">{sortedProducts.length}개 표시 / 총 {total}개</span>
-                <div className="flex items-center gap-3">
+                <span className="text-xs text-gray-500">
+                  {total === 0 ? "0개" : `${page * PAGE_SIZE + 1}~${Math.min((page + 1) * PAGE_SIZE, total)}개`} / 총 {total}개
+                </span>
+                <div className="flex items-center gap-2">
                   {loading && <span className="text-xs text-gray-400">로딩 중...</span>}
-                  {hasMore && !loading && (
-                    <button onClick={() => fetchProducts(false)} className="px-4 py-2 text-sm text-[#C41E1E] font-medium border border-[#C41E1E]/30 rounded-lg hover:bg-[#FFF0F5] cursor-pointer">
-                      더 불러오기
-                    </button>
-                  )}
+                  <button
+                    onClick={() => setPage((p) => Math.max(0, p - 1))}
+                    disabled={page === 0 || loading}
+                    className="px-3 py-1.5 text-xs font-medium border border-gray-200 rounded-lg hover:bg-gray-50 disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
+                  >
+                    ← 이전
+                  </button>
+                  <span className="text-xs text-gray-600 font-medium px-2">
+                    {page + 1} / {Math.max(1, Math.ceil(total / PAGE_SIZE))}
+                  </span>
+                  <button
+                    onClick={() => setPage((p) => p + 1)}
+                    disabled={(page + 1) * PAGE_SIZE >= total || loading}
+                    className="px-3 py-1.5 text-xs font-medium border border-gray-200 rounded-lg hover:bg-gray-50 disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
+                  >
+                    다음 →
+                  </button>
                 </div>
               </div>
             </div>
@@ -790,10 +936,28 @@ export default function ProductsPage() {
                 <div className="text-center py-16 text-sm text-gray-400">등록된 상품이 없습니다.</div>
               )}
               <div className="mt-4 flex items-center justify-between">
-                <span className="text-xs text-gray-500">{sortedProducts.length}개 표시 / 총 {total}개</span>
-                {hasMore && !loading && (
-                  <button onClick={() => fetchProducts(false)} className="px-4 py-2 text-sm text-[#C41E1E] font-medium border border-[#C41E1E]/30 rounded-lg hover:bg-[#FFF0F5] cursor-pointer">더 불러오기</button>
-                )}
+                <span className="text-xs text-gray-500">
+                  {total === 0 ? "0개" : `${page * PAGE_SIZE + 1}~${Math.min((page + 1) * PAGE_SIZE, total)}개`} / 총 {total}개
+                </span>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => setPage((p) => Math.max(0, p - 1))}
+                    disabled={page === 0 || loading}
+                    className="px-3 py-1.5 text-xs font-medium border border-gray-200 rounded-lg hover:bg-gray-50 disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
+                  >
+                    ← 이전
+                  </button>
+                  <span className="text-xs text-gray-600 font-medium px-2">
+                    {page + 1} / {Math.max(1, Math.ceil(total / PAGE_SIZE))}
+                  </span>
+                  <button
+                    onClick={() => setPage((p) => p + 1)}
+                    disabled={(page + 1) * PAGE_SIZE >= total || loading}
+                    className="px-3 py-1.5 text-xs font-medium border border-gray-200 rounded-lg hover:bg-gray-50 disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
+                  >
+                    다음 →
+                  </button>
+                </div>
               </div>
             </div>
           )}
@@ -813,14 +977,14 @@ export default function ProductsPage() {
 
       {/* ─── 현황 탭 ─── */}
       {tab === "overview" && (
-        <OverviewTab products={products} stores={stores} getStoreName={getStoreName} />
+        <OverviewTab products={products} stores={stores} getStoreName={getStoreName} summaryStats={summaryStats} />
       )}
 
       {/* 상품 등록 모달 */}
       {showAddModal && (
         <AddProductModal
           onClose={() => setShowAddModal(false)}
-          onCreated={() => { setShowAddModal(false); fetchProducts(true); }}
+          onCreated={() => { setShowAddModal(false); refreshAll(); }}
           stores={stores}
         />
       )}
@@ -832,7 +996,7 @@ export default function ProductsPage() {
           stores={stores}
           getStoreName={getStoreName}
           onClose={() => setEditingProduct(null)}
-          onSaved={() => { setEditingProduct(null); fetchProducts(true); }}
+          onSaved={() => { setEditingProduct(null); refreshAll(); }}
         />
       )}
     </div>
@@ -1048,6 +1212,7 @@ function EditProductModal({
   onSaved: () => void;
 }) {
   const [form, setForm] = useState({
+    tp_code: product.tp_code,
     product_name: product.product_name,
     price: String(product.price),
     supply_price: String(product.supply_price),
@@ -1061,7 +1226,27 @@ function EditProductModal({
     memo: product.memo || "",
   });
   const [variants, setVariants] = useState<Variant[]>(product.product_variants || []);
+  const [fullMappings, setFullMappings] = useState<Cafe24Mapping[]>(product.product_cafe24_mappings || []);
   const [deleteVariantIds, setDeleteVariantIds] = useState<string[]>([]);
+
+  // 모달 열릴 때 detail full data fetch (list query는 슬림화돼서 detail 컬럼이 없음)
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(`/admin/api/products/${product.id}`);
+        if (!res.ok) return;
+        const data = await res.json();
+        const p = data.product;
+        if (cancelled || !p) return;
+        if (p.product_variants) setVariants(p.product_variants);
+        if (p.product_cafe24_mappings) setFullMappings(p.product_cafe24_mappings);
+        if (p.description !== undefined) setForm((f) => ({ ...f, description: p.description || "" }));
+        if (p.memo !== undefined) setForm((f) => ({ ...f, memo: p.memo || "" }));
+      } catch { /* ignore */ }
+    })();
+    return () => { cancelled = true; };
+  }, [product.id]);
   const [activeTab, setActiveTab] = useState<"basic" | "variants" | "mappings">("basic");
   const [saving, setSaving] = useState(false);
   const [syncing, setSyncing] = useState(false);
@@ -1133,7 +1318,7 @@ function EditProductModal({
     ? (((Number(form.price) - Number(form.supply_price)) / Number(form.price)) * 100).toFixed(1)
     : "0";
 
-  const mappings = product.product_cafe24_mappings || [];
+  const mappings = fullMappings;
 
   return (
     <div className="fixed inset-0 z-50 flex">
@@ -1210,6 +1395,9 @@ function EditProductModal({
           {/* ── 기본 정보 탭 ── */}
           {activeTab === "basic" && (
             <div className="space-y-4">
+              <Field label="자체코드 (TP코드)">
+                <input type="text" value={form.tp_code} onChange={(e) => setForm({ ...form, tp_code: e.target.value })} placeholder="예: TP-0001" className="w-full px-3 py-2.5 text-sm font-mono border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#C41E1E]/20 focus:border-[#C41E1E]" />
+              </Field>
               <Field label="상품명">
                 <input type="text" value={form.product_name} onChange={(e) => setForm({ ...form, product_name: e.target.value })} className="w-full px-3 py-2.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#C41E1E]/20 focus:border-[#C41E1E]" />
               </Field>
@@ -1279,6 +1467,15 @@ function EditProductModal({
               <Field label="관리자 메모">
                 <textarea value={form.memo} onChange={(e) => setForm({ ...form, memo: e.target.value })} rows={2} className="w-full px-3 py-2.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#C41E1E]/20 focus:border-[#C41E1E]" />
               </Field>
+
+              {product.fulfillment_warehouse_supplier_id && (
+                <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg">
+                  <p className="text-xs font-semibold text-amber-800">창고발주 상품</p>
+                  <p className="text-[11px] text-amber-600 mt-0.5">
+                    주문 시 지정된 창고로 발주가 나갑니다. 출고 설정 변경은 상품 목록의 <span className="font-semibold">[출고 방식]</span> 대량 버튼을 이용하세요.
+                  </p>
+                </div>
+              )}
             </div>
           )}
 
@@ -1683,43 +1880,44 @@ function MappingsTab({
    ══════════════════════════════════════════ */
 
 function OverviewTab({
-  products, stores, getStoreName,
+  products, stores, getStoreName, summaryStats,
 }: {
   products: Product[];
   stores: Store[];
   getStoreName: (id: string) => string;
+  summaryStats: { total: number; selling: number; totalMappings: number; unmapped: number; categories: string[] };
 }) {
-  const totalMappings = products.reduce((sum, p) => sum + p.product_cafe24_mappings.length, 0);
-  const unmappedCount = products.filter((p) => p.product_cafe24_mappings.length === 0).length;
-  const sellingCount = products.filter((p) => p.selling === "T").length;
+  const [mappingStats, setMappingStats] = useState<{ id: string; name: string; mapped: number; total: number }[]>([]);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await fetch("/admin/api/products/mapping-stats");
+        if (!res.ok) return;
+        const data = await res.json();
+        setMappingStats((data.stats || []).map((s: Record<string, unknown>) => ({
+          id: s.id as string,
+          name: s.name as string,
+          mapped: (s.mapped as number) || 0,
+          total: (s.total as number) || 0,
+        })));
+      } catch { /* ignore */ }
+    })();
+  }, []);
+
   const avgMargin = products.length > 0
     ? products.reduce((sum, p) => sum + marginNum(p.price, p.supply_price), 0) / products.length
     : 0;
-
-  // 카테고리별
-  const catMap = new Map<string, number>();
-  for (const p of products) {
-    const cat = p.category || "미분류";
-    catMap.set(cat, (catMap.get(cat) || 0) + 1);
-  }
-
-  // 스토어별 매핑 수
-  const storeMappingCount = new Map<string, number>();
-  for (const p of products) {
-    for (const m of p.product_cafe24_mappings) {
-      storeMappingCount.set(m.store_id, (storeMappingCount.get(m.store_id) || 0) + 1);
-    }
-  }
 
   return (
     <div className="space-y-6">
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
         {[
-          { label: "전체 상품", value: products.length, color: "text-gray-900" },
-          { label: "판매중", value: sellingCount, color: "text-green-600" },
-          { label: "미판매", value: products.length - sellingCount, color: products.length - sellingCount > 0 ? "text-orange-500" : "text-gray-400" },
-          { label: "카페24 매핑", value: totalMappings, color: "text-[#C41E1E]" },
-          { label: "미매핑", value: unmappedCount, color: unmappedCount > 0 ? "text-yellow-600" : "text-gray-400" },
+          { label: "전체 상품", value: summaryStats.total, color: "text-gray-900" },
+          { label: "판매중", value: summaryStats.selling, color: "text-green-600" },
+          { label: "미판매", value: summaryStats.total - summaryStats.selling, color: summaryStats.total - summaryStats.selling > 0 ? "text-orange-500" : "text-gray-400" },
+          { label: "카페24 매핑", value: summaryStats.totalMappings, color: "text-[#C41E1E]" },
+          { label: "미매핑", value: summaryStats.unmapped, color: summaryStats.unmapped > 0 ? "text-yellow-600" : "text-gray-400" },
           { label: "평균 마진", value: `${avgMargin.toFixed(1)}%`, color: avgMargin >= 30 ? "text-green-600" : "text-blue-600" },
         ].map((s) => (
           <div key={s.label} className="bg-white rounded-xl border border-gray-200 p-4 text-center hover:shadow-sm transition-shadow">
@@ -1733,19 +1931,13 @@ function OverviewTab({
         {/* 카테고리별 */}
         <div className="bg-white rounded-xl border border-gray-200 p-5">
           <h3 className="text-sm font-semibold text-gray-900 mb-4">카테고리별 상품</h3>
-          {catMap.size === 0 ? (
+          {summaryStats.categories.length === 0 ? (
             <p className="text-xs text-gray-400">데이터 없음</p>
           ) : (
             <div className="space-y-2">
-              {[...catMap.entries()].sort((a, b) => b[1] - a[1]).map(([cat, count]) => (
+              {summaryStats.categories.map((cat) => (
                 <div key={cat} className="flex items-center justify-between">
                   <span className="text-sm text-gray-700">{cat}</span>
-                  <div className="flex items-center gap-2">
-                    <div className="w-32 h-2 bg-gray-100 rounded-full overflow-hidden">
-                      <div className="h-full bg-[#C41E1E] rounded-full" style={{ width: `${(count / products.length) * 100}%` }} />
-                    </div>
-                    <span className="text-xs text-gray-500 w-8 text-right">{count}</span>
-                  </div>
                 </div>
               ))}
             </div>
@@ -1755,18 +1947,18 @@ function OverviewTab({
         {/* 스토어별 매핑 */}
         <div className="bg-white rounded-xl border border-gray-200 p-5">
           <h3 className="text-sm font-semibold text-gray-900 mb-4">스토어별 매핑 현황</h3>
-          {storeMappingCount.size === 0 ? (
+          {mappingStats.length === 0 ? (
             <p className="text-xs text-gray-400">매핑된 스토어 없음</p>
           ) : (
             <div className="space-y-2">
-              {[...storeMappingCount.entries()].sort((a, b) => b[1] - a[1]).map(([sid, count]) => (
-                <div key={sid} className="flex items-center justify-between">
-                  <span className="text-sm text-gray-700">{getStoreName(sid)}</span>
+              {mappingStats.map((s) => (
+                <div key={s.id} className="flex items-center justify-between">
+                  <span className="text-sm text-gray-700">{s.name}</span>
                   <div className="flex items-center gap-2">
                     <div className="w-32 h-2 bg-gray-100 rounded-full overflow-hidden">
-                      <div className="h-full bg-green-500 rounded-full" style={{ width: `${Math.min((count / products.length) * 100, 100)}%` }} />
+                      <div className="h-full bg-green-500 rounded-full" style={{ width: `${s.total > 0 ? Math.min((s.mapped / s.total) * 100, 100) : 0}%` }} />
                     </div>
-                    <span className="text-xs text-gray-500 w-8 text-right">{count}</span>
+                    <span className="text-xs text-gray-500 w-8 text-right">{s.mapped}</span>
                   </div>
                 </div>
               ))}

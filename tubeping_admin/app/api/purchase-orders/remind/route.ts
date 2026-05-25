@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServiceClient } from "@/lib/supabase";
 import { sendMail } from "@/lib/mail";
+import { publicEnv } from "@/lib/env.public";
 
 /**
  * POST /api/purchase-orders/remind — 미응답 공급사에 리마인더 발송
@@ -15,10 +16,10 @@ export async function POST(request: NextRequest) {
 
   const sb = getServiceClient();
 
-  // 미응답 발주서 조회
+  // 미응답 발주서 조회 — 발주이메일 우선, 없으면 대표이메일
   let query = sb
     .from("purchase_orders")
-    .select("*, suppliers:supplier_id(name, email)")
+    .select("*, suppliers:supplier_id(name, email, order_email)")
     .in("status", ["sent", "viewed"]);
 
   if (poId) {
@@ -34,12 +35,12 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ message: "리마인더 대상이 없습니다", sent: 0 });
   }
 
-  const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || "https://tubepingadmin.vercel.app";
+  const baseUrl = publicEnv.NEXT_PUBLIC_BASE_URL;
   const portalUrl = `${baseUrl}/admin/supplier`;
   const results: { po_number: string; supplier: string; email: string; success: boolean }[] = [];
 
   for (const po of pos) {
-    const supplierEmail = po.suppliers?.email;
+    const supplierEmail = po.suppliers?.order_email || po.suppliers?.email;
     const supplierName = po.suppliers?.name || "";
 
     if (!supplierEmail || supplierEmail.includes("@tubeping.supplier") || supplierEmail.includes("@cafe24.supplier")) {
@@ -58,8 +59,8 @@ export async function POST(request: NextRequest) {
 
     const isViewed = po.status === "viewed";
     const subject = isViewed
-      ? `[TubePing] 송장번호 등록 요청 (${po.po_number})`
-      : `[TubePing] 발주 확인 요청 — ${daysSinceSent}일 경과 (${po.po_number})`;
+      ? `[${po.order_date}] 튜핑에서 ${supplierName}에 송장번호 등록을 요청드립니다.`
+      : `[${po.order_date}] 튜핑 발주 확인 요청 — ${daysSinceSent}일 경과 (${supplierName})`;
 
     const html = `
 <!DOCTYPE html>

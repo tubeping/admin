@@ -17,7 +17,7 @@ export async function GET(req: NextRequest) {
   const priority = searchParams.get("priority");
   const ticketType = searchParams.get("ticket_type");
   const keyword = searchParams.get("keyword");
-  const limit = parseInt(searchParams.get("limit") || "200");
+  const limit = Math.min(parseInt(searchParams.get("limit") || "200", 10), 1000);
 
   let query = sb
     .from("cs_tickets")

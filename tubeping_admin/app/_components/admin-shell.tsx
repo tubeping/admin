@@ -13,7 +13,7 @@ export default function AdminShell({ children }: { children: React.ReactNode }) 
         onToggle={() => setSidebarCollapsed(!sidebarCollapsed)}
       />
       <main
-        className={`flex-1 overflow-y-auto transition-all duration-300 ${
+        className={`flex-1 overflow-y-auto transition-all duration-300 p-8 ${
           sidebarCollapsed ? "ml-[72px]" : "ml-[260px]"
         }`}
       >

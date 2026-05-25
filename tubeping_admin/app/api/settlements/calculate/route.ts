@@ -83,13 +83,53 @@ export async function POST(request: NextRequest) {
     .from("supplier_products")
     .select("supplier_id, product_id, supply_price, supply_shipping_fee, tax_type");
 
-  // products fallback
+  // product_id가 있는 주문의 products 조회
   const productIds = [...new Set(orders.map((o: Record<string, unknown>) => o.product_id).filter(Boolean))];
+
+  // cafe24_product_no → product_id 매핑 (product_id가 없는 주문용)
+  const cafe24ProductNos = [...new Set(
+    orders
+      .filter((o: Record<string, unknown>) => !o.product_id && o.cafe24_product_no)
+      .map((o: Record<string, unknown>) => o.cafe24_product_no)
+  )];
+  const cafe24ToProductId: Record<string, string> = {};
+  if (cafe24ProductNos.length > 0) {
+    const { data: mappings } = await sb
+      .from("product_cafe24_mappings")
+      .select("store_id, cafe24_product_no, product_id")
+      .eq("store_id", store_id)
+      .in("cafe24_product_no", cafe24ProductNos);
+    for (const m of (mappings || [])) {
+      cafe24ToProductId[m.cafe24_product_no] = m.product_id;
+      if (!productIds.includes(m.product_id)) productIds.push(m.product_id);
+    }
+  }
+
+  // 상품명 → product_id 매핑 (product_id, cafe24 매핑 모두 없는 주문용)
+  const unmatchedNames = [...new Set(
+    orders
+      .filter((o: Record<string, unknown>) => !o.product_id && !cafe24ToProductId[o.cafe24_product_no as string] && o.product_name)
+      .map((o: Record<string, unknown>) => (o.product_name as string).trim())
+  )];
+  const nameToProductId: Record<string, string> = {};
+  if (unmatchedNames.length > 0) {
+    const { data: byName } = await sb
+      .from("products")
+      .select("id, product_name")
+      .in("product_name", unmatchedNames);
+    for (const p of (byName || [])) {
+      if (p.product_name) {
+        nameToProductId[p.product_name.trim()] = p.id;
+        if (!productIds.includes(p.id)) productIds.push(p.id);
+      }
+    }
+  }
+
   const { data: products } = productIds.length > 0
     ? await sb.from("products").select("id, supply_price, supply_shipping_fee, tax_type").in("id", productIds)
     : { data: [] };
 
-  // 공급가 조회 함수
+  // 공급가 조회 맵
   const supMap: Record<string, { supply_price: number; supply_shipping_fee: number; tax_type: string }> = {};
   for (const sp of (supProducts || [])) {
     supMap[`${sp.supplier_id}|${sp.product_id}`] = {
@@ -107,15 +147,28 @@ export async function POST(request: NextRequest) {
     };
   }
 
+  // 주문의 product_id 결정 (직접 → cafe24 매핑 → 상품명 매칭)
+  function resolveProductId(order: Record<string, unknown>): string | null {
+    if (order.product_id) return order.product_id as string;
+    if (order.cafe24_product_no && cafe24ToProductId[order.cafe24_product_no as string]) {
+      return cafe24ToProductId[order.cafe24_product_no as string];
+    }
+    if (order.product_name) {
+      return nameToProductId[(order.product_name as string).trim()] || null;
+    }
+    return null;
+  }
+
   function getSupplyInfo(order: Record<string, unknown>) {
+    const pid = resolveProductId(order);
     // 1순위: supplier_products (공급사+상품 조합)
-    if (order.supplier_id && order.product_id) {
-      const key = `${order.supplier_id}|${order.product_id}`;
+    if (order.supplier_id && pid) {
+      const key = `${order.supplier_id}|${pid}`;
       if (supMap[key]) return supMap[key];
     }
     // 2순위: products 테이블
-    if (order.product_id && prodMap[order.product_id as string]) {
-      return prodMap[order.product_id as string];
+    if (pid && prodMap[pid]) {
+      return prodMap[pid];
     }
     return { supply_price: 0, supply_shipping_fee: 0, tax_type: "과세" };
   }

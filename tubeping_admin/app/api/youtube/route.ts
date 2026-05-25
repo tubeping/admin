@@ -1,4 +1,5 @@
 import { NextRequest } from 'next/server'
+import { env } from '@/lib/env.server'
 
 // Dummy channel data for development (until YouTube Data API key is configured)
 const DUMMY_CHANNELS: Record<string, { title: string; thumbnail: string; subscriberCount: string; description: string }> = {
@@ -36,7 +37,7 @@ export async function GET(request: NextRequest) {
     return Response.json({ error: '유효한 유튜브 채널 URL이 아닙니다' }, { status: 400 })
   }
 
-  const apiKey = process.env.YOUTUBE_API_KEY
+  const apiKey = env.YOUTUBE_API_KEY
 
   if (apiKey) {
     try {

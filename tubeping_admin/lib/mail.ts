@@ -1,7 +1,8 @@
 import nodemailer from "nodemailer";
+import { env } from "./env.server";
 
-const SMTP_USER = process.env.SMTP_USER || "";
-const SMTP_PASS = process.env.SMTP_PASS || "";
+const SMTP_USER = env.SMTP_USER;
+const SMTP_PASS = env.SMTP_PASS;
 
 let transporter: nodemailer.Transporter | null = null;
 

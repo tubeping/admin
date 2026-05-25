@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServiceClient } from "@/lib/supabase";
 
+export const maxDuration = 120;
+
 /**
  * POST /api/supplier-portal/shipments — 공급사가 송장번호 등록
  * body: {
@@ -102,10 +104,36 @@ export async function POST(request: NextRequest) {
     error_details: results.filter((r) => !r.success),
   });
 
+  // ─── 카페24 자동 push: /api/cafe24/shipments 재사용 (동적 택배사 매핑 포함) ──
+  const cafe24Result = { attempted: 0, synced: 0, failed: 0, errors: [] as string[] };
+  try {
+    const origin = request.nextUrl.origin;
+    const pushRes = await fetch(`${origin}/admin/api/cafe24/shipments`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ purchase_order_id: po.id }),
+    });
+    const pushData = await pushRes.json();
+    if (pushRes.ok) {
+      cafe24Result.attempted = pushData.total || 0;
+      cafe24Result.synced = pushData.synced || 0;
+      cafe24Result.failed = pushData.failed || 0;
+      const failedList = (pushData.results || []).filter((r: { success: boolean }) => !r.success);
+      for (const f of failedList.slice(0, 5)) {
+        cafe24Result.errors.push(`${f.cafe24_order_id}: ${f.error || "알 수 없음"}`);
+      }
+    } else {
+      cafe24Result.errors.push(`push API 실패: ${pushData.error || pushRes.status}`);
+    }
+  } catch (e) {
+    cafe24Result.errors.push(`push 호출 실패: ${e instanceof Error ? e.message : "error"}`);
+  }
+
   return NextResponse.json({
     total: shipments.length,
     success: successCount,
     failed: shipments.length - successCount,
     results,
+    cafe24_sync: cafe24Result,
   });
 }

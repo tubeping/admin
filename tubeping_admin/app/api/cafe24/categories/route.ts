@@ -1,61 +1,23 @@
 import { NextResponse } from "next/server";
+import { getActiveStores, cafe24Fetch, type StoreInfo } from "@/lib/cafe24";
 
-const MALL_ID = process.env.CAFE24_MALL_ID || "";
-const CLIENT_ID = process.env.CAFE24_CLIENT_ID || "";
-const CLIENT_SECRET = process.env.CAFE24_CLIENT_SECRET || "";
-const API_VERSION = "2026-03-01";
+const MALL_ID = "tubeping";
 
-let cachedToken = {
-  access: process.env.CAFE24_ACCESS_TOKEN || "",
-  refresh: process.env.CAFE24_REFRESH_TOKEN || "",
-  expiresAt: Date.now() + 2 * 60 * 60 * 1000,
-};
-
-async function refreshToken(): Promise<string> {
-  const res = await fetch(
-    `https://${MALL_ID}.cafe24api.com/api/v2/oauth/token`,
-    {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/x-www-form-urlencoded",
-        Authorization: `Basic ${Buffer.from(`${CLIENT_ID}:${CLIENT_SECRET}`).toString("base64")}`,
-      },
-      body: new URLSearchParams({
-        grant_type: "refresh_token",
-        refresh_token: cachedToken.refresh,
-      }),
-    }
-  );
-  if (!res.ok) throw new Error(`Token refresh failed: ${res.status}`);
-  const data = await res.json();
-  cachedToken = {
-    access: data.access_token,
-    refresh: data.refresh_token,
-    expiresAt: new Date(data.expires_at).getTime(),
-  };
-  return data.access_token;
-}
-
-async function getToken(): Promise<string> {
-  if (cachedToken.access && cachedToken.expiresAt > Date.now() + 60000) {
-    return cachedToken.access;
-  }
-  return refreshToken();
+let _store: StoreInfo | null = null;
+async function getMasterStore(): Promise<StoreInfo | null> {
+  if (_store) return _store;
+  const stores = await getActiveStores();
+  _store = stores.find((s) => s.mall_id === MALL_ID) || null;
+  return _store;
 }
 
 export async function GET() {
-  const token = await getToken();
+  const store = await getMasterStore();
+  if (!store) {
+    return NextResponse.json({ error: "마스터 스토어를 찾을 수 없습니다" }, { status: 500 });
+  }
 
-  const res = await fetch(
-    `https://${MALL_ID}.cafe24api.com/api/v2/admin/categories?limit=100`,
-    {
-      headers: {
-        Authorization: `Bearer ${token}`,
-        "Content-Type": "application/json",
-        "X-Cafe24-Api-Version": API_VERSION,
-      },
-    }
-  );
+  const res = await cafe24Fetch(store, `/categories?limit=100`);
 
   if (!res.ok) {
     return NextResponse.json({ error: "카테고리 조회 실패" }, { status: res.status });
