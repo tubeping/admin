@@ -458,6 +458,7 @@ export default function UnifiedOrdersPage() {
 
   const [filterNoTracking, setFilterNoTracking] = useState(saved.current?.filterNoTracking || false);
   const [filterNoSupplier, setFilterNoSupplier] = useState(saved.current?.filterNoSupplier || false);
+  const [filterDomestic, setFilterDomestic] = useState(saved.current?.filterDomestic || false);
   const [colFilterOrderNo, setColFilterOrderNo] = useState(saved.current?.colFilterOrderNo || "");
   const [colFilterProduct, setColFilterProduct] = useState(saved.current?.colFilterProduct || "");
   const [colFilterCustomer, setColFilterCustomer] = useState(saved.current?.colFilterCustomer || "");
@@ -475,13 +476,13 @@ export default function UnifiedOrdersPage() {
   useEffect(() => {
     const data = {
       filterStatus, filterStore, filterSupplier, dateFrom, dateTo, searchKeyword,
-      filterNoTracking, filterNoSupplier, colFilterOrderNo, colFilterProduct,
+      filterNoTracking, filterNoSupplier, filterDomestic, colFilterOrderNo, colFilterProduct,
       colFilterCustomer, colFilterAddress, colFilterAddrStatus, colFilterChannel, colFilterPayment,
       colFilterPOStatus, colFilterQty, colFilterAmount, colFilterTracking, poTab,
     };
     localStorage.setItem(FILTER_STORAGE_KEY, JSON.stringify(data));
   }, [filterStatus, filterStore, filterSupplier, dateFrom, dateTo, searchKeyword,
-    filterNoTracking, filterNoSupplier, colFilterOrderNo, colFilterProduct,
+    filterNoTracking, filterNoSupplier, filterDomestic, colFilterOrderNo, colFilterProduct,
     colFilterCustomer, colFilterAddress, colFilterAddrStatus, colFilterChannel, colFilterPayment,
     colFilterPOStatus, colFilterQty, colFilterAmount, colFilterTracking, poTab]);
 
@@ -766,6 +767,7 @@ export default function UnifiedOrdersPage() {
     return rawOrders.filter((o) => {
       if (filterNoTracking && (o.tracking_number || o.shipping_status === "cancelled" || o.shipping_status === "delivered")) return false;
       if ((filterNoSupplier || filterSupplier === "__none__") && o.supplier_id) return false;
+      if (filterDomestic && (o.sales_channel || !o.stores?.name)) return false;
       if (poTab === "no_po" && (!o.supplier_id || o.purchase_order_id || o.tracking_number || o.shipping_status === "cancelled" || o.shipping_status === "delivered" || o.shipping_status === "pending")) return false;
       if (poTab === "has_po" && !o.purchase_order_id) return false;
       if (kw) {
@@ -816,10 +818,10 @@ export default function UnifiedOrdersPage() {
       }
       return true;
     });
-  }, [rawOrders, filterSupplier, filterNoTracking, filterNoSupplier, poTab, searchKeyword, colFilterOrderNo, colFilterProduct, colFilterCustomer, colFilterAddress, colFilterAddrStatus, colFilterChannel, colFilterPayment, colFilterPOStatus, colFilterQty, colFilterAmount, colFilterTracking]);
+  }, [rawOrders, filterSupplier, filterNoTracking, filterNoSupplier, filterDomestic, poTab, searchKeyword, colFilterOrderNo, colFilterProduct, colFilterCustomer, colFilterAddress, colFilterAddrStatus, colFilterChannel, colFilterPayment, colFilterPOStatus, colFilterQty, colFilterAmount, colFilterTracking]);
 
   // Reset page on filter change
-  useEffect(() => { setPage(0); }, [rawOrders, filterSupplier, filterNoTracking, filterNoSupplier, poTab, searchKeyword, colFilterOrderNo, colFilterProduct, colFilterCustomer, colFilterAddress, colFilterAddrStatus, colFilterChannel, colFilterPayment, colFilterPOStatus, colFilterQty, colFilterAmount, colFilterTracking]);
+  useEffect(() => { setPage(0); }, [rawOrders, filterSupplier, filterNoTracking, filterNoSupplier, filterDomestic, poTab, searchKeyword, colFilterOrderNo, colFilterProduct, colFilterCustomer, colFilterAddress, colFilterAddrStatus, colFilterChannel, colFilterPayment, colFilterPOStatus, colFilterQty, colFilterAmount, colFilterTracking]);
 
   const totalPages = Math.max(1, Math.ceil(orders.length / pageSize));
   const pagedOrders = useMemo(() => orders.slice(page * pageSize, (page + 1) * pageSize), [orders, page, pageSize]);
@@ -1035,7 +1037,7 @@ export default function UnifiedOrdersPage() {
 
   const handleReset = () => {
     const d = new Date();
-    setFilterStatus(""); setFilterStore(""); setFilterSupplier(""); setFilterNoTracking(false); setFilterNoSupplier(false);
+    setFilterStatus(""); setFilterStore(""); setFilterSupplier(""); setFilterNoTracking(false); setFilterNoSupplier(false); setFilterDomestic(false);
     setDateFrom(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-01`); setDateTo(today());
     setSearchKeyword(""); setPoTab("all");
     setColFilterOrderNo(""); setColFilterProduct(""); setColFilterCustomer(""); setColFilterAddress("");
@@ -1164,6 +1166,10 @@ export default function UnifiedOrdersPage() {
             className="text-sm border border-gray-300 rounded-lg px-3 py-1.5 w-64"
             placeholder="상품명, 주문번호, 주문자, 연락처, 송장번호"
           />
+          <label className="flex items-center gap-1.5 text-xs text-gray-600 cursor-pointer">
+            <input type="checkbox" checked={filterDomestic} onChange={(e) => setFilterDomestic(e.target.checked)} className="rounded" />
+            자사몰
+          </label>
           <div className="ml-auto flex gap-2">
             <button onClick={() => fetchOrders()} className="px-3 py-1.5 bg-gray-900 text-white text-sm rounded-lg hover:bg-gray-700 cursor-pointer">검색</button>
             <button onClick={handleReset} className="px-3 py-1.5 border border-gray-300 text-sm rounded-lg hover:bg-gray-50 cursor-pointer">초기화</button>
