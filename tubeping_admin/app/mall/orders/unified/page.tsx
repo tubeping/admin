@@ -347,10 +347,10 @@ function normPhone(s: string) { return (s || "").replace(/[^0-9]/g, ""); }
 
 /* ── OrderRow (memo-ized) ── */
 const OrderRow = memo(function OrderRow({
-  o, idx, displayedCount, isSelected, toggleSelect, editingField, onStartEdit, saveCellEdit, stores, fetchOrders,
+  o, idx, displayedCount, pageOffset, isSelected, toggleSelect, editingField, onStartEdit, saveCellEdit, stores, fetchOrders,
   trackingEdit, onTrackingEdit, onSaveTracking, saving, onOpenCs, addrStatus, onEditAddress,
 }: {
-  o: Order; idx: number; displayedCount: number; isSelected: boolean;
+  o: Order; idx: number; displayedCount: number; pageOffset: number; isSelected: boolean;
   toggleSelect: (id: string) => void;
   editingField: "channel" | "store" | "orderId" | null;
   onStartEdit: (orderId: string, field: "channel" | "store" | "orderId") => void;
@@ -359,7 +359,7 @@ const OrderRow = memo(function OrderRow({
   fetchOrders: () => void;
   trackingEdit: { company: string; number: string } | undefined;
   onTrackingEdit: (orderId: string, edit: { company: string; number: string } | null) => void;
-  onSaveTracking: (orderId: string) => void;
+  onSaveTracking: (orderId: string, edit?: { company: string; number: string }) => void;
   saving: boolean;
   onOpenCs: (order: Order) => void;
   addrStatus?: AddrVerifyResult;
@@ -369,6 +369,15 @@ const OrderRow = memo(function OrderRow({
   const noSup = !o.supplier_id;
   const noPO = !o.purchase_order_id && o.shipping_status !== "cancelled" && o.shipping_status !== "delivered" && o.shipping_status !== "ordered";
   const editing = !!trackingEdit;
+  // 로컬 state로 입력 처리 — 키 입력마다 상위 리렌더 방지
+  const [localTrackingCompany, setLocalTrackingCompany] = useState(trackingEdit?.company || "CJ대한통운");
+  const [localTrackingNumber, setLocalTrackingNumber] = useState(trackingEdit?.number || "");
+  useEffect(() => {
+    if (trackingEdit) {
+      setLocalTrackingCompany(trackingEdit.company);
+      setLocalTrackingNumber(trackingEdit.number);
+    }
+  }, [trackingEdit]);
   return (
     <tr
       className={`hover:bg-gray-50/50 cursor-pointer [&>td]:border-b [&>td]:border-gray-100 ${
@@ -381,7 +390,7 @@ const OrderRow = memo(function OrderRow({
         <input type="checkbox" checked={isSelected} onChange={() => toggleSelect(o.id)} onClick={(e) => e.stopPropagation()} className="rounded w-3.5 h-3.5" />
       </td>
       {/* 2. No */}
-      <td className="px-1.5 py-1.5 text-[11px] text-gray-400">{displayedCount - idx}</td>
+      <td className="px-1.5 py-1.5 text-[11px] text-gray-400">{displayedCount - pageOffset - idx}</td>
       {/* 3. 주문번호 (inline editable) */}
       <td
         className="px-1.5 py-1.5 whitespace-nowrap cursor-pointer hover:bg-gray-100/60"
@@ -576,14 +585,14 @@ const OrderRow = memo(function OrderRow({
       <td className="px-1.5 py-1.5 text-xs" onClick={(e) => e.stopPropagation()}>
         {editing ? (
           <div className="flex flex-col gap-1 min-w-[150px]">
-            <select value={trackingEdit!.company} onChange={(e) => onTrackingEdit(o.id, { ...trackingEdit!, company: e.target.value })}
+            <select value={localTrackingCompany} onChange={(e) => setLocalTrackingCompany(e.target.value)}
               className="border border-gray-300 rounded px-1 py-0.5 text-xs">
               {SHIPPING_COMPANIES.map((c) => <option key={c} value={c}>{c}</option>)}
             </select>
-            <input type="text" value={trackingEdit!.number} onChange={(e) => onTrackingEdit(o.id, { ...trackingEdit!, number: e.target.value })}
+            <input type="text" value={localTrackingNumber} onChange={(e) => setLocalTrackingNumber(e.target.value)}
               placeholder="송장번호" className="border border-gray-300 rounded px-1 py-0.5 text-xs font-mono" autoFocus />
             <div className="flex gap-1">
-              <button disabled={saving} onClick={() => onSaveTracking(o.id)} className="flex-1 bg-gray-900 text-white text-[10px] py-0.5 rounded hover:bg-black cursor-pointer disabled:opacity-50">저장</button>
+              <button disabled={saving} onClick={() => onSaveTracking(o.id, { company: localTrackingCompany, number: localTrackingNumber })} className="flex-1 bg-gray-900 text-white text-[10px] py-0.5 rounded hover:bg-black cursor-pointer disabled:opacity-50">저장</button>
               <button onClick={() => onTrackingEdit(o.id, null)} className="flex-1 bg-white border border-gray-300 text-[10px] py-0.5 rounded hover:bg-gray-50 cursor-pointer">취소</button>
             </div>
           </div>
@@ -750,6 +759,8 @@ export default function UnifiedOrdersPage() {
 
   // Tracking inline edit
   const [trackingEdit, setTrackingEdit] = useState<Record<string, { company: string; number: string }>>({});
+  const trackingEditRef = useRef(trackingEdit);
+  trackingEditRef.current = trackingEdit;
 
   // CS modal
   const [csModalOrder, setCsModalOrder] = useState<Order | null>(null);
@@ -818,8 +829,8 @@ export default function UnifiedOrdersPage() {
     } catch { /* 재검증 실패해도 주소는 이미 저장됨 */ }
   }, [patchOrder, fetchOrders]);
 
-  const saveTracking = useCallback(async (id: string) => {
-    const edit = trackingEdit[id];
+  const saveTracking = useCallback(async (id: string, editOverride?: { company: string; number: string }) => {
+    const edit = editOverride || trackingEditRef.current[id];
     if (!edit || !edit.number.trim()) return;
     const trimmedNumber = edit.number.trim();
     const company = edit.company || "CJ대한통운";
@@ -834,7 +845,7 @@ export default function UnifiedOrdersPage() {
       // 실패 시 롤백
       fetchOrders();
     }
-  }, [trackingEdit, fetchOrders, patchOrder]);
+  }, [fetchOrders, patchOrder]);
 
   const handleTrackingEdit = useCallback((orderId: string, edit: { company: string; number: string } | null) => {
     if (edit === null) {
@@ -1114,8 +1125,8 @@ export default function UnifiedOrdersPage() {
   // Reset page on filter change
   useEffect(() => { setPage(0); }, [rawOrders, filterSupplier, filterNoTracking, filterNoSupplier, filterDomestic, poTab, searchKeyword, colFilterOrderNo, colFilterProduct, colFilterCustomer, colFilterAddress, colFilterAddrStatus, colFilterChannel, colFilterPayment, colFilterPOType, colFilterPOStatus, colFilterQty, colFilterAmount, colFilterTracking]);
 
-  const totalPages = 1;
-  const pagedOrders = orders;
+  const totalPages = Math.max(1, Math.ceil(orders.length / pageSize));
+  const pagedOrders = useMemo(() => orders.slice(page * pageSize, (page + 1) * pageSize), [orders, page, pageSize]);
 
   const filteredStores = useMemo(() => stores.filter((s) => !PSEUDO_STORES.includes(s.name)), [stores]);
 
@@ -1976,6 +1987,7 @@ export default function UnifiedOrdersPage() {
                   o={o}
                   idx={idx}
                   displayedCount={stats.displayed}
+                  pageOffset={page * pageSize}
                   isSelected={selected.has(o.id)}
                   toggleSelect={toggleSelect}
                   editingField={editingCell?.orderId === o.id ? editingCell.field : null}
