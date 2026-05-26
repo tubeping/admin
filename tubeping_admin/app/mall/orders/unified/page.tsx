@@ -66,21 +66,42 @@ const STATUS_STYLE: Record<string, string> = {
   exchanged: "bg-purple-50 text-purple-600",
 };
 
+/** 주소 문자열에서 JUSO API 검색에 적합한 키워드 추출 */
+function extractAddrKeyword(addr: string): string {
+  if (!addr) return "";
+  // 우편번호·괄호 제거
+  let s = addr.replace(/\(?\d{5}\)?/g, "").replace(/\([^)]*\)/g, "").trim();
+  // 시/도 ~ 도로명+번지까지만 추출 (상세주소 제거)
+  const roadMatch = s.match(/.+?(?:로|길|대로)\s*\d+[\-\d]*/);
+  if (roadMatch) s = roadMatch[0];
+  // 앞 3~4 토큰만
+  const tokens = s.split(/\s+/).filter(Boolean);
+  return tokens.slice(0, 4).join(" ");
+}
+
 /* ── AddressEditModal — JUSO API 연동 주소 수정 모달 ── */
 function AddressEditModal({ order, onClose, onSave }: {
   order: Order;
   onClose: () => void;
-  onSave: (orderId: string, newAddress: string) => void;
+  onSave: (orderId: string, newAddress: string) => Promise<void>;
 }) {
-  const [keyword, setKeyword] = useState(order.receiver_address || "");
+  const [keyword, setKeyword] = useState(() => extractAddrKeyword(order.receiver_address || ""));
   const [results, setResults] = useState<{ zipNo: string; roadAddr: string; jibunAddr: string; bdNm: string }[]>([]);
   const [searching, setSearching] = useState(false);
+  const [saving, setSaving] = useState(false);
   const [detailAddr, setDetailAddr] = useState("");
   const [selectedAddr, setSelectedAddr] = useState<{ zipNo: string; roadAddr: string } | null>(null);
   const [manualAddr, setManualAddr] = useState(order.receiver_address || "");
   const [totalCount, setTotalCount] = useState(0);
   const [currentPage, setCurrentPage] = useState(1);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  // ESC 키로 닫기
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
 
   useEffect(() => { inputRef.current?.focus(); }, []);
 
@@ -103,12 +124,16 @@ function AddressEditModal({ order, onClose, onSave }: {
     setManualAddr(`(${r.zipNo}) ${r.roadAddr}`);
   };
 
-  const handleSave = () => {
+  const handleSave = async () => {
+    if (saving) return; // 더블클릭 방지
     const finalAddr = selectedAddr
       ? `(${selectedAddr.zipNo}) ${selectedAddr.roadAddr}${detailAddr ? " " + detailAddr : ""}`
       : manualAddr.trim();
     if (!finalAddr) { alert("주소를 입력해주세요"); return; }
-    onSave(order.id, finalAddr);
+    if (finalAddr === order.receiver_address) { onClose(); return; } // 동일 주소면 스킵
+    setSaving(true);
+    await onSave(order.id, finalAddr);
+    setSaving(false);
   };
 
   const totalPages = Math.ceil(totalCount / 10);
@@ -228,9 +253,9 @@ function AddressEditModal({ order, onClose, onSave }: {
 
         {/* Footer */}
         <div className="p-4 border-t border-gray-100 mt-2 flex justify-end gap-2">
-          <button onClick={onClose} className="px-4 py-1.5 border border-gray-300 text-xs rounded-lg hover:bg-gray-50 cursor-pointer">취소</button>
-          <button onClick={handleSave} className="px-5 py-1.5 bg-blue-600 text-white text-xs font-medium rounded-lg hover:bg-blue-700 cursor-pointer">
-            주소 저장
+          <button onClick={onClose} disabled={saving} className="px-4 py-1.5 border border-gray-300 text-xs rounded-lg hover:bg-gray-50 cursor-pointer disabled:opacity-40">취소</button>
+          <button onClick={handleSave} disabled={saving} className="px-5 py-1.5 bg-blue-600 text-white text-xs font-medium rounded-lg hover:bg-blue-700 cursor-pointer disabled:opacity-50">
+            {saving ? "저장 중..." : "주소 저장"}
           </button>
         </div>
       </div>
