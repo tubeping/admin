@@ -428,7 +428,6 @@ const OrderRow = memo(function OrderRow({
         ) : (
           <div className="text-xs font-medium text-gray-900">{o.cafe24_order_id}</div>
         )}
-        <div className="text-[10px] text-gray-400">{formatDateTime(o.order_date)}</div>
       </td>
       {/* 4. 상품/옵션 */}
       <td className="px-1.5 py-1.5 max-w-[200px]">
