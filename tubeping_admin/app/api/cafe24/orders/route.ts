@@ -223,11 +223,17 @@ async function saveOrdersToDb(
     }
   }
 
-  if (rows.length === 0) return { inserted: 0, updated: 0 };
+  // 카페24 자사몰 주문번호는 YYYYMMDD-NNNNNNN 형식만 허용 (순수 숫자 등 비정상 형식 제외)
+  const validRows = rows.filter((r) => /^\d{8}-\d+$/.test(r.cafe24_order_id));
+  if (validRows.length < rows.length) {
+    console.log(`[cafe24/orders] ${rows.length - validRows.length}건 비정상 주문번호 형식 제외`);
+  }
+
+  if (validRows.length === 0) return { inserted: 0, updated: 0 };
 
   // 기존 row 조회 — 덮어쓰기 방지용
   // 이미 supplier/admin이 입력한 송장·배송상태는 카페24가 빈 값을 돌려줄 때 보존
-  const cafeOrderIds = [...new Set(rows.map((r) => r.cafe24_order_id))];
+  const cafeOrderIds = [...new Set(validRows.map((r) => r.cafe24_order_id))];
   const { data: existingRows } = await sb
     .from("orders")
     .select("id, cafe24_order_id, cafe24_order_item_code, tracking_number, shipping_company, shipped_at, shipping_status")
@@ -250,8 +256,8 @@ async function saveOrdersToDb(
   //     단, cancelled는 항상 override (카페24에서 취소 확정된 경우 admin에도 반영)
   //  3) 신규 insert인데 cancelled면 skip — 취소된 주문을 새로 DB에 넣지 않음
   const NON_DOWNGRADE = new Set(["ordered", "shipping", "delivered"]);
-  const filteredRows: typeof rows = [];
-  for (const r of rows) {
+  const filteredRows: typeof validRows = [];
+  for (const r of validRows) {
     const key = `${r.cafe24_order_id}::${r.cafe24_order_item_code || ""}`;
     const existing = existingMap.get(key);
     if (!existing) {
