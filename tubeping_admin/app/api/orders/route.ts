@@ -20,24 +20,14 @@ export async function GET(request: NextRequest) {
 
   const sb = getServiceClient();
 
-  // Supabase limits 1000 rows per query, so paginate in chunks
+  // Supabase limits 1000 rows per query — use cursor-based pagination
   const CHUNK = 1000;
   let allData: any[] = [];
   let totalCount: number | null = null;
-  let fetchOffset = offset;
-  const remaining = limit;
+  let cursorDate: string | null = null;
+  let cursorId: string | null = null;
 
-  while (allData.length < remaining) {
-    const batchSize = Math.min(CHUNK, remaining - allData.length);
-    let query = sb
-      .from("orders")
-      .select(
-        "*, stores:store_id(name, mall_id), suppliers:supplier_id(name, email), purchase_orders:purchase_order_id(id, po_number, status, sent_at, viewed_at, completed_at)",
-        { count: "exact" }
-      )
-      .order("order_date", { ascending: false })
-      .range(fetchOffset, fetchOffset + batchSize - 1);
-
+  function applyFilters(query: any) {
     if (status) query = query.eq("shipping_status", status);
     else if (!includeDraft) query = query.neq("shipping_status", "draft");
     if (storeId) query = query.eq("store_id", storeId);
@@ -45,23 +35,51 @@ export async function GET(request: NextRequest) {
     if (poId) query = query.eq("purchase_order_id", poId);
     if (startDate) query = query.gte("order_date", startDate);
     if (endDate) query = query.lte("order_date", endDate + "T23:59:59");
+    return query;
+  }
 
-    const { data: chunk, error: chunkError, count: chunkCount } = await query;
+  // Get total count first
+  {
+    let countQuery = sb
+      .from("orders")
+      .select("id", { count: "exact", head: true });
+    countQuery = applyFilters(countQuery);
+    const { count: c } = await countQuery;
+    totalCount = c;
+  }
+
+  while (allData.length < limit) {
+    let query = sb
+      .from("orders")
+      .select(
+        "*, stores:store_id(name, mall_id), suppliers:supplier_id(name, email), purchase_orders:purchase_order_id(id, po_number, status, sent_at, viewed_at, completed_at)"
+      )
+      .order("order_date", { ascending: false })
+      .order("id", { ascending: false })
+      .limit(CHUNK);
+
+    query = applyFilters(query);
+
+    // cursor: fetch rows older than last fetched row
+    if (cursorDate && cursorId) {
+      query = query.or(`order_date.lt.${cursorDate},and(order_date.eq.${cursorDate},id.lt.${cursorId})`);
+    }
+
+    const { data: chunk, error: chunkError } = await query;
     if (chunkError) {
       return NextResponse.json({ error: chunkError.message }, { status: 500 });
     }
-    if (totalCount === null) totalCount = chunkCount;
-    allData = allData.concat(chunk || []);
-    fetchOffset += batchSize;
-    if (!chunk || chunk.length < batchSize) break; // no more rows
+    if (!chunk || chunk.length === 0) break;
+
+    allData = allData.concat(chunk);
+    const lastRow = chunk[chunk.length - 1];
+    cursorDate = lastRow.order_date;
+    cursorId = lastRow.id;
+    if (chunk.length < CHUNK) break;
   }
 
   const data = allData;
-  const error = null;
   const count = totalCount;
-  if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
-  }
 
   // 출고지(창고) + 상품관리 가격 enrichment
   const orders = data || [];
