@@ -778,7 +778,7 @@ export default function UnifiedOrdersPage() {
     if (filterSupplier && filterSupplier !== "__none__") params.set("supplier_id", filterSupplier);
     if (dateFrom) params.set("start_date", dateFrom);
     if (dateTo) params.set("end_date", dateTo);
-    params.set("limit", "500");
+    params.set("limit", "10000");
 
     const res = await fetch(`/admin/api/orders?${params}`);
     if (!res.ok) { setLoading(false); return; }
@@ -1478,15 +1478,6 @@ export default function UnifiedOrdersPage() {
             ))}
           </div>
           <div className="w-px h-6 bg-gray-200" />
-          <input
-            value={searchKeyword} onChange={(e) => setSearchKeyword(e.target.value)}
-            className="text-sm border border-gray-300 rounded-lg px-3 py-1.5 w-64"
-            placeholder="상품명, 주문번호, 주문자, 연락처, 송장번호"
-          />
-          <label className="flex items-center gap-1.5 text-xs text-gray-600 cursor-pointer">
-            <input type="checkbox" checked={filterDomestic} onChange={(e) => setFilterDomestic(e.target.checked)} className="rounded" />
-            자사몰
-          </label>
           <div className="ml-auto flex gap-2">
             <button onClick={() => fetchOrders()} className="px-3 py-1.5 bg-gray-900 text-white text-sm rounded-lg hover:bg-gray-700 cursor-pointer">검색</button>
             <button onClick={handleReset} className="px-3 py-1.5 border border-gray-300 text-sm rounded-lg hover:bg-gray-50 cursor-pointer">초기화</button>
