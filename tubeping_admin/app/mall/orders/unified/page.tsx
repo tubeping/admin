@@ -344,6 +344,10 @@ function formatDateTime(d: string) {
 function today() { return new Date().toISOString().slice(0, 10); }
 function daysAgo(n: number) { return new Date(Date.now() - n * 86400000).toISOString().slice(0, 10); }
 function normPhone(s: string) { return (s || "").replace(/[^0-9]/g, ""); }
+/** 주문번호에서 접두사 제거 → 숫자부분만 추출 (정렬용) */
+function orderIdSortKey(id: string): string {
+  return id.replace(/^(TEL|SMS|SPL|ETC|JP|MR|EXCEL)-/, "");
+}
 
 /* ── OrderRow (memo-ized) ── */
 const OrderRow = memo(function OrderRow({
@@ -793,7 +797,11 @@ export default function UnifiedOrdersPage() {
     const res = await fetch(`/admin/api/orders?${params}`);
     if (!res.ok) { setLoading(false); return; }
     const data = await res.json();
-    const fetchedOrders = data.orders || [];
+    const fetchedOrders = (data.orders || []).sort((a: Order, b: Order) => {
+      const ka = orderIdSortKey(a.cafe24_order_id);
+      const kb = orderIdSortKey(b.cafe24_order_id);
+      return kb.localeCompare(ka); // 내림차순
+    });
     setRawOrders(fetchedOrders);
     setTotal(data.total || 0);
     // DB에 저장된 주소검증 결과를 addrResults에 반영 (DB가 우선)
