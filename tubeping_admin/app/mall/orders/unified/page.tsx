@@ -1477,8 +1477,7 @@ export default function UnifiedOrdersPage() {
               >{p.label}</button>
             ))}
           </div>
-          <div className="w-px h-6 bg-gray-200" />
-          <div className="ml-auto flex gap-2">
+          <div className="flex gap-2">
             <button onClick={() => fetchOrders()} className="px-3 py-1.5 bg-gray-900 text-white text-sm rounded-lg hover:bg-gray-700 cursor-pointer">검색</button>
             <button onClick={handleReset} className="px-3 py-1.5 border border-gray-300 text-sm rounded-lg hover:bg-gray-50 cursor-pointer">초기화</button>
           </div>
