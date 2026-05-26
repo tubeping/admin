@@ -1070,7 +1070,7 @@ export default function UnifiedOrdersPage() {
       if (filterNoTracking && (o.tracking_number || o.shipping_status === "cancelled" || o.shipping_status === "delivered")) return false;
       if ((filterNoSupplier || filterSupplier === "__none__") && o.supplier_id) return false;
       if (filterDomestic && (o.sales_channel || !o.stores?.name)) return false;
-      if (poTab === "no_po" && (!o.supplier_id || o.purchase_order_id || o.tracking_number || o.shipping_status === "cancelled" || o.shipping_status === "delivered" || o.shipping_status === "pending" || o.shipping_status === "ordered")) return false;
+      if (poTab === "no_po" && derivePOStatus(o).status !== "미발주") return false;
       if (poTab === "has_po" && !o.purchase_order_id) return false;
       if (kw) {
         const phoneMatch = kwDigits.length >= 4 && (
