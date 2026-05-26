@@ -102,7 +102,7 @@ function derivePOStatus(o: Order): { type: string; typeStyle: string; status: st
       status = "미발주";
       statusStyle = "text-orange-500";
     }
-  } else if (o.supplier_id) {
+  } else {
     status = "미발주";
     statusStyle = "text-orange-500";
   }
@@ -410,29 +410,29 @@ const OrderRow = memo(function OrderRow({
           <span className="text-gray-300">-</span>
         )}
       </td>
-      {/* 14. 발주종류 */}
-      <td className="px-1.5 py-1.5 text-center">
-        {(() => {
-          const ps = derivePOStatus(o);
-          return ps.type ? (
-            <span className={`text-[11px] font-medium ${ps.typeStyle}`}>{ps.type}</span>
-          ) : (
-            <span className="text-gray-300">-</span>
-          );
-        })()}
-      </td>
-      {/* 15. 발주상태 */}
-      <td className="px-1.5 py-1.5 text-center">
-        {(() => {
-          const ps = derivePOStatus(o);
-          return ps.status ? (
-            <span className={`text-[11px] font-medium ${ps.statusStyle}`}>{ps.status}</span>
-          ) : (
-            <span className="text-gray-300">-</span>
-          );
-        })()}
-      </td>
-      {/* 15. 배송상태 */}
+      {/* 14-15. 발주종류 + 발주상태 */}
+      {(() => {
+        const ps = derivePOStatus(o);
+        return (
+          <>
+            <td className="px-1.5 py-1.5 text-center">
+              {ps.type ? (
+                <span className={`text-[11px] font-medium ${ps.typeStyle}`}>{ps.type}</span>
+              ) : (
+                <span className="text-gray-300">-</span>
+              )}
+            </td>
+            <td className="px-1.5 py-1.5 text-center">
+              {ps.status ? (
+                <span className={`text-[11px] font-medium ${ps.statusStyle}`}>{ps.status}</span>
+              ) : (
+                <span className="text-gray-300">-</span>
+              )}
+            </td>
+          </>
+        );
+      })()}
+      {/* 16. 배송상태 */}
       <td className="px-1.5 py-1.5 text-center">
         <span className={`text-[11px] font-medium px-1.5 py-0.5 rounded-full ${STATUS_STYLE[o.shipping_status] || STATUS_STYLE.pending}`}>
           {STATUS_LABEL[o.shipping_status] || o.shipping_status}
