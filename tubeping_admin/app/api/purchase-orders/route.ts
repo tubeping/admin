@@ -129,7 +129,7 @@ export async function POST(request: NextRequest) {
   const totalAmount = orders?.reduce((sum, o) => sum + (o.quantity || 0) * (o.product_price || 0), 0) || 0;
 
   const password = generatePassword();
-  const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(); // 7일 후 만료
+  const expiresAt = new Date(Date.now() + 60 * 24 * 60 * 60 * 1000).toISOString(); // 60일 후 만료
 
   // 발주서 생성
   const { data: po, error: poError } = await sb
