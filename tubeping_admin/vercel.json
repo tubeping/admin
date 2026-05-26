@@ -15,7 +15,11 @@
     },
     {
       "path": "/admin/api/cron/update-delivery-status",
-      "schedule": "0 1 * * *"
+      "schedule": "0 23 * * *"
+    },
+    {
+      "path": "/admin/api/cron/sync-channeltalk",
+      "schedule": "*/5 * * * *"
     }
   ],
   "functions": {
@@ -23,6 +27,9 @@
       "maxDuration": 300
     },
     "app/api/cron/update-delivery-status/route.ts": {
+      "maxDuration": 300
+    },
+    "app/api/cafe24/orders/route.ts": {
       "maxDuration": 300
     }
   }
