@@ -25,8 +25,6 @@ interface Store {
   contact_name: string;
   contact_email: string;
   contact_phone: string;
-  order_count?: number;
-  total_amount?: number;
 }
 
 export default function SellersPage() {
@@ -35,6 +33,8 @@ export default function SellersPage() {
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState({ name: "", mall_id: "", channel: "", store_url: "" });
   const [editId, setEditId] = useState<string | null>(null);
+  const [editInfoId, setEditInfoId] = useState<string | null>(null);
+  const [editForm, setEditForm] = useState({ name: "", mall_id: "", channel: "", store_url: "" });
   const [config, setConfig] = useState({
     influencer_rate: 70, company_rate: 30, settlement_type: "사업자", pg_fee_rate: 3.74,
     tpl_cost: 0, other_cost: 0, other_cost_label: "기타비용",
@@ -48,24 +48,7 @@ export default function SellersPage() {
     const res = await fetch("/admin/api/stores");
     const data = await res.json();
     const stores: Store[] = data.stores || [];
-
-    const orderRes = await fetch("/admin/api/orders?limit=9999");
-    const orderData = await orderRes.json();
-    const orders = orderData.orders || [];
-
-    const countMap: Record<string, { count: number; amount: number }> = {};
-    for (const o of orders) {
-      const sid = o.store_id;
-      if (!countMap[sid]) countMap[sid] = { count: 0, amount: 0 };
-      countMap[sid].count++;
-      countMap[sid].amount += o.order_amount || 0;
-    }
-
-    setSellers(stores.map((s) => ({
-      ...s,
-      order_count: countMap[s.id]?.count || 0,
-      total_amount: countMap[s.id]?.amount || 0,
-    })));
+    setSellers(stores);
     setLoading(false);
   };
 
@@ -83,6 +66,36 @@ export default function SellersPage() {
     });
     setForm({ name: "", mall_id: "", channel: "", store_url: "" });
     setShowForm(false);
+    fetchSellers();
+  };
+
+  const handleDelete = async (seller: Store) => {
+    if (!confirm(`"${seller.name}" 판매자를 삭제하시겠습니까?\n이 작업은 되돌릴 수 없습니다.`)) return;
+    await fetch(`/admin/api/stores/${seller.id}`, { method: "DELETE" });
+    fetchSellers();
+  };
+
+  const openEditInfo = (seller: Store) => {
+    setEditInfoId(seller.id);
+    setEditForm({
+      name: seller.name, mall_id: seller.mall_id,
+      channel: seller.channel || "", store_url: seller.store_url || "",
+    });
+  };
+
+  const saveEditInfo = async () => {
+    if (!editInfoId || !editForm.name) return;
+    setSaving(true);
+    await fetch(`/admin/api/stores/${editInfoId}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        name: editForm.name, mall_id: editForm.mall_id,
+        channel: editForm.channel || null, store_url: editForm.store_url || null,
+      }),
+    });
+    setSaving(false);
+    setEditInfoId(null);
     fetchSellers();
   };
 
@@ -113,9 +126,6 @@ export default function SellersPage() {
     fetchSellers();
   };
 
-  const totalOrders = sellers.reduce((s, v) => s + (v.order_count || 0), 0);
-  const totalAmount = sellers.reduce((s, v) => s + (v.total_amount || 0), 0);
-
   return (
     <div className="p-8">
       <div className="flex items-center justify-between mb-6">
@@ -127,17 +137,11 @@ export default function SellersPage() {
       </div>
 
       {/* Summary */}
-      <div className="grid grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
-        {[
-          { label: "전체 판매자", value: `${sellers.length}개` },
-          { label: "총 주문", value: `${totalOrders.toLocaleString()}건` },
-          { label: "총 매출", value: `₩${totalAmount.toLocaleString()}` },
-        ].map((s) => (
-          <div key={s.label} className="bg-white rounded-xl border border-gray-200 p-4">
-            <p className="text-xs text-gray-500">{s.label}</p>
-            <p className="text-lg font-bold text-gray-900 mt-1">{s.value}</p>
-          </div>
-        ))}
+      <div className="mb-6">
+        <div className="bg-white rounded-xl border border-gray-200 p-4 inline-block">
+          <p className="text-xs text-gray-500">전체 판매자</p>
+          <p className="text-lg font-bold text-gray-900 mt-1">{sellers.length}개</p>
+        </div>
       </div>
 
       {/* 추가 폼 */}
@@ -147,7 +151,7 @@ export default function SellersPage() {
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
             {[
               { key: "name", label: "판매자명 *", ph: "완선몰" },
-              { key: "mall_id", label: "카페24 Mall ID", ph: "shinsan006" },
+              { key: "mall_id", label: "자사몰 계정명", ph: "shinsan006" },
               { key: "channel", label: "채널", ph: "유튜브, 인스타 등" },
               { key: "store_url", label: "스토어 URL", ph: "https://..." },
             ].map((f) => (
@@ -175,12 +179,10 @@ export default function SellersPage() {
             <thead>
               <tr className="text-xs text-gray-500 border-b border-gray-100">
                 <th className="text-left px-6 py-3 font-medium">판매자명</th>
-                <th className="text-left px-3 py-3 font-medium">Mall ID</th>
+                <th className="text-left px-3 py-3 font-medium">자사몰 계정명</th>
                 <th className="text-center px-3 py-3 font-medium">분배 비율</th>
                 <th className="text-center px-3 py-3 font-medium">정산방식</th>
-                <th className="text-right px-3 py-3 font-medium">주문 수</th>
-                <th className="text-right px-3 py-3 font-medium">총 매출</th>
-                <th className="text-center px-6 py-3 font-medium">설정</th>
+                <th className="text-center px-6 py-3 font-medium">관리</th>
               </tr>
             </thead>
             <tbody>
@@ -194,10 +196,10 @@ export default function SellersPage() {
                       {s.settlement_type || "사업자"}
                     </span>
                   </td>
-                  <td className="px-3 py-3.5 text-sm text-gray-700 text-right font-medium">{(s.order_count || 0).toLocaleString()}건</td>
-                  <td className="px-3 py-3.5 text-sm text-gray-700 text-right">₩{(s.total_amount || 0).toLocaleString()}</td>
-                  <td className="px-6 py-3.5 text-center">
+                  <td className="px-6 py-3.5 text-center flex items-center justify-center gap-3">
+                    <button onClick={() => openEditInfo(s)} className="text-xs text-gray-600 hover:underline cursor-pointer font-medium">수정</button>
                     <button onClick={() => openConfig(s)} className="text-xs text-[#C41E1E] hover:underline cursor-pointer font-medium">정산설정</button>
+                    <button onClick={() => handleDelete(s)} className="text-xs text-red-400 hover:text-red-600 hover:underline cursor-pointer font-medium">삭제</button>
                   </td>
                 </tr>
               ))}
@@ -205,6 +207,37 @@ export default function SellersPage() {
           </table>
         )}
       </div>
+
+      {/* 기본정보 수정 모달 */}
+      {editInfoId && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50" onClick={() => setEditInfoId(null)}>
+          <div className="bg-white rounded-2xl w-[520px] shadow-xl" onClick={(e) => e.stopPropagation()}>
+            <div className="p-6 border-b border-gray-100">
+              <h2 className="text-lg font-bold text-gray-900">판매자 정보 수정</h2>
+              <p className="text-xs text-gray-500 mt-1">{sellers.find((s) => s.id === editInfoId)?.name}</p>
+            </div>
+            <div className="p-6 space-y-4">
+              {[
+                { key: "name", label: "판매자명 *", ph: "완선몰" },
+                { key: "mall_id", label: "자사몰 계정명", ph: "shinsan006" },
+                { key: "channel", label: "채널", ph: "유튜브, 인스타 등" },
+                { key: "store_url", label: "스토어 URL", ph: "https://..." },
+              ].map((f) => (
+                <div key={f.key}>
+                  <label className="text-xs text-gray-500 block mb-1">{f.label}</label>
+                  <input value={editForm[f.key as keyof typeof editForm]} onChange={(e) => setEditForm({ ...editForm, [f.key]: e.target.value })} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" placeholder={f.ph} />
+                </div>
+              ))}
+            </div>
+            <div className="p-6 border-t border-gray-100 flex justify-end gap-2">
+              <button onClick={() => setEditInfoId(null)} className="px-4 py-2.5 border border-gray-300 text-sm rounded-lg hover:bg-gray-50 cursor-pointer">취소</button>
+              <button onClick={saveEditInfo} disabled={saving} className="px-6 py-2.5 bg-[#C41E1E] text-white text-sm font-medium rounded-lg hover:bg-[#A01818] disabled:opacity-50 cursor-pointer">
+                {saving ? "저장 중..." : "저장"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* 정산조건 설정 모달 */}
       {editId && (
