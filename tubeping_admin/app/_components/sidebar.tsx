@@ -335,6 +335,7 @@ export default function Sidebar({ collapsed, onToggle }: SidebarProps) {
   const pathname = usePathname();
   const router = useRouter();
   const [csOpen, setCsOpen] = useState(0);
+  const [ctUnread, setCtUnread] = useState(0);
   const [expandedKeys, setExpandedKeys] = useState<Set<string>>(new Set());
 
   const fetchCsCount = useCallback(async () => {
@@ -345,11 +346,20 @@ export default function Sidebar({ collapsed, onToggle }: SidebarProps) {
     } catch { /* ignore */ }
   }, []);
 
+  const fetchCtUnread = useCallback(async () => {
+    try {
+      const res = await fetch("/admin/api/channeltalk/alerts?count=1");
+      const data = await res.json();
+      setCtUnread(data.count || 0);
+    } catch { /* ignore */ }
+  }, []);
+
   useEffect(() => {
     fetchCsCount();
-    const interval = setInterval(fetchCsCount, 30_000); // 30초마다 갱신
+    fetchCtUnread();
+    const interval = setInterval(() => { fetchCsCount(); fetchCtUnread(); }, 30_000);
     return () => clearInterval(interval);
-  }, [fetchCsCount]);
+  }, [fetchCsCount, fetchCtUnread]);
 
   // 현재 경로에 해당하는 부모메뉴는 자동으로 펼침
   useEffect(() => {
@@ -455,7 +465,7 @@ export default function Sidebar({ collapsed, onToggle }: SidebarProps) {
               // 부모 또는 자식 중 하나라도 활성이면 부모를 활성으로 — 자식 경로가 부모 href의 prefix가 아닌 경우(예: /mall/stock-alerts under 상품관리 /mall/products)에도 메뉴 펼친 상태 유지
               const active = isActive(item.href) || (item.children?.some((c) => isActive(c.href)) ?? false);
               const expanded = expandedKeys.has(item.key);
-              const badge = item.key === "cs" ? csOpen : 0;
+              const badge = item.key === "cs" ? csOpen + ctUnread : 0;
               return (
                 <div key={item.key}>
                   <button
@@ -530,6 +540,38 @@ export default function Sidebar({ collapsed, onToggle }: SidebarProps) {
           </div>
         ))}
       </nav>
+
+      {/* 채널톡 바로가기 */}
+      <div className="px-3 pb-2">
+        <a
+          href="https://desk.channel.io"
+          target="_blank"
+          rel="noopener noreferrer"
+          className={`flex items-center gap-2 rounded-lg transition-colors hover:bg-indigo-50 ${
+            collapsed ? "justify-center py-2.5" : "px-3 py-2.5"
+          }`}
+          title="채널톡 데스크 열기"
+        >
+          <span className="relative">
+            <svg className="w-5 h-5 text-indigo-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z" />
+            </svg>
+            {ctUnread > 0 && (
+              <span className="absolute -top-1.5 -right-1.5 min-w-[16px] h-4 bg-indigo-500 text-white text-[10px] font-bold rounded-full flex items-center justify-center px-1">
+                {ctUnread > 9 ? "9+" : ctUnread}
+              </span>
+            )}
+          </span>
+          {!collapsed && (
+            <div className="flex-1 flex items-center justify-between">
+              <span className="text-sm font-medium text-indigo-600">채널톡</span>
+              <svg className="w-3.5 h-3.5 text-indigo-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+              </svg>
+            </div>
+          )}
+        </a>
+      </div>
 
       {/* Bottom */}
       <div className="border-t border-gray-100 p-4">
