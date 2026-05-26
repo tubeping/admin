@@ -1353,7 +1353,7 @@ export default function UnifiedOrdersPage() {
       if (o.shipping_status === "pending") pending++;
       if (!o.tracking_number && !notActive(o.shipping_status)) noTracking++;
       if (!o.supplier_id && !notActive(o.shipping_status)) noSupplier++;
-      if (!o.purchase_order_id && !o.tracking_number && o.supplier_id && !notActive(o.shipping_status) && o.shipping_status !== "pending" && o.shipping_status !== "ordered" && o.sales_channel !== "sample") noPO++;
+      if (derivePOStatus(o).status === "미발주") noPO++;
       if (o.tracking_number && !o.cafe24_shipping_synced) unsynced++;
     }
     return { total, displayed: orders.length, pending, noTracking, noSupplier, noPO, unsynced, totalQty, totalAmount, sample: sampleCount };
