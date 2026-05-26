@@ -66,6 +66,178 @@ const STATUS_STYLE: Record<string, string> = {
   exchanged: "bg-purple-50 text-purple-600",
 };
 
+/* ── AddressEditModal — JUSO API 연동 주소 수정 모달 ── */
+function AddressEditModal({ order, onClose, onSave }: {
+  order: Order;
+  onClose: () => void;
+  onSave: (orderId: string, newAddress: string) => void;
+}) {
+  const [keyword, setKeyword] = useState(order.receiver_address || "");
+  const [results, setResults] = useState<{ zipNo: string; roadAddr: string; jibunAddr: string; bdNm: string }[]>([]);
+  const [searching, setSearching] = useState(false);
+  const [detailAddr, setDetailAddr] = useState("");
+  const [selectedAddr, setSelectedAddr] = useState<{ zipNo: string; roadAddr: string } | null>(null);
+  const [manualAddr, setManualAddr] = useState(order.receiver_address || "");
+  const [totalCount, setTotalCount] = useState(0);
+  const [currentPage, setCurrentPage] = useState(1);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => { inputRef.current?.focus(); }, []);
+
+  const doSearch = async (page = 1) => {
+    if (!keyword || keyword.length < 2) return;
+    setSearching(true);
+    try {
+      const res = await fetch(`/admin/api/address-search?keyword=${encodeURIComponent(keyword)}&page=${page}`);
+      const data = await res.json();
+      setResults(data.results || []);
+      setTotalCount(data.totalCount || 0);
+      setCurrentPage(page);
+    } catch { setResults([]); }
+    finally { setSearching(false); }
+  };
+
+  const handleSelect = (r: { zipNo: string; roadAddr: string }) => {
+    setSelectedAddr(r);
+    setDetailAddr("");
+    setManualAddr(`(${r.zipNo}) ${r.roadAddr}`);
+  };
+
+  const handleSave = () => {
+    const finalAddr = selectedAddr
+      ? `(${selectedAddr.zipNo}) ${selectedAddr.roadAddr}${detailAddr ? " " + detailAddr : ""}`
+      : manualAddr.trim();
+    if (!finalAddr) { alert("주소를 입력해주세요"); return; }
+    onSave(order.id, finalAddr);
+  };
+
+  const totalPages = Math.ceil(totalCount / 10);
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={onClose}>
+      <div className="bg-white rounded-xl shadow-2xl w-[560px] max-h-[80vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
+        {/* Header */}
+        <div className="p-4 border-b border-gray-100">
+          <div className="flex items-center justify-between mb-1">
+            <h3 className="text-sm font-semibold text-gray-900">주소 수정</h3>
+            <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-lg leading-none cursor-pointer">&times;</button>
+          </div>
+          <p className="text-[11px] text-gray-500">
+            주문번호: {order.cafe24_order_id} &middot; {order.receiver_name}
+          </p>
+        </div>
+
+        {/* Current address */}
+        <div className="px-4 pt-3">
+          <label className="text-[11px] text-gray-500 block mb-1">현재 주소</label>
+          <div className="text-xs text-red-600 bg-red-50 border border-red-200 rounded px-2.5 py-1.5 break-all">
+            {order.receiver_address || "-"}
+          </div>
+        </div>
+
+        {/* JUSO search */}
+        <div className="px-4 pt-3">
+          <label className="text-[11px] text-gray-500 block mb-1">주소 검색 (도로명/지번)</label>
+          <div className="flex gap-1.5">
+            <input
+              ref={inputRef}
+              type="text"
+              value={keyword}
+              onChange={(e) => setKeyword(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") doSearch(1); }}
+              placeholder="예: 강남구 테헤란로 123"
+              className="flex-1 border border-gray-300 rounded px-2.5 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-blue-400"
+            />
+            <button
+              onClick={() => doSearch(1)}
+              disabled={searching || keyword.length < 2}
+              className="px-3 py-1.5 bg-blue-600 text-white text-xs font-medium rounded hover:bg-blue-700 disabled:opacity-40 cursor-pointer whitespace-nowrap"
+            >
+              {searching ? "검색중..." : "검색"}
+            </button>
+          </div>
+        </div>
+
+        {/* Search results */}
+        <div className="px-4 pt-2 flex-1 overflow-y-auto min-h-0" style={{ maxHeight: "240px" }}>
+          {results.length > 0 ? (
+            <>
+              <div className="text-[10px] text-gray-400 mb-1">검색결과 {totalCount}건</div>
+              <div className="space-y-1">
+                {results.map((r, i) => (
+                  <button
+                    key={i}
+                    onClick={() => handleSelect(r)}
+                    className={`w-full text-left px-2.5 py-2 rounded border text-xs cursor-pointer transition-colors ${
+                      selectedAddr?.roadAddr === r.roadAddr && selectedAddr?.zipNo === r.zipNo
+                        ? "border-blue-400 bg-blue-50"
+                        : "border-gray-200 hover:border-blue-300 hover:bg-blue-50/50"
+                    }`}
+                  >
+                    <div className="font-medium text-gray-800">({r.zipNo}) {r.roadAddr}</div>
+                    {r.jibunAddr && <div className="text-[10px] text-gray-400 mt-0.5">{r.jibunAddr}</div>}
+                    {r.bdNm && <div className="text-[10px] text-gray-500">{r.bdNm}</div>}
+                  </button>
+                ))}
+              </div>
+              {totalPages > 1 && (
+                <div className="flex items-center justify-center gap-2 py-2">
+                  <button disabled={currentPage <= 1} onClick={() => doSearch(currentPage - 1)}
+                    className="px-2 py-0.5 text-[10px] border rounded disabled:opacity-30 cursor-pointer">&laquo; 이전</button>
+                  <span className="text-[10px] text-gray-500">{currentPage} / {totalPages}</span>
+                  <button disabled={currentPage >= totalPages} onClick={() => doSearch(currentPage + 1)}
+                    className="px-2 py-0.5 text-[10px] border rounded disabled:opacity-30 cursor-pointer">다음 &raquo;</button>
+                </div>
+              )}
+            </>
+          ) : searching ? (
+            <div className="text-xs text-gray-400 text-center py-4">검색 중...</div>
+          ) : null}
+        </div>
+
+        {/* Detail address input (when JUSO result selected) */}
+        {selectedAddr && (
+          <div className="px-4 pt-2">
+            <label className="text-[11px] text-gray-500 block mb-1">상세주소 입력</label>
+            <div className="text-[10px] text-blue-600 mb-1">({selectedAddr.zipNo}) {selectedAddr.roadAddr}</div>
+            <input
+              type="text"
+              value={detailAddr}
+              onChange={(e) => setDetailAddr(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") handleSave(); }}
+              placeholder="상세주소 (동/호수 등)"
+              className="w-full border border-gray-300 rounded px-2.5 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-blue-400"
+              autoFocus
+            />
+          </div>
+        )}
+
+        {/* Manual edit fallback */}
+        {!selectedAddr && (
+          <div className="px-4 pt-2">
+            <label className="text-[11px] text-gray-500 block mb-1">또는 직접 입력</label>
+            <input
+              type="text"
+              value={manualAddr}
+              onChange={(e) => setManualAddr(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") handleSave(); }}
+              className="w-full border border-gray-300 rounded px-2.5 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-blue-400"
+            />
+          </div>
+        )}
+
+        {/* Footer */}
+        <div className="p-4 border-t border-gray-100 mt-2 flex justify-end gap-2">
+          <button onClick={onClose} className="px-4 py-1.5 border border-gray-300 text-xs rounded-lg hover:bg-gray-50 cursor-pointer">취소</button>
+          <button onClick={handleSave} className="px-5 py-1.5 bg-blue-600 text-white text-xs font-medium rounded-lg hover:bg-blue-700 cursor-pointer">
+            주소 저장
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function derivePOStatus(o: Order): { type: string; typeStyle: string; status: string; statusStyle: string } {
   const empty = { type: "", typeStyle: "", status: "", statusStyle: "" };
   if (o.shipping_status === "cancelled") return empty;
@@ -151,7 +323,7 @@ function normPhone(s: string) { return (s || "").replace(/[^0-9]/g, ""); }
 /* ── OrderRow (memo-ized) ── */
 const OrderRow = memo(function OrderRow({
   o, idx, displayedCount, isSelected, toggleSelect, editingField, onStartEdit, saveCellEdit, stores, fetchOrders,
-  trackingEdit, onTrackingEdit, onSaveTracking, saving, onOpenCs, addrStatus,
+  trackingEdit, onTrackingEdit, onSaveTracking, saving, onOpenCs, addrStatus, onEditAddress,
 }: {
   o: Order; idx: number; displayedCount: number; isSelected: boolean;
   toggleSelect: (id: string) => void;
@@ -166,6 +338,7 @@ const OrderRow = memo(function OrderRow({
   saving: boolean;
   onOpenCs: (order: Order) => void;
   addrStatus?: AddrVerifyResult;
+  onEditAddress: (order: Order) => void;
 }) {
   const noTrack = !o.tracking_number && o.shipping_status !== "cancelled" && o.shipping_status !== "delivered";
   const noSup = !o.supplier_id;
@@ -237,21 +410,30 @@ const OrderRow = memo(function OrderRow({
         <div className="text-[10px] font-mono text-gray-400">{o.receiver_phone || o.buyer_phone || ""}</div>
       </td>
       {/* 6. 배송주소 */}
-      <td className="px-1.5 py-1.5 max-w-[180px]">
-        <div className="flex items-center gap-1">
-          {(() => {
-            // 1회 이상 valid 판정된 주문은 영구 초록
-            const dbValid = o.address_verify_status === "valid";
-            const status = dbValid ? "valid" : (addrStatus?.status || o.address_verify_status);
-            const title = dbValid ? "검증 완료" : addrStatus
-              ? (addrStatus.reason || addrStatus.suggestion || (addrStatus.status === "valid" ? "검증 완료" : addrStatus.status === "invalid" ? "검증 오류" : "미검증"))
-              : (o.address_verify_reason || (status === "valid" ? "검증 완료" : status === "invalid" ? "검증 오류" : "미검증"));
-            const color = status === "valid" ? "bg-green-500" : status === "invalid" ? "bg-red-500" : "bg-yellow-400";
-            return <span title={title} className={`shrink-0 w-2 h-2 rounded-full ${color}`} />;
-          })()}
-          <div className="text-[11px] text-gray-600 truncate" title={o.receiver_address || ""}>{o.receiver_address || <span className="text-gray-300">-</span>}</div>
-        </div>
-      </td>
+      {(() => {
+        const dbValid = o.address_verify_status === "valid";
+        const status = dbValid ? "valid" : (addrStatus?.status || o.address_verify_status);
+        const title = dbValid ? "검증 완료" : addrStatus
+          ? (addrStatus.reason || addrStatus.suggestion || (addrStatus.status === "valid" ? "검증 완료" : addrStatus.status === "invalid" ? "검증 오류" : "미검증"))
+          : (o.address_verify_reason || (status === "valid" ? "검증 완료" : status === "invalid" ? "검증 오류" : "미검증"));
+        const color = status === "valid" ? "bg-green-500" : status === "invalid" ? "bg-red-500" : "bg-yellow-400";
+        const isInvalid = status === "invalid";
+        return (
+          <td
+            className={`px-1.5 py-1.5 max-w-[180px] ${isInvalid ? "cursor-pointer hover:bg-red-50/60" : ""}`}
+            onClick={isInvalid ? (e) => { e.stopPropagation(); onEditAddress(o); } : undefined}
+            title={isInvalid ? `${title} — 클릭하여 주소 수정` : title}
+          >
+            <div className="flex items-center gap-1">
+              <span className={`shrink-0 w-2 h-2 rounded-full ${color}`} />
+              <div className={`text-[11px] truncate ${isInvalid ? "text-red-600 underline decoration-dotted" : "text-gray-600"}`} title={o.receiver_address || ""}>
+                {o.receiver_address || <span className="text-gray-300">-</span>}
+              </div>
+              {isInvalid && <span className="shrink-0 text-[9px] text-red-400">&#9998;</span>}
+            </div>
+          </td>
+        );
+      })()}
       {/* 7. 판매방식 */}
       <td
         className="px-1.5 py-1.5 text-xs whitespace-nowrap cursor-pointer hover:bg-gray-100/60"
@@ -591,6 +773,25 @@ export default function UnifiedOrdersPage() {
     }
     setLoading(false);
   }, [filterStatus, filterStore, filterSupplier, dateFrom, dateTo]);
+
+  // Address edit modal
+  const [addrEditOrder, setAddrEditOrder] = useState<Order | null>(null);
+  const handleEditAddress = useCallback((order: Order) => { setAddrEditOrder(order); }, []);
+  const handleSaveAddress = useCallback(async (orderId: string, newAddress: string) => {
+    const ok = await patchOrder(orderId, { receiver_address: newAddress, address_verify_status: null, address_verify_reason: null });
+    if (!ok) { alert("주소 수정 실패"); return; }
+    setAddrEditOrder(null);
+    setRawOrders((prev) => prev.map((o) => o.id === orderId ? { ...o, receiver_address: newAddress, address_verify_status: null, address_verify_reason: null } : o));
+    setAddrResults((prev) => { const n = { ...prev }; delete n[orderId]; return n; });
+    // 자동 재검증
+    try {
+      const res = await fetch("/admin/api/address-verify", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ addresses: [{ id: orderId, address: newAddress }] }),
+      });
+      if (res.ok) { fetchOrders(); }
+    } catch { /* 재검증 실패해도 주소는 이미 저장됨 */ }
+  }, [patchOrder, fetchOrders]);
 
   const saveTracking = useCallback(async (id: string) => {
     const edit = trackingEdit[id];
@@ -1757,6 +1958,7 @@ export default function UnifiedOrdersPage() {
                   saving={false}
                   onOpenCs={openCs}
                   addrStatus={addrResults[o.id]}
+                  onEditAddress={handleEditAddress}
                 />
               ))}
             </tbody>
@@ -1859,6 +2061,15 @@ export default function UnifiedOrdersPage() {
             </div>
           </div>
         </div>
+      )}
+
+      {/* Address Edit Modal */}
+      {addrEditOrder && (
+        <AddressEditModal
+          order={addrEditOrder}
+          onClose={() => setAddrEditOrder(null)}
+          onSave={handleSaveAddress}
+        />
       )}
     </div>
   );
