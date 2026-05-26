@@ -66,18 +66,48 @@ const STATUS_STYLE: Record<string, string> = {
   exchanged: "bg-purple-50 text-purple-600",
 };
 
-function derivePOStatus(o: Order): { label: string; style: string } {
-  if (o.shipping_status === "cancelled") return { label: "", style: "" };
-  if (o.tracking_number) return { label: "송장등록", style: "text-green-600" };
-  if (o.purchase_order_id && o.purchase_orders) {
-    const po = o.purchase_orders;
-    if (po.completed_at) return { label: "송장완료", style: "text-green-600" };
-    if (po.viewed_at) return { label: "메일열람", style: "text-indigo-600" };
-    if (po.sent_at || po.status === "sent") return { label: "메일발송", style: "text-blue-600" };
-    return { label: "메일미발송", style: "text-red-500" };
+function derivePOStatus(o: Order): { type: string; typeStyle: string; status: string; statusStyle: string } {
+  const empty = { type: "", typeStyle: "", status: "", statusStyle: "" };
+  if (o.shipping_status === "cancelled") return empty;
+
+  // 발주 종류
+  let type = "";
+  let typeStyle = "";
+  if (o.shipping_status === "ordered" && !o.purchase_order_id) {
+    type = "수동발주";
+    typeStyle = "text-amber-600";
+  } else if (o.purchase_order_id) {
+    type = "자동발주";
+    typeStyle = "text-blue-600";
   }
-  if (o.supplier_id) return { label: "미발주", style: "text-orange-500" };
-  return { label: "", style: "" };
+
+  // 발주처리현황
+  let status = "";
+  let statusStyle = "";
+  if (o.tracking_number) {
+    status = "공급사 송장번호 등록";
+    statusStyle = "text-green-600";
+  } else if (o.purchase_order_id && o.purchase_orders) {
+    const po = o.purchase_orders;
+    if (po.completed_at) {
+      status = "공급사 송장번호 등록";
+      statusStyle = "text-green-600";
+    } else if (po.viewed_at) {
+      status = "발주서 이메일 열람";
+      statusStyle = "text-indigo-600";
+    } else if (po.sent_at || po.status === "sent") {
+      status = "발주서 이메일 발송";
+      statusStyle = "text-blue-600";
+    } else {
+      status = "미발주";
+      statusStyle = "text-orange-500";
+    }
+  } else if (o.supplier_id) {
+    status = "미발주";
+    statusStyle = "text-orange-500";
+  }
+
+  return { type, typeStyle, status, statusStyle };
 }
 
 const SHIPPING_COMPANIES = ["CJ대한통운", "한진택배", "롯데택배", "우체국택배", "로젠택배", "경동택배", "대신택배"];
@@ -139,7 +169,7 @@ const OrderRow = memo(function OrderRow({
 }) {
   const noTrack = !o.tracking_number && o.shipping_status !== "cancelled" && o.shipping_status !== "delivered";
   const noSup = !o.supplier_id;
-  const noPO = !o.purchase_order_id && o.shipping_status !== "cancelled" && o.shipping_status !== "delivered";
+  const noPO = !o.purchase_order_id && o.shipping_status !== "cancelled" && o.shipping_status !== "delivered" && o.shipping_status !== "ordered";
   const editing = !!trackingEdit;
   return (
     <tr
@@ -384,8 +414,11 @@ const OrderRow = memo(function OrderRow({
       <td className="px-1.5 py-1.5 text-center">
         {(() => {
           const ps = derivePOStatus(o);
-          return ps.label ? (
-            <span className={`text-[11px] font-medium ${ps.style}`}>{ps.label}</span>
+          return (ps.type || ps.status) ? (
+            <div className="flex flex-col gap-0.5">
+              {ps.type && <span className={`text-[10px] font-medium ${ps.typeStyle}`}>{ps.type}</span>}
+              {ps.status && <span className={`text-[11px] font-medium ${ps.statusStyle}`}>{ps.status}</span>}
+            </div>
           ) : (
             <span className="text-gray-300">-</span>
           );
@@ -425,7 +458,7 @@ function loadSavedFilters() {
 }
 
 export default function UnifiedOrdersPage() {
-  const pageSize = 1000;
+  const pageSize = 50;
 
   const [rawOrders, setRawOrders] = useState<Order[]>([]);
   const [stores, setStores] = useState<Store[]>([]);
@@ -435,7 +468,7 @@ export default function UnifiedOrdersPage() {
   const sampleCount = useMemo(() => rawOrders.filter((o) => o.sales_channel === "sample").length, [rawOrders]);
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
-  const [saving, setSaving] = useState(false);
+  const [csSaving, setCsSaving] = useState(false);
   const [ocrProcessing, setOcrProcessing] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [editingCell, setEditingCell] = useState<{ orderId: string; field: "channel" | "store" | "orderId" } | null>(null);
@@ -502,14 +535,14 @@ export default function UnifiedOrdersPage() {
   const [isDragging, setIsDragging] = useState(false);
   const dragCounterRef = useRef(0);
 
-  const patchOrder = async (id: string, updates: Record<string, unknown>) => {
+  const patchOrder = useCallback(async (id: string, updates: Record<string, unknown>) => {
     const res = await fetch("/admin/api/orders", {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ ids: [id], updates }),
     });
     return res.ok;
-  };
+  }, []);
 
   // Fetch orders (must be defined before callbacks that reference it)
   const fetchOrders = useCallback(async () => {
@@ -544,12 +577,20 @@ export default function UnifiedOrdersPage() {
   const saveTracking = useCallback(async (id: string) => {
     const edit = trackingEdit[id];
     if (!edit || !edit.number.trim()) return;
-    setSaving(true);
-    await patchOrder(id, { tracking_number: edit.number.trim(), shipping_company: edit.company || "CJ대한통운", shipping_status: "shipping" });
+    const trimmedNumber = edit.number.trim();
+    const company = edit.company || "CJ대한통운";
+    // optimistic: 로컬 상태 즉시 반영
     setTrackingEdit((p) => { const n = { ...p }; delete n[id]; return n; });
-    setSaving(false);
-    fetchOrders();
-  }, [trackingEdit, fetchOrders]);
+    setRawOrders((prev) => prev.map((o) =>
+      o.id === id ? { ...o, tracking_number: trimmedNumber, shipping_company: company, shipping_status: "shipping" } : o
+    ));
+    // 서버 저장 (백그라운드)
+    const ok = await patchOrder(id, { tracking_number: trimmedNumber, shipping_company: company, shipping_status: "shipping" });
+    if (!ok) {
+      // 실패 시 롤백
+      fetchOrders();
+    }
+  }, [trackingEdit, fetchOrders, patchOrder]);
 
   const handleTrackingEdit = useCallback((orderId: string, edit: { company: string; number: string } | null) => {
     if (edit === null) {
@@ -567,13 +608,13 @@ export default function UnifiedOrdersPage() {
 
   const submitCs = async () => {
     if (!csModalOrder) return;
-    setSaving(true);
+    setCsSaving(true);
     const ts = new Date().toISOString().slice(0, 16).replace("T", " ");
     const actionLabel = csAction === "refunded" ? "환불" : csAction === "returned" ? "반품" : "교환";
     const entry = `[${ts}] ${actionLabel} 처리: ${csNote || "사유 미기재"}`;
     const newMemo = csModalOrder.memo ? `${csModalOrder.memo}\n${entry}` : entry;
     await patchOrder(csModalOrder.id, { shipping_status: csAction, memo: newMemo });
-    setSaving(false);
+    setCsSaving(false);
     setCsModalOrder(null);
     fetchOrders();
   };
@@ -619,6 +660,7 @@ export default function UnifiedOrdersPage() {
     }
     const sampleEl = document.getElementById("import-is-sample") as HTMLInputElement;
     const groupEl = document.getElementById("import-is-group") as HTMLInputElement;
+    const domesticEl = document.getElementById("import-is-domestic") as HTMLInputElement;
     const etcEl = document.getElementById("import-is-etc") as HTMLInputElement;
     const fd = new FormData();
     fd.append("file", file);
@@ -626,6 +668,7 @@ export default function UnifiedOrdersPage() {
     else fd.append("store_name", sel.value.slice(5));
     if (sampleEl?.checked) fd.append("sales_channel", "sample");
     else if (groupEl?.checked) fd.append("sales_channel", "group");
+    else if (domesticEl?.checked) fd.append("sales_channel", "domestic");
     else if (etcEl?.checked) fd.append("sales_channel", "etc");
     const res = await fetch("/admin/api/orders/import", { method: "POST", body: fd });
     const data = await res.json();
@@ -644,6 +687,7 @@ export default function UnifiedOrdersPage() {
       fetchOrders();
       if (groupEl) groupEl.checked = false;
       if (sampleEl) sampleEl.checked = false;
+      if (domesticEl) domesticEl.checked = false;
       if (etcEl) etcEl.checked = false;
       sel.value = "";
     } else alert(`오류: ${data.error}`);
@@ -654,13 +698,15 @@ export default function UnifiedOrdersPage() {
     // 1. 판매방식 체크
     const sampleEl = document.getElementById("import-is-sample") as HTMLInputElement;
     const groupEl = document.getElementById("import-is-group") as HTMLInputElement;
+    const domesticEl = document.getElementById("import-is-domestic") as HTMLInputElement;
     const etcEl = document.getElementById("import-is-etc") as HTMLInputElement;
     let salesChannel: string | null = null;
     if (sampleEl?.checked) salesChannel = "sample";
     else if (groupEl?.checked) salesChannel = "group";
+    else if (domesticEl?.checked) salesChannel = "domestic";
     else if (etcEl?.checked) salesChannel = "etc";
     if (!salesChannel) {
-      alert("판매방식(샘플/공구/기타)을 먼저 선택해주세요.");
+      alert("판매방식(샘플/공구/자사몰/기타)을 먼저 선택해주세요.");
       return;
     }
 
@@ -764,11 +810,12 @@ export default function UnifiedOrdersPage() {
     const kProduct = colFilterProduct?.toLowerCase();
     const kCustomer = colFilterCustomer?.toLowerCase();
     const kAddress = colFilterAddress?.toLowerCase();
+    const kCustomerPhone = normPhone(colFilterCustomer);
     return rawOrders.filter((o) => {
       if (filterNoTracking && (o.tracking_number || o.shipping_status === "cancelled" || o.shipping_status === "delivered")) return false;
       if ((filterNoSupplier || filterSupplier === "__none__") && o.supplier_id) return false;
       if (filterDomestic && (o.sales_channel || !o.stores?.name)) return false;
-      if (poTab === "no_po" && (!o.supplier_id || o.purchase_order_id || o.tracking_number || o.shipping_status === "cancelled" || o.shipping_status === "delivered" || o.shipping_status === "pending")) return false;
+      if (poTab === "no_po" && (!o.supplier_id || o.purchase_order_id || o.tracking_number || o.shipping_status === "cancelled" || o.shipping_status === "delivered" || o.shipping_status === "pending" || o.shipping_status === "ordered")) return false;
       if (poTab === "has_po" && !o.purchase_order_id) return false;
       if (kw) {
         const phoneMatch = kwDigits.length >= 4 && (
@@ -780,10 +827,9 @@ export default function UnifiedOrdersPage() {
       if (kOrderNo && !o.cafe24_order_id?.toLowerCase().includes(kOrderNo)) return false;
       if (kProduct && !(o.product_name?.toLowerCase().includes(kProduct) || o.option_text?.toLowerCase().includes(kProduct))) return false;
       if (kCustomer) {
-        const phoneDigits = normPhone(colFilterCustomer);
-        const phoneMatch = phoneDigits.length >= 4 && (
-          normPhone(o.buyer_phone).includes(phoneDigits) ||
-          normPhone(o.receiver_phone).includes(phoneDigits)
+        const phoneMatch = kCustomerPhone.length >= 4 && (
+          normPhone(o.buyer_phone).includes(kCustomerPhone) ||
+          normPhone(o.receiver_phone).includes(kCustomerPhone)
         );
         if (!(o.buyer_name?.toLowerCase().includes(kCustomer) || o.receiver_name?.toLowerCase().includes(kCustomer) || phoneMatch)) return false;
       }
@@ -810,11 +856,12 @@ export default function UnifiedOrdersPage() {
       if (colFilterTracking === "missing" && (o.tracking_number || o.shipping_status === "cancelled" || o.shipping_status === "delivered")) return false;
       if (colFilterPOStatus) {
         const ps = derivePOStatus(o);
-        if (colFilterPOStatus === "no_po" && ps.label !== "미발주") return false;
-        if (colFilterPOStatus === "mail_not_sent" && ps.label !== "메일미발송") return false;
-        if (colFilterPOStatus === "mail_sent" && ps.label !== "메일발송") return false;
-        if (colFilterPOStatus === "mail_read" && ps.label !== "메일열람") return false;
-        if (colFilterPOStatus === "tracking" && ps.label !== "송장등록" && ps.label !== "송장완료") return false;
+        if (colFilterPOStatus === "type_auto" && ps.type !== "자동발주") return false;
+        if (colFilterPOStatus === "type_manual" && ps.type !== "수동발주") return false;
+        if (colFilterPOStatus === "no_po" && ps.status !== "미발주") return false;
+        if (colFilterPOStatus === "mail_sent" && ps.status !== "발주서 이메일 발송") return false;
+        if (colFilterPOStatus === "mail_read" && ps.status !== "발주서 이메일 열람") return false;
+        if (colFilterPOStatus === "tracking" && ps.status !== "공급사 송장번호 등록") return false;
       }
       return true;
     });
@@ -1000,14 +1047,24 @@ export default function UnifiedOrdersPage() {
     if (!confirm(`일괄 변경 실패: 일부 주문이 대상 판매사에 이미 같은 주문번호로 존재합니다.\n\n충돌 없는 건만 개별 변경할까요?`)) return;
     let success = 0;
     const failedList: string[] = [];
-    for (const id of ids) {
-      const r = await fetch("/admin/api/orders", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ids: [id], updates: { store_id: storeId } }),
-      });
-      if (r.ok) success++;
+    const results = await Promise.allSettled(
+      ids.map(async (id) => {
+        try {
+          const r = await fetch("/admin/api/orders", {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ ids: [id], updates: { store_id: storeId } }),
+          });
+          return { id, ok: r.ok };
+        } catch {
+          return { id, ok: false };
+        }
+      })
+    );
+    for (const r of results) {
+      if (r.status === "fulfilled" && r.value.ok) success++;
       else {
+        const id = r.status === "fulfilled" ? r.value.id : "";
         const o = orders.find((x) => x.id === id);
         failedList.push(o?.cafe24_order_id || id.slice(0, 8));
       }
@@ -1029,7 +1086,7 @@ export default function UnifiedOrdersPage() {
       if (o.shipping_status === "pending") pending++;
       if (!o.tracking_number && !notActive(o.shipping_status)) noTracking++;
       if (!o.supplier_id && !notActive(o.shipping_status)) noSupplier++;
-      if (!o.purchase_order_id && !o.tracking_number && o.supplier_id && !notActive(o.shipping_status) && o.shipping_status !== "pending" && o.sales_channel !== "sample") noPO++;
+      if (!o.purchase_order_id && !o.tracking_number && o.supplier_id && !notActive(o.shipping_status) && o.shipping_status !== "pending" && o.shipping_status !== "ordered" && o.sales_channel !== "sample") noPO++;
       if (o.tracking_number && !o.cafe24_shipping_synced) unsynced++;
     }
     return { total, displayed: orders.length, pending, noTracking, noSupplier, noPO, unsynced, totalQty, totalAmount, sample: sampleCount };
@@ -1269,12 +1326,13 @@ export default function UnifiedOrdersPage() {
             {[
               { id: "import-is-sample", label: "샘플", bg: "bg-amber-100 text-amber-700" },
               { id: "import-is-group", label: "공구", bg: "bg-pink-100 text-pink-700" },
+              { id: "import-is-domestic", label: "자사몰", bg: "bg-blue-100 text-blue-700" },
               { id: "import-is-etc", label: "기타", bg: "bg-gray-200 text-gray-700" },
             ].map((opt) => (
               <label key={opt.id} className="flex items-center gap-0.5 text-[11px] text-gray-600 cursor-pointer select-none">
                 <input id={opt.id} type="checkbox" className="w-3 h-3 cursor-pointer" onChange={(e) => {
                   if (e.target.checked) {
-                    ["import-is-sample", "import-is-group", "import-is-etc"]
+                    ["import-is-sample", "import-is-group", "import-is-domestic", "import-is-etc"]
                       .filter((x) => x !== opt.id)
                       .forEach((x) => { const el = document.getElementById(x) as HTMLInputElement; if (el) el.checked = false; });
                   }
@@ -1355,6 +1413,26 @@ export default function UnifiedOrdersPage() {
             <option value="">공급사 변경</option>
             {suppliers.map((s) => (<option key={s.id} value={s.id}>{s.name}</option>))}
           </select>
+          <button
+            onClick={async () => {
+              if (selected.size === 0) return;
+              if (!confirm(`선택한 ${selected.size}건을 수동 발주완료 처리합니다.\n\n진행하시겠습니까?`)) return;
+              const res = await fetch("/admin/api/orders", {
+                method: "PATCH",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ ids: Array.from(selected), updates: { shipping_status: "ordered" } }),
+              });
+              const data = await res.json();
+              if (res.ok) {
+                alert(`${data.updated}건 발주완료 처리됨`);
+                setSelected(new Set());
+                fetchOrders();
+              } else alert(`오류: ${data.error}`);
+            }}
+            className="px-2.5 py-1 bg-amber-500 text-white text-[11px] font-medium rounded hover:bg-amber-600 cursor-pointer"
+          >
+            수동 발주완료 ({selected.size})
+          </button>
           <button
             onClick={async () => {
               const selectedOrders = orders.filter(o => selected.has(o.id));
@@ -1439,7 +1517,7 @@ export default function UnifiedOrdersPage() {
               <col className="w-[64px]" />{/* 판매배송비 */}
               <col className="w-[56px]" />{/* 입금 */}
               <col className="w-[120px]" />{/* 송장 */}
-              <col className="w-[64px]" />{/* 발주상태 */}
+              <col className="w-[100px]" />{/* 발주상태 */}
               <col className="w-[72px]" />{/* 배송상태 */}
               <col className="w-[40px]" />{/* CS */}
               <col className="w-[80px]" />{/* 주문일 */}
@@ -1604,11 +1682,16 @@ export default function UnifiedOrdersPage() {
                   <select value={colFilterPOStatus} onChange={(e) => setColFilterPOStatus(e.target.value)}
                     className="w-full text-[10px] border border-gray-200 rounded px-0.5 py-px bg-white">
                     <option value="">-</option>
-                    <option value="no_po">미발주</option>
-                    <option value="mail_not_sent">미발송</option>
-                    <option value="mail_sent">발송</option>
-                    <option value="mail_read">열람</option>
-                    <option value="tracking">송장</option>
+                    <optgroup label="발주 종류">
+                      <option value="type_auto">자동발주</option>
+                      <option value="type_manual">수동발주</option>
+                    </optgroup>
+                    <optgroup label="발주처리현황">
+                      <option value="no_po">미발주</option>
+                      <option value="mail_sent">발주서 이메일 발송</option>
+                      <option value="mail_read">발주서 이메일 열람</option>
+                      <option value="tracking">공급사 송장번호 등록</option>
+                    </optgroup>
                   </select>
                 </th>
                 {/* 18. 배송상태 select */}
@@ -1648,7 +1731,7 @@ export default function UnifiedOrdersPage() {
                   trackingEdit={trackingEdit[o.id]}
                   onTrackingEdit={handleTrackingEdit}
                   onSaveTracking={saveTracking}
-                  saving={saving}
+                  saving={false}
                   onOpenCs={openCs}
                   addrStatus={addrResults[o.id]}
                 />
@@ -1747,8 +1830,8 @@ export default function UnifiedOrdersPage() {
             </div>
             <div className="p-5 border-t border-gray-100 flex justify-end gap-2">
               <button onClick={() => setCsModalOrder(null)} className="px-4 py-2 border border-gray-300 text-sm rounded-lg hover:bg-gray-50 cursor-pointer">취소</button>
-              <button onClick={submitCs} disabled={saving} className="px-5 py-2 bg-[#C41E1E] text-white text-sm font-medium rounded-lg hover:bg-[#A01818] cursor-pointer disabled:opacity-50">
-                {saving ? "처리 중..." : "처리 완료"}
+              <button onClick={submitCs} disabled={csSaving} className="px-5 py-2 bg-[#C41E1E] text-white text-sm font-medium rounded-lg hover:bg-[#A01818] cursor-pointer disabled:opacity-50">
+                {csSaving ? "처리 중..." : "처리 완료"}
               </button>
             </div>
           </div>
