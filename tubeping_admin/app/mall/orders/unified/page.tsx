@@ -381,28 +381,37 @@ const OrderRow = memo(function OrderRow({
             </div>
           </div>
         ) : o.tracking_number ? (
-          <div className="flex flex-col gap-0.5">
-            <div className="flex items-center gap-1">
-              {(() => {
-                const url = getTrackingUrl(o.shipping_company, o.tracking_number);
-                return url ? (
-                  <a href={url} target="_blank" rel="noopener noreferrer"
-                    className="text-blue-600 hover:text-blue-800 hover:underline font-mono text-xs"
-                    title="배송추적 열기">
-                    {o.tracking_number}
-                  </a>
-                ) : (
-                  <span className="font-mono text-gray-700 text-xs">{o.tracking_number}</span>
-                );
-              })()}
-              <button onClick={() => onTrackingEdit(o.id, { company: o.shipping_company || "CJ대한통운", number: o.tracking_number })}
-                className="text-gray-400 hover:text-gray-600 cursor-pointer" title="수정">
-                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>
-              </button>
-            </div>
-            <span className="text-[10px] text-gray-400">{o.shipping_company}</span>
-            {!o.cafe24_shipping_synced && <span className="text-[10px] text-orange-500">미연동</span>}
-          </div>
+          (() => {
+            const numbers = o.tracking_number.split(",").map(n => n.trim()).filter(Boolean);
+            return (
+              <div className="flex flex-col gap-0.5">
+                {numbers.map((num, i) => {
+                  const url = getTrackingUrl(o.shipping_company, num);
+                  return (
+                    <div key={i} className="flex items-center gap-1">
+                      {url ? (
+                        <a href={url} target="_blank" rel="noopener noreferrer"
+                          className="text-blue-600 hover:text-blue-800 hover:underline font-mono text-xs truncate"
+                          title={`배송추적: ${num}`}>
+                          {num}
+                        </a>
+                      ) : (
+                        <span className="font-mono text-gray-700 text-xs truncate">{num}</span>
+                      )}
+                      {i === 0 && (
+                        <button onClick={() => onTrackingEdit(o.id, { company: o.shipping_company || "CJ대한통운", number: o.tracking_number })}
+                          className="text-gray-400 hover:text-gray-600 cursor-pointer flex-shrink-0" title="수정">
+                          <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>
+                        </button>
+                      )}
+                    </div>
+                  );
+                })}
+                <span className="text-[10px] text-gray-400">{o.shipping_company}{numbers.length > 1 ? ` (${numbers.length}건)` : ""}</span>
+                {!o.cafe24_shipping_synced && <span className="text-[10px] text-orange-500">미연동</span>}
+              </div>
+            );
+          })()
         ) : noTrack ? (
           <button onClick={() => onTrackingEdit(o.id, { company: "CJ대한통운", number: "" })}
             className="text-[11px] text-blue-600 hover:underline cursor-pointer">+ 송장 입력</button>
@@ -1525,7 +1534,7 @@ export default function UnifiedOrdersPage() {
               <col className="w-[72px]" />{/* 판매가 */}
               <col className="w-[64px]" />{/* 판매배송비 */}
               <col className="w-[56px]" />{/* 입금 */}
-              <col className="w-[120px]" />{/* 송장 */}
+              <col className="w-[130px]" />{/* 송장 */}
               <col className="w-[64px]" />{/* 발주종류 */}
               <col className="w-[100px]" />{/* 발주상태 */}
               <col className="w-[72px]" />{/* 배송상태 */}
