@@ -1125,8 +1125,8 @@ export default function UnifiedOrdersPage() {
   // Reset page on filter change
   useEffect(() => { setPage(0); }, [rawOrders, filterSupplier, filterNoTracking, filterNoSupplier, filterDomestic, poTab, searchKeyword, colFilterOrderNo, colFilterProduct, colFilterCustomer, colFilterAddress, colFilterAddrStatus, colFilterChannel, colFilterPayment, colFilterPOType, colFilterPOStatus, colFilterQty, colFilterAmount, colFilterTracking]);
 
-  const totalPages = Math.max(1, Math.ceil(orders.length / pageSize));
-  const pagedOrders = useMemo(() => orders.slice(page * pageSize, (page + 1) * pageSize), [orders, page, pageSize]);
+  const totalPages = 1;
+  const pagedOrders = orders;
 
   const filteredStores = useMemo(() => stores.filter((s) => !PSEUDO_STORES.includes(s.name)), [stores]);
 
@@ -1987,7 +1987,7 @@ export default function UnifiedOrdersPage() {
                   o={o}
                   idx={idx}
                   displayedCount={stats.displayed}
-                  pageOffset={page * pageSize}
+                  pageOffset={0}
                   isSelected={selected.has(o.id)}
                   toggleSelect={toggleSelect}
                   editingField={editingCell?.orderId === o.id ? editingCell.field : null}
