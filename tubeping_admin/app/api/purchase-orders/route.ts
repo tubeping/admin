@@ -19,6 +19,7 @@ export async function GET(request: NextRequest) {
   let query = sb
     .from("purchase_orders")
     .select("*, suppliers:supplier_id(name, email)")
+    .order("order_date", { ascending: false })
     .order("created_at", { ascending: false });
 
   if (status) query = query.eq("status", status);
