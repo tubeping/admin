@@ -14,7 +14,6 @@ export async function GET(request: NextRequest) {
   const startDate = searchParams.get("start_date");
   const endDate = searchParams.get("end_date");
   const limit = parseInt(searchParams.get("limit") || "10000", 10);
-  const offset = Math.max(parseInt(searchParams.get("offset") || "0", 10), 0);
   const poId = searchParams.get("purchase_order_id");
   const includeDraft = searchParams.get("include_draft") === "true";
 
@@ -73,9 +72,9 @@ export async function GET(request: NextRequest) {
 
     allData = allData.concat(chunk);
     const lastRow = chunk[chunk.length - 1];
-    cursorDate = lastRow.order_date;
+    cursorDate = lastRow.order_date || null;
     cursorId = lastRow.id;
-    if (chunk.length < CHUNK) break;
+    if (chunk.length < CHUNK || !cursorDate) break;
   }
 
   const data = allData;

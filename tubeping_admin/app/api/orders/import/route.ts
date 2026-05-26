@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServiceClient } from "@/lib/supabase";
+import { CHANNEL_PREFIX } from "@/lib/orderPrefix";
 import * as XLSX from "xlsx";
 
 /**
@@ -18,7 +19,6 @@ export async function POST(request: NextRequest) {
   // 판매방식 (전화주문/공구주문/샘플) — store와 별개. 'phone' | 'group' | 'sample' | null
   const salesChannelRaw = (formData.get("sales_channel") as string | null) || null;
   const salesChannel = ["phone", "group", "sample", "sms", "etc"].includes(salesChannelRaw || "") ? salesChannelRaw : null;
-  const CHANNEL_PREFIX: Record<string, string> = { phone: "TEL", sms: "SMS", sample: "SPL", etc: "ETC", group: "JP" };
 
   if (!file) {
     return NextResponse.json({ error: "파일이 없습니다" }, { status: 400 });

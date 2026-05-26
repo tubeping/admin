@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useMemo, memo, useRef } from "react";
+import { orderIdSortKey } from "@/lib/orderPrefix";
 
 interface Store { id: string; name: string; mall_id: string; status: string; }
 interface Supplier { id: string; name: string; email: string; }
@@ -344,17 +345,12 @@ function formatDateTime(d: string) {
 function today() { return new Date().toISOString().slice(0, 10); }
 function daysAgo(n: number) { return new Date(Date.now() - n * 86400000).toISOString().slice(0, 10); }
 function normPhone(s: string) { return (s || "").replace(/[^0-9]/g, ""); }
-/** 주문번호에서 접두사 제거 → 숫자부분만 추출 (정렬용) */
-function orderIdSortKey(id: string): string {
-  return id.replace(/^(TEL|SMS|SPL|ETC|JP|MR|EXCEL)-/, "");
-}
-
 /* ── OrderRow (memo-ized) ── */
 const OrderRow = memo(function OrderRow({
-  o, idx, displayedCount, pageOffset, isSelected, toggleSelect, editingField, onStartEdit, saveCellEdit, stores, fetchOrders,
+  o, idx, displayedCount, isSelected, toggleSelect, editingField, onStartEdit, saveCellEdit, stores, fetchOrders,
   trackingEdit, onTrackingEdit, onSaveTracking, saving, onOpenCs, addrStatus, onEditAddress,
 }: {
-  o: Order; idx: number; displayedCount: number; pageOffset: number; isSelected: boolean;
+  o: Order; idx: number; displayedCount: number; isSelected: boolean;
   toggleSelect: (id: string) => void;
   editingField: "channel" | "store" | "orderId" | null;
   onStartEdit: (orderId: string, field: "channel" | "store" | "orderId") => void;
@@ -394,7 +390,7 @@ const OrderRow = memo(function OrderRow({
         <input type="checkbox" checked={isSelected} onChange={() => toggleSelect(o.id)} onClick={(e) => e.stopPropagation()} className="rounded w-3.5 h-3.5" />
       </td>
       {/* 2. No */}
-      <td className="px-1.5 py-1.5 text-[11px] text-gray-400">{displayedCount - pageOffset - idx}</td>
+      <td className="px-1.5 py-1.5 text-[11px] text-gray-400">{displayedCount - idx}</td>
       {/* 3. 주문번호 (inline editable) */}
       <td
         className="px-1.5 py-1.5 whitespace-nowrap cursor-pointer hover:bg-gray-100/60"
@@ -694,13 +690,10 @@ function loadSavedFilters() {
 }
 
 export default function UnifiedOrdersPage() {
-  const pageSize = 50;
-
   const [rawOrders, setRawOrders] = useState<Order[]>([]);
   const [stores, setStores] = useState<Store[]>([]);
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [total, setTotal] = useState(0);
-  const [page, setPage] = useState(0);
   const sampleCount = useMemo(() => rawOrders.filter((o) => o.sales_channel === "sample").length, [rawOrders]);
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
@@ -1129,10 +1122,6 @@ export default function UnifiedOrdersPage() {
     });
   }, [rawOrders, filterSupplier, filterNoTracking, filterNoSupplier, filterDomestic, poTab, searchKeyword, colFilterOrderNo, colFilterProduct, colFilterCustomer, colFilterAddress, colFilterAddrStatus, colFilterChannel, colFilterPayment, colFilterPOType, colFilterPOStatus, colFilterQty, colFilterAmount, colFilterTracking]);
 
-  // Reset page on filter change
-  useEffect(() => { setPage(0); }, [rawOrders, filterSupplier, filterNoTracking, filterNoSupplier, filterDomestic, poTab, searchKeyword, colFilterOrderNo, colFilterProduct, colFilterCustomer, colFilterAddress, colFilterAddrStatus, colFilterChannel, colFilterPayment, colFilterPOType, colFilterPOStatus, colFilterQty, colFilterAmount, colFilterTracking]);
-
-  const totalPages = 1;
   const pagedOrders = orders;
 
   const filteredStores = useMemo(() => stores.filter((s) => !PSEUDO_STORES.includes(s.name)), [stores]);
@@ -1994,7 +1983,6 @@ export default function UnifiedOrdersPage() {
                   o={o}
                   idx={idx}
                   displayedCount={stats.displayed}
-                  pageOffset={0}
                   isSelected={selected.has(o.id)}
                   toggleSelect={toggleSelect}
                   editingField={editingCell?.orderId === o.id ? editingCell.field : null}
@@ -2014,44 +2002,6 @@ export default function UnifiedOrdersPage() {
             </tbody>
           </table>
 
-          {/* Pagination */}
-          {totalPages > 1 && (
-            <div className="flex items-center justify-between px-4 py-3 border-t border-gray-100">
-              <span className="text-xs text-gray-500">
-                {page * pageSize + 1}~{Math.min((page + 1) * pageSize, orders.length)} / {orders.length}건
-              </span>
-              <div className="flex items-center gap-1">
-                <button onClick={() => setPage(0)} disabled={page === 0}
-                  className="px-2 py-1 text-xs border border-gray-300 rounded hover:bg-gray-50 disabled:opacity-30 disabled:cursor-default cursor-pointer">&#171;</button>
-                <button onClick={() => setPage((p) => Math.max(0, p - 1))} disabled={page === 0}
-                  className="px-2 py-1 text-xs border border-gray-300 rounded hover:bg-gray-50 disabled:opacity-30 disabled:cursor-default cursor-pointer">&#8249;</button>
-                {Array.from({ length: totalPages }, (_, i) => i)
-                  .filter((i) => i === 0 || i === totalPages - 1 || Math.abs(i - page) <= 2)
-                  .reduce<(number | "...")[]>((acc, i, idx, arr) => {
-                    if (idx > 0 && i - (arr[idx - 1] as number) > 1) acc.push("...");
-                    acc.push(i);
-                    return acc;
-                  }, [])
-                  .map((item, i) =>
-                    item === "..." ? (
-                      <span key={`dot-${i}`} className="px-1 text-xs text-gray-400">...</span>
-                    ) : (
-                      <button
-                        key={item}
-                        onClick={() => setPage(item as number)}
-                        className={`px-2.5 py-1 text-xs rounded cursor-pointer ${
-                          page === item ? "bg-[#C41E1E] text-white" : "border border-gray-300 hover:bg-gray-50"
-                        }`}
-                      >{(item as number) + 1}</button>
-                    )
-                  )}
-                <button onClick={() => setPage((p) => Math.min(totalPages - 1, p + 1))} disabled={page === totalPages - 1}
-                  className="px-2 py-1 text-xs border border-gray-300 rounded hover:bg-gray-50 disabled:opacity-30 disabled:cursor-default cursor-pointer">&#8250;</button>
-                <button onClick={() => setPage(totalPages - 1)} disabled={page === totalPages - 1}
-                  className="px-2 py-1 text-xs border border-gray-300 rounded hover:bg-gray-50 disabled:opacity-30 disabled:cursor-default cursor-pointer">&#187;</button>
-              </div>
-            </div>
-          )}
           </>
         )}
       </div>
