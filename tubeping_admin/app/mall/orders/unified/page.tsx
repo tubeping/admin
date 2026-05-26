@@ -66,21 +66,42 @@ const STATUS_STYLE: Record<string, string> = {
   exchanged: "bg-purple-50 text-purple-600",
 };
 
+/** 주소 문자열에서 JUSO API 검색에 적합한 키워드 추출 */
+function extractAddrKeyword(addr: string): string {
+  if (!addr) return "";
+  // 우편번호·괄호 제거
+  let s = addr.replace(/\(?\d{5}\)?/g, "").replace(/\([^)]*\)/g, "").trim();
+  // 시/도 ~ 도로명+번지까지만 추출 (상세주소 제거)
+  const roadMatch = s.match(/.+?(?:로|길|대로)\s*\d+[\-\d]*/);
+  if (roadMatch) s = roadMatch[0];
+  // 앞 3~4 토큰만
+  const tokens = s.split(/\s+/).filter(Boolean);
+  return tokens.slice(0, 4).join(" ");
+}
+
 /* ── AddressEditModal — JUSO API 연동 주소 수정 모달 ── */
 function AddressEditModal({ order, onClose, onSave }: {
   order: Order;
   onClose: () => void;
-  onSave: (orderId: string, newAddress: string) => void;
+  onSave: (orderId: string, newAddress: string) => Promise<void>;
 }) {
-  const [keyword, setKeyword] = useState(order.receiver_address || "");
+  const [keyword, setKeyword] = useState(() => extractAddrKeyword(order.receiver_address || ""));
   const [results, setResults] = useState<{ zipNo: string; roadAddr: string; jibunAddr: string; bdNm: string }[]>([]);
   const [searching, setSearching] = useState(false);
+  const [saving, setSaving] = useState(false);
   const [detailAddr, setDetailAddr] = useState("");
   const [selectedAddr, setSelectedAddr] = useState<{ zipNo: string; roadAddr: string } | null>(null);
   const [manualAddr, setManualAddr] = useState(order.receiver_address || "");
   const [totalCount, setTotalCount] = useState(0);
   const [currentPage, setCurrentPage] = useState(1);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  // ESC 키로 닫기
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
 
   useEffect(() => { inputRef.current?.focus(); }, []);
 
@@ -103,12 +124,16 @@ function AddressEditModal({ order, onClose, onSave }: {
     setManualAddr(`(${r.zipNo}) ${r.roadAddr}`);
   };
 
-  const handleSave = () => {
+  const handleSave = async () => {
+    if (saving) return; // 더블클릭 방지
     const finalAddr = selectedAddr
       ? `(${selectedAddr.zipNo}) ${selectedAddr.roadAddr}${detailAddr ? " " + detailAddr : ""}`
       : manualAddr.trim();
     if (!finalAddr) { alert("주소를 입력해주세요"); return; }
-    onSave(order.id, finalAddr);
+    if (finalAddr === order.receiver_address) { onClose(); return; } // 동일 주소면 스킵
+    setSaving(true);
+    await onSave(order.id, finalAddr);
+    setSaving(false);
   };
 
   const totalPages = Math.ceil(totalCount / 10);
@@ -228,9 +253,9 @@ function AddressEditModal({ order, onClose, onSave }: {
 
         {/* Footer */}
         <div className="p-4 border-t border-gray-100 mt-2 flex justify-end gap-2">
-          <button onClick={onClose} className="px-4 py-1.5 border border-gray-300 text-xs rounded-lg hover:bg-gray-50 cursor-pointer">취소</button>
-          <button onClick={handleSave} className="px-5 py-1.5 bg-blue-600 text-white text-xs font-medium rounded-lg hover:bg-blue-700 cursor-pointer">
-            주소 저장
+          <button onClick={onClose} disabled={saving} className="px-4 py-1.5 border border-gray-300 text-xs rounded-lg hover:bg-gray-50 cursor-pointer disabled:opacity-40">취소</button>
+          <button onClick={handleSave} disabled={saving} className="px-5 py-1.5 bg-blue-600 text-white text-xs font-medium rounded-lg hover:bg-blue-700 cursor-pointer disabled:opacity-50">
+            {saving ? "저장 중..." : "주소 저장"}
           </button>
         </div>
       </div>
@@ -319,13 +344,17 @@ function formatDateTime(d: string) {
 function today() { return new Date().toISOString().slice(0, 10); }
 function daysAgo(n: number) { return new Date(Date.now() - n * 86400000).toISOString().slice(0, 10); }
 function normPhone(s: string) { return (s || "").replace(/[^0-9]/g, ""); }
+/** 주문번호에서 접두사 제거 → 숫자부분만 추출 (정렬용) */
+function orderIdSortKey(id: string): string {
+  return id.replace(/^(TEL|SMS|SPL|ETC|JP|MR|EXCEL)-/, "");
+}
 
 /* ── OrderRow (memo-ized) ── */
 const OrderRow = memo(function OrderRow({
-  o, idx, displayedCount, isSelected, toggleSelect, editingField, onStartEdit, saveCellEdit, stores, fetchOrders,
+  o, idx, displayedCount, pageOffset, isSelected, toggleSelect, editingField, onStartEdit, saveCellEdit, stores, fetchOrders,
   trackingEdit, onTrackingEdit, onSaveTracking, saving, onOpenCs, addrStatus, onEditAddress,
 }: {
-  o: Order; idx: number; displayedCount: number; isSelected: boolean;
+  o: Order; idx: number; displayedCount: number; pageOffset: number; isSelected: boolean;
   toggleSelect: (id: string) => void;
   editingField: "channel" | "store" | "orderId" | null;
   onStartEdit: (orderId: string, field: "channel" | "store" | "orderId") => void;
@@ -334,7 +363,7 @@ const OrderRow = memo(function OrderRow({
   fetchOrders: () => void;
   trackingEdit: { company: string; number: string } | undefined;
   onTrackingEdit: (orderId: string, edit: { company: string; number: string } | null) => void;
-  onSaveTracking: (orderId: string) => void;
+  onSaveTracking: (orderId: string, edit?: { company: string; number: string }) => void;
   saving: boolean;
   onOpenCs: (order: Order) => void;
   addrStatus?: AddrVerifyResult;
@@ -344,6 +373,15 @@ const OrderRow = memo(function OrderRow({
   const noSup = !o.supplier_id;
   const noPO = !o.purchase_order_id && o.shipping_status !== "cancelled" && o.shipping_status !== "delivered" && o.shipping_status !== "ordered";
   const editing = !!trackingEdit;
+  // 로컬 state로 입력 처리 — 키 입력마다 상위 리렌더 방지
+  const [localTrackingCompany, setLocalTrackingCompany] = useState(trackingEdit?.company || "CJ대한통운");
+  const [localTrackingNumber, setLocalTrackingNumber] = useState(trackingEdit?.number || "");
+  useEffect(() => {
+    if (trackingEdit) {
+      setLocalTrackingCompany(trackingEdit.company);
+      setLocalTrackingNumber(trackingEdit.number);
+    }
+  }, [trackingEdit]);
   return (
     <tr
       className={`hover:bg-gray-50/50 cursor-pointer [&>td]:border-b [&>td]:border-gray-100 ${
@@ -356,7 +394,7 @@ const OrderRow = memo(function OrderRow({
         <input type="checkbox" checked={isSelected} onChange={() => toggleSelect(o.id)} onClick={(e) => e.stopPropagation()} className="rounded w-3.5 h-3.5" />
       </td>
       {/* 2. No */}
-      <td className="px-1.5 py-1.5 text-[11px] text-gray-400">{displayedCount - idx}</td>
+      <td className="px-1.5 py-1.5 text-[11px] text-gray-400">{displayedCount - pageOffset - idx}</td>
       {/* 3. 주문번호 (inline editable) */}
       <td
         className="px-1.5 py-1.5 whitespace-nowrap cursor-pointer hover:bg-gray-100/60"
@@ -394,7 +432,6 @@ const OrderRow = memo(function OrderRow({
         ) : (
           <div className="text-xs font-medium text-gray-900">{o.cafe24_order_id}</div>
         )}
-        <div className="text-[10px] text-gray-400">{formatDateTime(o.order_date)}</div>
       </td>
       {/* 4. 상품/옵션 */}
       <td className="px-1.5 py-1.5 max-w-[200px]">
@@ -551,14 +588,14 @@ const OrderRow = memo(function OrderRow({
       <td className="px-1.5 py-1.5 text-xs" onClick={(e) => e.stopPropagation()}>
         {editing ? (
           <div className="flex flex-col gap-1 min-w-[150px]">
-            <select value={trackingEdit!.company} onChange={(e) => onTrackingEdit(o.id, { ...trackingEdit!, company: e.target.value })}
+            <select value={localTrackingCompany} onChange={(e) => setLocalTrackingCompany(e.target.value)}
               className="border border-gray-300 rounded px-1 py-0.5 text-xs">
               {SHIPPING_COMPANIES.map((c) => <option key={c} value={c}>{c}</option>)}
             </select>
-            <input type="text" value={trackingEdit!.number} onChange={(e) => onTrackingEdit(o.id, { ...trackingEdit!, number: e.target.value })}
+            <input type="text" value={localTrackingNumber} onChange={(e) => setLocalTrackingNumber(e.target.value)}
               placeholder="송장번호" className="border border-gray-300 rounded px-1 py-0.5 text-xs font-mono" autoFocus />
             <div className="flex gap-1">
-              <button disabled={saving} onClick={() => onSaveTracking(o.id)} className="flex-1 bg-gray-900 text-white text-[10px] py-0.5 rounded hover:bg-black cursor-pointer disabled:opacity-50">저장</button>
+              <button disabled={saving} onClick={() => onSaveTracking(o.id, { company: localTrackingCompany, number: localTrackingNumber })} className="flex-1 bg-gray-900 text-white text-[10px] py-0.5 rounded hover:bg-black cursor-pointer disabled:opacity-50">저장</button>
               <button onClick={() => onTrackingEdit(o.id, null)} className="flex-1 bg-white border border-gray-300 text-[10px] py-0.5 rounded hover:bg-gray-50 cursor-pointer">취소</button>
             </div>
           </div>
@@ -725,6 +762,8 @@ export default function UnifiedOrdersPage() {
 
   // Tracking inline edit
   const [trackingEdit, setTrackingEdit] = useState<Record<string, { company: string; number: string }>>({});
+  const trackingEditRef = useRef(trackingEdit);
+  trackingEditRef.current = trackingEdit;
 
   // CS modal
   const [csModalOrder, setCsModalOrder] = useState<Order | null>(null);
@@ -753,12 +792,16 @@ export default function UnifiedOrdersPage() {
     if (filterSupplier && filterSupplier !== "__none__") params.set("supplier_id", filterSupplier);
     if (dateFrom) params.set("start_date", dateFrom);
     if (dateTo) params.set("end_date", dateTo);
-    params.set("limit", "500");
+    params.set("limit", "10000");
 
     const res = await fetch(`/admin/api/orders?${params}`);
     if (!res.ok) { setLoading(false); return; }
     const data = await res.json();
-    const fetchedOrders = data.orders || [];
+    const fetchedOrders = (data.orders || []).sort((a: Order, b: Order) => {
+      const ka = orderIdSortKey(a.cafe24_order_id);
+      const kb = orderIdSortKey(b.cafe24_order_id);
+      return kb.localeCompare(ka); // 내림차순
+    });
     setRawOrders(fetchedOrders);
     setTotal(data.total || 0);
     // DB에 저장된 주소검증 결과를 addrResults에 반영 (DB가 우선)
@@ -793,8 +836,8 @@ export default function UnifiedOrdersPage() {
     } catch { /* 재검증 실패해도 주소는 이미 저장됨 */ }
   }, [patchOrder, fetchOrders]);
 
-  const saveTracking = useCallback(async (id: string) => {
-    const edit = trackingEdit[id];
+  const saveTracking = useCallback(async (id: string, editOverride?: { company: string; number: string }) => {
+    const edit = editOverride || trackingEditRef.current[id];
     if (!edit || !edit.number.trim()) return;
     const trimmedNumber = edit.number.trim();
     const company = edit.company || "CJ대한통운";
@@ -809,7 +852,7 @@ export default function UnifiedOrdersPage() {
       // 실패 시 롤백
       fetchOrders();
     }
-  }, [trackingEdit, fetchOrders, patchOrder]);
+  }, [fetchOrders, patchOrder]);
 
   const handleTrackingEdit = useCallback((orderId: string, edit: { company: string; number: string } | null) => {
     if (edit === null) {
@@ -1089,8 +1132,8 @@ export default function UnifiedOrdersPage() {
   // Reset page on filter change
   useEffect(() => { setPage(0); }, [rawOrders, filterSupplier, filterNoTracking, filterNoSupplier, filterDomestic, poTab, searchKeyword, colFilterOrderNo, colFilterProduct, colFilterCustomer, colFilterAddress, colFilterAddrStatus, colFilterChannel, colFilterPayment, colFilterPOType, colFilterPOStatus, colFilterQty, colFilterAmount, colFilterTracking]);
 
-  const totalPages = Math.max(1, Math.ceil(orders.length / pageSize));
-  const pagedOrders = useMemo(() => orders.slice(page * pageSize, (page + 1) * pageSize), [orders, page, pageSize]);
+  const totalPages = 1;
+  const pagedOrders = orders;
 
   const filteredStores = useMemo(() => stores.filter((s) => !PSEUDO_STORES.includes(s.name)), [stores]);
 
@@ -1142,7 +1185,23 @@ export default function UnifiedOrdersPage() {
 
   const handleShipmentSync = async () => {
     setSyncing(true);
-    await fetch("/admin/api/cafe24/shipments", { method: "POST", body: "{}" });
+    try {
+      const res = await fetch("/admin/api/cafe24/shipments", { method: "POST", body: "{}" });
+      const data = await res.json();
+      if (data.synced > 0) {
+        alert(`송장연동 완료: ${data.synced}건 성공` + (data.failed > 0 ? `, ${data.failed}건 실패` : ""));
+      } else if (data.failed > 0) {
+        const errors = (data.results || [])
+          .filter((r: { success: boolean }) => !r.success)
+          .map((r: { cafe24_order_id: string; error?: string }) => `${r.cafe24_order_id}: ${r.error}`)
+          .join("\n");
+        alert(`송장연동 실패 ${data.failed}건:\n${errors}`);
+      } else {
+        alert(data.message || "연동할 송장이 없습니다");
+      }
+    } catch (err) {
+      alert(`송장연동 오류: ${err instanceof Error ? err.message : "알 수 없는 오류"}`);
+    }
     await fetchOrders();
     setSyncing(false);
   };
@@ -1436,17 +1495,7 @@ export default function UnifiedOrdersPage() {
               >{p.label}</button>
             ))}
           </div>
-          <div className="w-px h-6 bg-gray-200" />
-          <input
-            value={searchKeyword} onChange={(e) => setSearchKeyword(e.target.value)}
-            className="text-sm border border-gray-300 rounded-lg px-3 py-1.5 w-64"
-            placeholder="상품명, 주문번호, 주문자, 연락처, 송장번호"
-          />
-          <label className="flex items-center gap-1.5 text-xs text-gray-600 cursor-pointer">
-            <input type="checkbox" checked={filterDomestic} onChange={(e) => setFilterDomestic(e.target.checked)} className="rounded" />
-            자사몰
-          </label>
-          <div className="ml-auto flex gap-2">
+          <div className="flex gap-2">
             <button onClick={() => fetchOrders()} className="px-3 py-1.5 bg-gray-900 text-white text-sm rounded-lg hover:bg-gray-700 cursor-pointer">검색</button>
             <button onClick={handleReset} className="px-3 py-1.5 border border-gray-300 text-sm rounded-lg hover:bg-gray-50 cursor-pointer">초기화</button>
           </div>
@@ -1943,8 +1992,9 @@ export default function UnifiedOrdersPage() {
                 <OrderRow
                   key={o.id}
                   o={o}
-                  idx={page * pageSize + idx}
+                  idx={idx}
                   displayedCount={stats.displayed}
+                  pageOffset={0}
                   isSelected={selected.has(o.id)}
                   toggleSelect={toggleSelect}
                   editingField={editingCell?.orderId === o.id ? editingCell.field : null}

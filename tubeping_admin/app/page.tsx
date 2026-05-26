@@ -3,14 +3,18 @@
 import { useEffect, useState } from "react";
 import Sidebar from "./_components/sidebar";
 
-type StatCard = { label: string; value: string };
-type Order = {
+type RecentPO = {
   id: string;
-  product: string;
-  channel: string;
-  qty: number;
+  po_number: string;
+  order_date: string;
+  supplier_name: string;
+  order_count: number;
+  tracked_count: number;
   status: string;
-  date: string;
+  status_label: string;
+  sent_at: string | null;
+  viewed_at: string | null;
+  source: string;
 };
 type Task = { title: string; assignee: string; due: string; priority: string };
 
@@ -20,18 +24,18 @@ type DashboardData = {
     monthPoCount: number;
     unsettledAmount: number;
     blogPostCount: number;
+    poStatusCounts: { sent: number; viewed: number; completed: number };
   };
-  recentOrders: Order[];
+  recentPOs: RecentPO[];
   activeTasks: Task[];
 };
 
-const STATUS_COLORS: Record<string, string> = {
-  "발주완료": "bg-blue-100 text-blue-700",
-  "배송중": "bg-yellow-100 text-yellow-700",
-  "정산대기": "bg-orange-100 text-orange-700",
-  "배송완료": "bg-green-100 text-green-700",
-  "대기": "bg-gray-100 text-gray-600",
-  "취소": "bg-red-100 text-red-700",
+const PO_STATUS_STYLE: Record<string, string> = {
+  draft: "bg-gray-100 text-gray-600",
+  sent: "bg-blue-100 text-blue-700",
+  viewed: "bg-yellow-100 text-yellow-700",
+  completed: "bg-green-100 text-green-700",
+  cancelled: "bg-red-100 text-red-600",
 };
 
 const PRIORITY_COLORS: Record<string, string> = {
@@ -42,13 +46,9 @@ const PRIORITY_COLORS: Record<string, string> = {
 
 const KRW = new Intl.NumberFormat("ko-KR");
 
-function buildStatCards(d: DashboardData | null): StatCard[] {
-  return [
-    { label: "총 상품 수", value: d ? KRW.format(d.stats.productCount) : "—" },
-    { label: "이번 달 발주", value: d ? KRW.format(d.stats.monthPoCount) : "—" },
-    { label: "미정산 금액", value: d ? `₩${KRW.format(d.stats.unsettledAmount)}` : "—" },
-    { label: "블로그 게시글", value: d ? KRW.format(d.stats.blogPostCount) : "—" },
-  ];
+function formatKST(isoStr: string | null): string {
+  if (!isoStr) return "-";
+  return new Date(new Date(isoStr).getTime() + 9 * 3600000).toISOString().slice(0, 16).replace("T", " ");
 }
 
 export default function AdminDashboard() {
@@ -74,7 +74,14 @@ export default function AdminDashboard() {
     };
   }, []);
 
-  const stats = buildStatCards(data);
+  const statCards = [
+    { label: "총 상품 수", value: data ? KRW.format(data.stats.productCount) : "—" },
+    { label: "이번 달 발주", value: data ? `${KRW.format(data.stats.monthPoCount)}건` : "—" },
+    { label: "발주서 이메일 발송", value: data ? `${data.stats.poStatusCounts.sent}건` : "—", highlight: data && data.stats.poStatusCounts.sent > 0 },
+    { label: "발주서 열람", value: data ? `${data.stats.poStatusCounts.viewed}건` : "—" },
+    { label: "송장등록완료", value: data ? `${data.stats.poStatusCounts.completed}건` : "—" },
+    { label: "미정산 금액", value: data ? `₩${KRW.format(data.stats.unsettledAmount)}` : "—" },
+  ];
 
   return (
     <div className="flex h-screen bg-[#F9FAFB]">
@@ -98,60 +105,75 @@ export default function AdminDashboard() {
           </div>
 
           {/* Stats */}
-          <div className="grid grid-cols-4 gap-5 mb-8">
-            {stats.map((stat) => (
-              <div key={stat.label} className="bg-white rounded-xl border border-gray-200 p-5">
-                <p className="text-sm text-gray-500">{stat.label}</p>
-                <p className="text-2xl font-bold text-gray-900 mt-1">{stat.value}</p>
+          <div className="grid grid-cols-6 gap-4 mb-8">
+            {statCards.map((stat) => (
+              <div key={stat.label} className="bg-white rounded-xl border border-gray-200 p-4">
+                <p className="text-xs text-gray-500">{stat.label}</p>
+                <p className={`text-xl font-bold mt-1 ${stat.highlight ? "text-blue-600" : "text-gray-900"}`}>{stat.value}</p>
               </div>
             ))}
           </div>
 
           <div className="grid grid-cols-3 gap-6">
-            {/* Recent Orders */}
+            {/* Recent POs */}
             <div className="col-span-2 bg-white rounded-xl border border-gray-200">
               <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
-                <h2 className="text-base font-semibold text-gray-900">최근 발주</h2>
-                <span className="text-xs text-gray-400">최근 5건</span>
+                <h2 className="text-base font-semibold text-gray-900">최근 발주서</h2>
+                <span className="text-xs text-gray-400">최근 10건</span>
               </div>
               <table className="w-full">
                 <thead>
                   <tr className="text-xs text-gray-500 border-b border-gray-50">
-                    <th className="text-left px-6 py-3 font-medium">주문번호</th>
-                    <th className="text-left px-3 py-3 font-medium">상품</th>
-                    <th className="text-left px-3 py-3 font-medium">채널</th>
-                    <th className="text-right px-3 py-3 font-medium">수량</th>
+                    <th className="text-center px-3 py-3 font-medium">발주일</th>
+                    <th className="text-left px-3 py-3 font-medium">발주번호</th>
+                    <th className="text-left px-3 py-3 font-medium">공급사</th>
+                    <th className="text-center px-3 py-3 font-medium">주문</th>
+                    <th className="text-center px-3 py-3 font-medium">송장</th>
                     <th className="text-center px-3 py-3 font-medium">상태</th>
-                    <th className="text-right px-6 py-3 font-medium">날짜</th>
+                    <th className="text-center px-3 py-3 font-medium">발송시점</th>
+                    <th className="text-center px-3 py-3 font-medium">열람시점</th>
                   </tr>
                 </thead>
                 <tbody>
                   {data === null && (
                     <tr>
-                      <td colSpan={6} className="px-6 py-8 text-sm text-gray-400 text-center">
+                      <td colSpan={8} className="px-6 py-8 text-sm text-gray-400 text-center">
                         불러오는 중…
                       </td>
                     </tr>
                   )}
-                  {data && data.recentOrders.length === 0 && (
+                  {data && data.recentPOs.length === 0 && (
                     <tr>
-                      <td colSpan={6} className="px-6 py-8 text-sm text-gray-400 text-center">
-                        최근 주문이 없습니다
+                      <td colSpan={8} className="px-6 py-8 text-sm text-gray-400 text-center">
+                        최근 발주서가 없습니다
                       </td>
                     </tr>
                   )}
-                  {data?.recentOrders.map((order) => (
-                    <tr key={order.id} className="border-b border-gray-50 last:border-0 hover:bg-gray-50/50">
-                      <td className="px-6 py-3 text-sm font-medium text-gray-900">{order.id}</td>
-                      <td className="px-3 py-3 text-sm text-gray-700">{order.product}</td>
-                      <td className="px-3 py-3 text-sm text-gray-500">{order.channel}</td>
-                      <td className="px-3 py-3 text-sm text-gray-700 text-right">{order.qty}</td>
-                      <td className="px-3 py-3 text-center">
-                        <span className={`text-xs font-medium px-2 py-1 rounded-full ${STATUS_COLORS[order.status] || "bg-gray-100 text-gray-600"}`}>
-                          {order.status}
+                  {data?.recentPOs.map((po) => (
+                    <tr key={po.id} className="border-b border-gray-50 last:border-0 hover:bg-gray-50/50">
+                      <td className="px-3 py-3 text-sm text-gray-500 text-center">{po.order_date}</td>
+                      <td className="px-3 py-3 text-sm font-medium text-gray-900">
+                        <span className="flex items-center gap-1">
+                          {po.po_number}
+                          {po.source === "legacy" && (
+                            <span className="text-[9px] font-medium px-1 py-0.5 rounded bg-purple-100 text-purple-700">발주모아</span>
+                          )}
                         </span>
                       </td>
-                      <td className="px-6 py-3 text-sm text-gray-500 text-right">{order.date}</td>
+                      <td className="px-3 py-3 text-sm text-gray-700">{po.supplier_name}</td>
+                      <td className="px-3 py-3 text-sm text-gray-700 text-center">{po.order_count}</td>
+                      <td className="px-3 py-3 text-sm text-center">
+                        <span className={po.tracked_count < po.order_count ? "text-orange-600 font-medium" : "text-green-600"}>
+                          {po.tracked_count}/{po.order_count}
+                        </span>
+                      </td>
+                      <td className="px-3 py-3 text-center">
+                        <span className={`text-[11px] font-medium px-2 py-1 rounded-full ${PO_STATUS_STYLE[po.status] || PO_STATUS_STYLE.draft}`}>
+                          {po.status_label}
+                        </span>
+                      </td>
+                      <td className="px-3 py-3 text-xs text-gray-500 text-center">{formatKST(po.sent_at)}</td>
+                      <td className="px-3 py-3 text-xs text-gray-500 text-center">{formatKST(po.viewed_at)}</td>
                     </tr>
                   ))}
                 </tbody>

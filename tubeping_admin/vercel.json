@@ -15,7 +15,23 @@
     },
     {
       "path": "/admin/api/cron/update-delivery-status",
-      "schedule": "0 1 * * *"
+      "schedule": "0 23 * * *"
+    },
+    {
+      "path": "/admin/api/cron/sync-channeltalk",
+      "schedule": "0 0 * * *"
+    },
+    {
+      "path": "/admin/api/cron/verify-addresses",
+      "schedule": "0 23 * * *"
+    },
+    {
+      "path": "/admin/api/cron/verify-addresses",
+      "schedule": "0 4 * * *"
+    },
+    {
+      "path": "/admin/api/cron/verify-addresses",
+      "schedule": "0 7 * * *"
     }
   ],
   "functions": {
@@ -23,6 +39,12 @@
       "maxDuration": 300
     },
     "app/api/cron/update-delivery-status/route.ts": {
+      "maxDuration": 300
+    },
+    "app/api/cafe24/orders/route.ts": {
+      "maxDuration": 300
+    },
+    "app/api/cron/verify-addresses/route.ts": {
       "maxDuration": 300
     }
   }

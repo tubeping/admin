@@ -5,7 +5,15 @@ import { getServiceClient } from "@/lib/supabase";
 
 export const dynamic = "force-dynamic";
 
-const STATUS_LABEL: Record<string, string> = {
+const PO_STATUS_LABEL: Record<string, string> = {
+  draft: "작성중",
+  sent: "발주서 이메일 발송",
+  viewed: "발주서 열람",
+  completed: "송장등록완료",
+  cancelled: "취소",
+};
+
+const ORDER_STATUS_LABEL: Record<string, string> = {
   pending: "대기",
   ordered: "발주완료",
   shipping: "배송중",
@@ -19,12 +27,10 @@ const TASK_PRIORITY_LABEL: Record<string, string> = {
   low: "낮음",
 };
 
-function thisMonthStartKstISO(): string {
-  // KST(UTC+9) 기준 이번 달 1일 00:00을 UTC로 변환
+function thisMonthStartDate(): string {
   const now = new Date();
   const kst = new Date(now.getTime() + 9 * 60 * 60 * 1000);
-  const start = new Date(Date.UTC(kst.getUTCFullYear(), kst.getUTCMonth(), 1, -9, 0, 0));
-  return start.toISOString();
+  return `${kst.getUTCFullYear()}-${String(kst.getUTCMonth() + 1).padStart(2, "0")}-01`;
 }
 
 function readBlogPostCount(): number {
@@ -48,27 +54,26 @@ function readBlogPostCount(): number {
 
 export async function GET() {
   const sb = getServiceClient();
-  const monthStart = thisMonthStartKstISO();
+  const monthStart = thisMonthStartDate();
 
-  const [productsRes, posRes, settlementRes, ordersRes, tasksRes] = await Promise.all([
+  const [productsRes, allPosRes, monthPosRes, settlementRes, recentPosRes, ordersForPosRes, tasksRes] = await Promise.all([
     sb.from("products").select("id", { count: "exact", head: true }),
-    sb
-      .from("purchase_orders")
-      .select("id", { count: "exact", head: true })
-      .gte("order_date", monthStart.slice(0, 10)),
-    sb
-      .from("settlements")
-      .select("influencer_actual, status")
-      .neq("status", "paid"),
-    sb
-      .from("orders")
-      .select(
-        "id, cafe24_order_id, product_name, quantity, shipping_status, order_date, store:stores(name)"
-      )
+    // 전체 발주서 상태별 카운트
+    sb.from("purchase_orders").select("status"),
+    // 이번 달 발주서 수
+    sb.from("purchase_orders").select("id", { count: "exact", head: true }).gte("order_date", monthStart),
+    sb.from("settlements").select("influencer_actual, status").neq("status", "paid"),
+    // 최근 발주서 10건
+    sb.from("purchase_orders")
+      .select("id, po_number, order_date, status, sent_at, viewed_at, access_expires_at, source, supplier_id, suppliers:supplier_id(name, email)")
       .order("order_date", { ascending: false })
-      .limit(5),
-    sb
-      .from("team_tasks")
+      .order("created_at", { ascending: false })
+      .limit(10),
+    // 최근 발주서 관련 주문 집계용
+    sb.from("orders")
+      .select("purchase_order_id, tracking_number")
+      .not("purchase_order_id", "is", null),
+    sb.from("team_tasks")
       .select("id, title, due_date, priority, status, member:team_members(name)")
       .in("status", ["doing", "wait"])
       .order("due_date", { ascending: true, nullsFirst: false })
@@ -76,7 +81,15 @@ export async function GET() {
   ]);
 
   const productCount = productsRes.count ?? 0;
-  const monthPoCount = posRes.count ?? 0;
+  const monthPoCount = monthPosRes.count ?? 0;
+
+  // 발주서 상태별 집계
+  const poStatusCounts = { sent: 0, viewed: 0, completed: 0 };
+  for (const po of allPosRes.data || []) {
+    if (po.status === "sent") poStatusCounts.sent++;
+    else if (po.status === "viewed") poStatusCounts.viewed++;
+    else if (po.status === "completed") poStatusCounts.completed++;
+  }
 
   const unsettledAmount = (settlementRes.data || []).reduce(
     (sum, r: { influencer_actual?: number | null }) => sum + (r.influencer_actual || 0),
@@ -85,24 +98,40 @@ export async function GET() {
 
   const blogPostCount = readBlogPostCount();
 
-  const recentOrders = (ordersRes.data || []).map(
-    (o: {
+  // 발주서별 주문/송장 집계
+  const poOrderStats: Record<string, { total: number; tracked: number }> = {};
+  for (const o of ordersForPosRes.data || []) {
+    if (!o.purchase_order_id) continue;
+    if (!poOrderStats[o.purchase_order_id]) poOrderStats[o.purchase_order_id] = { total: 0, tracked: 0 };
+    poOrderStats[o.purchase_order_id].total++;
+    if (o.tracking_number && String(o.tracking_number).trim()) poOrderStats[o.purchase_order_id].tracked++;
+  }
+
+  const recentPOs = (recentPosRes.data || []).map(
+    (po: {
       id: string;
-      cafe24_order_id: string | null;
-      product_name: string;
-      quantity: number;
-      shipping_status: string;
+      po_number: string;
       order_date: string;
-      store: { name: string | null } | { name: string | null }[] | null;
+      status: string;
+      sent_at: string | null;
+      viewed_at: string | null;
+      access_expires_at: string | null;
+      source: string;
+      suppliers: { name: string; email: string } | null;
     }) => {
-      const store = Array.isArray(o.store) ? o.store[0] : o.store;
+      const stats = poOrderStats[po.id] || { total: 0, tracked: 0 };
       return {
-        id: o.cafe24_order_id || o.id.slice(0, 8),
-        product: o.product_name,
-        channel: store?.name || "-",
-        qty: o.quantity,
-        status: STATUS_LABEL[o.shipping_status] || o.shipping_status,
-        date: o.order_date ? o.order_date.slice(0, 10) : "",
+        id: po.id,
+        po_number: po.po_number,
+        order_date: po.order_date,
+        supplier_name: po.suppliers?.name || "-",
+        order_count: stats.total,
+        tracked_count: stats.tracked,
+        status: po.status,
+        status_label: PO_STATUS_LABEL[po.status] || po.status,
+        sent_at: po.sent_at,
+        viewed_at: po.viewed_at,
+        source: po.source,
       };
     }
   );
@@ -132,8 +161,9 @@ export async function GET() {
       monthPoCount,
       unsettledAmount,
       blogPostCount,
+      poStatusCounts,
     },
-    recentOrders,
+    recentPOs,
     activeTasks,
   });
 }

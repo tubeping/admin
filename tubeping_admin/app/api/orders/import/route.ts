@@ -17,7 +17,8 @@ export async function POST(request: NextRequest) {
   const storeName = formData.get("store_name") as string | null;
   // 판매방식 (전화주문/공구주문/샘플) — store와 별개. 'phone' | 'group' | 'sample' | null
   const salesChannelRaw = (formData.get("sales_channel") as string | null) || null;
-  const salesChannel = salesChannelRaw === "phone" || salesChannelRaw === "group" || salesChannelRaw === "sample" ? salesChannelRaw : null;
+  const salesChannel = ["phone", "group", "sample", "sms", "etc"].includes(salesChannelRaw || "") ? salesChannelRaw : null;
+  const CHANNEL_PREFIX: Record<string, string> = { phone: "TEL", sms: "SMS", sample: "SPL", etc: "ETC", group: "JP" };
 
   if (!file) {
     return NextResponse.json({ error: "파일이 없습니다" }, { status: 400 });
@@ -189,10 +190,16 @@ export async function POST(request: NextRequest) {
     }
 
     const itemOrderId = (cols[col.order_item_id] || "").toString().trim();
-    const parentOrderId = (cols[col.order_id] || "").toString().trim();
+    let parentOrderId = (cols[col.order_id] || "").toString().trim();
+    // 순수 숫자 주문번호면 주문일자(YYYYMMDD-) 접두 추가
+    if (parentOrderId && /^\d+$/.test(parentOrderId)) {
+      const orderDateStr = (cols[col.order_date] || new Date().toISOString()).toString().slice(0, 10).replace(/-/g, "");
+      parentOrderId = orderDateStr + "-" + parentOrderId;
+    }
     // 상품주문번호(line) 우선, 없으면 주문번호 사용, 그것도 없으면 fallback
-    const lineKey = itemOrderId || parentOrderId || `EXCEL-${Date.now()}-${i}`;
-    const orderId = parentOrderId || itemOrderId || `EXCEL-${Date.now()}-${i}`;
+    const fallbackId = `${CHANNEL_PREFIX[salesChannel || ""] || "ETC"}-${new Date(Date.now() + 9 * 3600000).toISOString().slice(0, 10).replace(/-/g, "")}-${String(i).padStart(3, "0")}`;
+    const lineKey = itemOrderId || parentOrderId || fallbackId;
+    const orderId = parentOrderId || itemOrderId || fallbackId;
 
     // 같은 스토어 내 중복 시 덮어쓰기 (운영 상태는 보존)
     const isExisting = existingKeys.has(`${orderId}::${lineKey}`);

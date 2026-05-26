@@ -157,9 +157,9 @@ const MENU_GROUPS: MenuGroup[] = [
         ),
       },
       {
-        key: "cs",
-        label: "CS 관리",
-        href: "/mall/cs",
+        key: "channel-talk",
+        label: "채널톡",
+        href: "__external__https://desk.channel.io",
         icon: (
           <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z" />
@@ -334,22 +334,22 @@ type SidebarProps = {
 export default function Sidebar({ collapsed, onToggle }: SidebarProps) {
   const pathname = usePathname();
   const router = useRouter();
-  const [csOpen, setCsOpen] = useState(0);
+  const [ctUnread, setCtUnread] = useState(0);
   const [expandedKeys, setExpandedKeys] = useState<Set<string>>(new Set());
 
-  const fetchCsCount = useCallback(async () => {
+  const fetchCtUnread = useCallback(async () => {
     try {
-      const res = await fetch("/admin/api/cs?status=open&limit=1");
+      const res = await fetch("/admin/api/channeltalk/alerts?count=1");
       const data = await res.json();
-      setCsOpen(data.total || 0);
+      setCtUnread(data.count || 0);
     } catch { /* ignore */ }
   }, []);
 
   useEffect(() => {
-    fetchCsCount();
-    const interval = setInterval(fetchCsCount, 30_000); // 30초마다 갱신
+    fetchCtUnread();
+    const interval = setInterval(fetchCtUnread, 30_000);
     return () => clearInterval(interval);
-  }, [fetchCsCount]);
+  }, [fetchCtUnread]);
 
   // 현재 경로에 해당하는 부모메뉴는 자동으로 펼침
   useEffect(() => {
@@ -384,6 +384,7 @@ export default function Sidebar({ collapsed, onToggle }: SidebarProps) {
   };
 
   const isActive = (href: string) => {
+    if (href.startsWith("__external__")) return false;
     if (href === "/") return pathname === "/";
     return pathname.startsWith(href);
   };
@@ -455,13 +456,15 @@ export default function Sidebar({ collapsed, onToggle }: SidebarProps) {
               // 부모 또는 자식 중 하나라도 활성이면 부모를 활성으로 — 자식 경로가 부모 href의 prefix가 아닌 경우(예: /mall/stock-alerts under 상품관리 /mall/products)에도 메뉴 펼친 상태 유지
               const active = isActive(item.href) || (item.children?.some((c) => isActive(c.href)) ?? false);
               const expanded = expandedKeys.has(item.key);
-              const badge = item.key === "cs" ? csOpen : 0;
+              const badge = item.key === "channel-talk" ? ctUnread : 0;
               return (
                 <div key={item.key}>
                   <button
                     onClick={() => {
                       if (item.children) {
                         toggleExpand(item.key);
+                      } else if (item.href.startsWith("__external__")) {
+                        window.open(item.href.replace("__external__", ""), "_blank");
                       } else {
                         router.push(item.href);
                       }

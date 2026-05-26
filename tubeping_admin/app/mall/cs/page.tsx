@@ -39,6 +39,7 @@ const CHANNEL_LABEL: Record<string, string> = {
   phone: "전화",
   kakao: "카카오톡",
   naver_talk: "네이버톡",
+  channel_talk: "채널톡",
 };
 
 const CHANNEL_STYLE: Record<string, string> = {
@@ -47,6 +48,7 @@ const CHANNEL_STYLE: Record<string, string> = {
   phone: "bg-purple-100 text-purple-700",
   kakao: "bg-yellow-100 text-yellow-800",
   naver_talk: "bg-emerald-100 text-emerald-700",
+  channel_talk: "bg-indigo-100 text-indigo-700",
 };
 
 const STATUS_LABEL: Record<string, string> = {
@@ -102,8 +104,19 @@ interface CSChannel {
   stores: { name: string; mall_id: string } | null;
 }
 
+interface ChannelTalkAlert {
+  id: string;
+  subject: string;
+  date: string;
+  snippet: string;
+  channelName: string | null;
+  customerName: string | null;
+  messagePreview: string | null;
+  isRead: boolean;
+}
+
 export default function CSPage() {
-  const [activeTab, setActiveTab] = useState<"tickets" | "channels">("tickets");
+  const [activeTab, setActiveTab] = useState<"tickets" | "channels" | "channel_talk">("tickets");
   const [tickets, setTickets] = useState<CSTicket[]>([]);
   const [stores, setStores] = useState<Store[]>([]);
   const [channels, setChannels] = useState<CSChannel[]>([]);
@@ -126,6 +139,10 @@ export default function CSPage() {
   const [selectedTicket, setSelectedTicket] = useState<CSTicket | null>(null);
   const [replyText, setReplyText] = useState("");
   const [replying, setReplying] = useState(false);
+
+  // 채널톡 알림 상태 (Gmail 기반)
+  const [ctAlerts, setCtAlerts] = useState<ChannelTalkAlert[]>([]);
+  const [ctLoading, setCtLoading] = useState(false);
 
   const fetchTickets = useCallback(async () => {
     setLoading(true);
@@ -190,11 +207,33 @@ export default function CSPage() {
     fetchChannels();
   };
 
+  // 채널톡 알림 조회 (Gmail 기반)
+  const fetchCtAlerts = useCallback(async () => {
+    setCtLoading(true);
+    try {
+      const res = await fetch("/admin/api/channeltalk/alerts?limit=20");
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      setCtAlerts(data.alerts || []);
+    } catch (err) {
+      console.error("채널톡 알림 로드 실패:", err);
+      setCtAlerts([]);
+    } finally {
+      setCtLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
     fetchTickets();
     fetchStores();
     fetchChannels();
   }, [fetchTickets]);
+
+  useEffect(() => {
+    if (activeTab === "channel_talk") {
+      fetchCtAlerts();
+    }
+  }, [activeTab, fetchCtAlerts]);
 
   // 카페24 CS 수집
   const handleSync = async () => {
@@ -213,6 +252,23 @@ export default function CSPage() {
   const handleReply = async () => {
     if (!selectedTicket || !replyText.trim()) return;
     setReplying(true);
+
+    // 채널톡이면 전용 발송 API 사용
+    if (selectedTicket.channel === "channel_talk") {
+      const res = await fetch("/admin/api/channeltalk/send", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ticket_id: selectedTicket.id, message: replyText }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setSelectedTicket({ ...selectedTicket, reply: replyText, status: "replied", replied_at: new Date().toISOString() });
+        setReplyText("");
+        fetchTickets();
+      }
+      setReplying(false);
+      return;
+    }
 
     // 네이버톡톡 / 카카오톡이면 전용 발송 API 사용
     if (selectedTicket.channel === "naver_talk" || selectedTicket.channel === "kakao") {
@@ -282,15 +338,30 @@ export default function CSPage() {
         <div>
           <h1 className="text-2xl font-bold text-gray-900">CS 통합 관리</h1>
           <p className="text-sm text-gray-500 mt-1">
-            카페24 · 문자 · 전화 · 카카오톡 · 네이버톡 — 모든 채널 CS를 한 곳에서
+            카페24 · 문자 · 전화 · 카카오톡 · 네이버톡 · 채널톡 — 모든 채널 CS를 한 곳에서
           </p>
         </div>
+        {activeTab === "channel_talk" && (
+          <div className="flex gap-2">
+            <a
+              href="https://desk.channel.io"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="px-4 py-2.5 bg-indigo-600 text-white text-sm font-medium rounded-lg hover:bg-indigo-700 transition-colors cursor-pointer inline-flex items-center gap-1.5"
+            >
+              채널톡 데스크 열기
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+              </svg>
+            </a>
+          </div>
+        )}
         {activeTab === "tickets" && (
           <div className="flex gap-2">
             <button
               onClick={() => {
                 setSelectedTicket(null);
-                const channel = prompt("채널 (sms / phone / kakao / naver_talk):");
+                const channel = prompt("채널 (sms / phone / kakao / naver_talk / channel_talk):");
                 if (!channel) return;
                 const subject = prompt("제목:");
                 if (!subject) return;
@@ -345,6 +416,19 @@ export default function CSPage() {
           문의 관리
         </button>
         <button
+          onClick={() => setActiveTab("channel_talk")}
+          className={`px-4 py-2 text-sm font-medium rounded-md cursor-pointer transition-colors ${
+            activeTab === "channel_talk" ? "bg-white text-gray-900 shadow-sm" : "text-gray-500 hover:text-gray-700"
+          }`}
+        >
+          채널톡
+          {ctAlerts.filter((a) => !a.isRead).length > 0 && (
+            <span className="ml-1.5 text-[10px] bg-red-500 text-white px-1.5 py-0.5 rounded-full">
+              {ctAlerts.filter((a) => !a.isRead).length}
+            </span>
+          )}
+        </button>
+        <button
           onClick={() => setActiveTab("channels")}
           className={`px-4 py-2 text-sm font-medium rounded-md cursor-pointer transition-colors ${
             activeTab === "channels" ? "bg-white text-gray-900 shadow-sm" : "text-gray-500 hover:text-gray-700"
@@ -358,6 +442,108 @@ export default function CSPage() {
           )}
         </button>
       </div>
+
+      {/* ═══════ 채널톡 탭 ═══════ */}
+      {activeTab === "channel_talk" && (
+        <>
+          {/* 알림 목록 */}
+          <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+            {ctLoading ? (
+              <div className="p-12 text-center text-gray-400">불러오는 중...</div>
+            ) : ctAlerts.length === 0 ? (
+              <div className="p-12 text-center">
+                <div className="w-16 h-16 rounded-full bg-indigo-50 flex items-center justify-center mx-auto mb-4">
+                  <svg className="w-8 h-8 text-indigo-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
+                  </svg>
+                </div>
+                <p className="text-gray-500 text-sm mb-1">채널톡 알림이 없습니다</p>
+                <p className="text-gray-400 text-xs">채널톡 알림 이메일이 master@shinsananalytics.com으로 수신되면 여기에 표시됩니다</p>
+              </div>
+            ) : (
+              <div className="divide-y divide-gray-50">
+                {ctAlerts.map((alert) => (
+                  <a
+                    key={alert.id}
+                    href="https://desk.channel.io"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className={`block px-5 py-4 transition-colors hover:bg-gray-50 ${
+                      !alert.isRead ? "bg-indigo-50/30" : ""
+                    }`}
+                  >
+                    <div className="flex items-start gap-3">
+                      {/* 읽음 표시 */}
+                      <div className={`w-2 h-2 rounded-full mt-2 shrink-0 ${!alert.isRead ? "bg-indigo-500" : "bg-transparent"}`} />
+
+                      {/* 아바타 */}
+                      <div className="w-9 h-9 rounded-full bg-indigo-100 flex items-center justify-center shrink-0">
+                        <span className="text-xs font-bold text-indigo-600">
+                          {(alert.customerName || "?").charAt(0).toUpperCase()}
+                        </span>
+                      </div>
+
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2">
+                          {alert.channelName && (
+                            <span className="text-[10px] font-bold bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded-full shrink-0">
+                              {alert.channelName}
+                            </span>
+                          )}
+                          {alert.customerName && (
+                            <span className={`text-sm truncate ${!alert.isRead ? "font-bold text-gray-900" : "font-medium text-gray-700"}`}>
+                              {alert.customerName}
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-sm text-gray-600 mt-1 line-clamp-2">{alert.messagePreview || alert.snippet}</p>
+                        <p className="text-xs text-gray-400 mt-1">
+                          {new Date(alert.date).toLocaleString("ko-KR", { timeZone: "Asia/Seoul" })}
+                        </p>
+                      </div>
+
+                      {/* 답변하기 링크 */}
+                      <span className="text-xs text-indigo-600 font-medium shrink-0 mt-1">
+                        답변하기 &rarr;
+                      </span>
+                    </div>
+                  </a>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* 새로고침 + 안내 */}
+          <div className="flex items-center justify-between mt-4">
+            <button
+              onClick={fetchCtAlerts}
+              disabled={ctLoading}
+              className="text-xs px-3 py-1.5 bg-white border border-gray-200 text-gray-600 rounded-lg hover:bg-gray-50 cursor-pointer disabled:opacity-50"
+            >
+              {ctLoading ? "새로고침 중..." : "새로고침"}
+            </button>
+            <p className="text-xs text-gray-400">채널톡 알림 이메일 (feedback@channel.io) 기반 — 답변은 채널톡 데스크에서</p>
+          </div>
+
+          {/* 연동 안내 */}
+          {ctAlerts.length === 0 && !ctLoading && (
+            <div className="mt-6 bg-indigo-50 rounded-xl border border-indigo-200/50 p-5">
+              <h3 className="text-sm font-bold text-indigo-700 mb-3">채널톡 알림 연동 (무료 플랜 OK)</h3>
+              <ol className="space-y-2 text-xs text-gray-600">
+                <li><span className="font-bold text-indigo-700">1.</span> 채널톡 알림 이메일이 <code className="bg-white px-1.5 py-0.5 rounded text-indigo-700 text-[11px]">master@shinsananalytics.com</code>으로 수신되는지 확인</li>
+                <li><span className="font-bold text-indigo-700">2.</span> Vercel 환경변수에 Gmail OAuth 키 설정:
+                  <div className="mt-1 space-y-1 ml-4">
+                    <code className="block bg-white px-2 py-1 rounded text-[11px] text-gray-700">GMAIL_CLIENT_ID</code>
+                    <code className="block bg-white px-2 py-1 rounded text-[11px] text-gray-700">GMAIL_CLIENT_SECRET</code>
+                    <code className="block bg-white px-2 py-1 rounded text-[11px] text-gray-700">GMAIL_REFRESH_TOKEN</code>
+                  </div>
+                </li>
+                <li><span className="font-bold text-indigo-700">3.</span> 고객 응대 대기 알림이 여기에 자동 표시 &rarr; 클릭하면 채널톡 데스크에서 바로 답변</li>
+              </ol>
+            </div>
+          )}
+        </>
+      )}
 
       {/* ═══════ 채널 설정 탭 ═══════ */}
       {activeTab === "channels" && (
@@ -837,6 +1023,8 @@ export default function CSPage() {
                     ? "네이버톡톡으로 자동 발송됩니다"
                     : selectedTicket.channel === "kakao"
                     ? "카카오톡 콜백으로 발송 시도됩니다"
+                    : selectedTicket.channel === "channel_talk"
+                    ? "채널톡으로 실시간 발송됩니다"
                     : "DB에만 저장됩니다"}
                 </p>
                 <button
