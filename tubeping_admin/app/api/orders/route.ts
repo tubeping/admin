@@ -19,24 +19,46 @@ export async function GET(request: NextRequest) {
   const includeDraft = searchParams.get("include_draft") === "true";
 
   const sb = getServiceClient();
-  let query = sb
-    .from("orders")
-    .select(
-      "*, stores:store_id(name, mall_id), suppliers:supplier_id(name, email), purchase_orders:purchase_order_id(id, po_number, status, sent_at, viewed_at, completed_at)",
-      { count: "exact" }
-    )
-    .order("order_date", { ascending: false })
-    .range(offset, offset + limit - 1);
 
-  if (status) query = query.eq("shipping_status", status);
-  else if (!includeDraft) query = query.neq("shipping_status", "draft");
-  if (storeId) query = query.eq("store_id", storeId);
-  if (supplierId) query = query.eq("supplier_id", supplierId);
-  if (poId) query = query.eq("purchase_order_id", poId);
-  if (startDate) query = query.gte("order_date", startDate);
-  if (endDate) query = query.lte("order_date", endDate + "T23:59:59");
+  // Supabase limits 1000 rows per query, so paginate in chunks
+  const CHUNK = 1000;
+  let allData: any[] = [];
+  let totalCount: number | null = null;
+  let fetchOffset = offset;
+  const remaining = limit;
 
-  const { data, error, count } = await query;
+  while (allData.length < remaining) {
+    const batchSize = Math.min(CHUNK, remaining - allData.length);
+    let query = sb
+      .from("orders")
+      .select(
+        "*, stores:store_id(name, mall_id), suppliers:supplier_id(name, email), purchase_orders:purchase_order_id(id, po_number, status, sent_at, viewed_at, completed_at)",
+        { count: "exact" }
+      )
+      .order("order_date", { ascending: false })
+      .range(fetchOffset, fetchOffset + batchSize - 1);
+
+    if (status) query = query.eq("shipping_status", status);
+    else if (!includeDraft) query = query.neq("shipping_status", "draft");
+    if (storeId) query = query.eq("store_id", storeId);
+    if (supplierId) query = query.eq("supplier_id", supplierId);
+    if (poId) query = query.eq("purchase_order_id", poId);
+    if (startDate) query = query.gte("order_date", startDate);
+    if (endDate) query = query.lte("order_date", endDate + "T23:59:59");
+
+    const { data: chunk, error: chunkError, count: chunkCount } = await query;
+    if (chunkError) {
+      return NextResponse.json({ error: chunkError.message }, { status: 500 });
+    }
+    if (totalCount === null) totalCount = chunkCount;
+    allData = allData.concat(chunk || []);
+    fetchOffset += batchSize;
+    if (!chunk || chunk.length < batchSize) break; // no more rows
+  }
+
+  const data = allData;
+  const error = null;
+  const count = totalCount;
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
