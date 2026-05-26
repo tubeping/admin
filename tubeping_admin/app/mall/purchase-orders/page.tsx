@@ -333,12 +333,11 @@ export default function PurchaseOrdersPage() {
                 <th className="text-right px-6 py-3 font-medium">발주일</th>
                 <th className="text-left px-6 py-3 font-medium">발주번호</th>
                 <th className="text-left px-3 py-3 font-medium">공급사</th>
-                <th className="text-right px-3 py-3 font-medium">상품수</th>
-                <th className="text-right px-3 py-3 font-medium">금액</th>
+                <th className="text-center px-3 py-3 font-medium">주문건수</th>
+                <th className="text-center px-3 py-3 font-medium">송장건수</th>
                 <th className="text-center px-3 py-3 font-medium">상태</th>
                 <th className="text-center px-3 py-3 font-medium">발송시점</th>
                 <th className="text-center px-3 py-3 font-medium">열람시점</th>
-                <th className="text-center px-3 py-3 font-medium">송장/카페24</th>
                 <th className="text-center px-3 py-3 font-medium">접속만료</th>
                 <th className="text-center px-3 py-3 font-medium">액션</th>
               </tr>
@@ -382,7 +381,6 @@ export default function PurchaseOrdersPage() {
                     <option value="not_viewed">미열람</option>
                   </select>
                 </th>
-                <th />
                 <th className="px-3 py-2">
                   <select value={filterExpiry} onChange={(e) => setFilterExpiry(e.target.value)} className="w-full text-xs border border-gray-200 rounded px-1.5 py-1 bg-white cursor-pointer">
                     <option value="">전체</option>
@@ -401,7 +399,7 @@ export default function PurchaseOrdersPage() {
             </thead>
             <tbody>
               {filtered.length === 0 && !loading ? (
-                <tr><td colSpan={12} className="py-8 text-center text-gray-400 text-sm">필터 조건에 맞는 발주서가 없습니다.</td></tr>
+                <tr><td colSpan={11} className="py-8 text-center text-gray-400 text-sm">필터 조건에 맞는 발주서가 없습니다.</td></tr>
               ) : filtered.map((po) => (
                 <tr key={po.id} className={`border-b border-gray-50 last:border-0 hover:bg-gray-50/50 ${selected.has(po.id) ? "bg-blue-50/40" : ""}`}>
                   <td className="px-4 py-3.5">
@@ -422,11 +420,13 @@ export default function PurchaseOrdersPage() {
                     <div>{po.suppliers?.name}</div>
                     <div className="text-xs text-gray-400">{po.suppliers?.email}</div>
                   </td>
-                  <td className="px-3 py-3.5 text-sm text-gray-700 text-right">
-                    {po.total_items}
+                  <td className="px-3 py-3.5 text-sm text-center text-gray-700">
+                    {po.shipment_stats.total}
                   </td>
-                  <td className="px-3 py-3.5 text-sm text-gray-700 text-right">
-                    ₩{po.total_amount.toLocaleString()}
+                  <td className="px-3 py-3.5 text-sm text-center">
+                    <span className={po.shipment_stats.tracked < po.shipment_stats.total ? "text-orange-600 font-medium" : "text-green-600"}>
+                      {po.shipment_stats.tracked}/{po.shipment_stats.total}
+                    </span>
                   </td>
                   <td className="px-3 py-3.5 text-center">
                     <span
@@ -442,20 +442,6 @@ export default function PurchaseOrdersPage() {
                   </td>
                   <td className="px-3 py-3.5 text-xs text-gray-500 text-center">
                     {po.viewed_at ? new Date(new Date(po.viewed_at).getTime() + 9 * 3600000).toISOString().slice(0, 16).replace("T", " ") : "-"}
-                  </td>
-                  <td className="px-3 py-3.5 text-xs text-center whitespace-nowrap">
-                    {(() => {
-                      const s = po.shipment_stats;
-                      const pending = s.tracked - s.synced;
-                      return (
-                        <div className="flex flex-col items-center gap-0.5">
-                          <span className="text-gray-600">송장 {s.tracked}/{s.total}</span>
-                          <span className={pending > 0 ? "text-orange-600 font-medium" : "text-green-600"}>
-                            카페24 {s.synced}/{s.tracked}
-                          </span>
-                        </div>
-                      );
-                    })()}
                   </td>
                   <td className="px-3 py-3.5 text-xs text-center whitespace-nowrap">
                     {(() => {
