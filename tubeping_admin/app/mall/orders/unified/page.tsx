@@ -410,15 +410,23 @@ const OrderRow = memo(function OrderRow({
           <span className="text-gray-300">-</span>
         )}
       </td>
-      {/* 14. 발주상태 */}
+      {/* 14. 발주종류 */}
       <td className="px-1.5 py-1.5 text-center">
         {(() => {
           const ps = derivePOStatus(o);
-          return (ps.type || ps.status) ? (
-            <div className="flex flex-col gap-0.5">
-              {ps.type && <span className={`text-[10px] font-medium ${ps.typeStyle}`}>{ps.type}</span>}
-              {ps.status && <span className={`text-[11px] font-medium ${ps.statusStyle}`}>{ps.status}</span>}
-            </div>
+          return ps.type ? (
+            <span className={`text-[11px] font-medium ${ps.typeStyle}`}>{ps.type}</span>
+          ) : (
+            <span className="text-gray-300">-</span>
+          );
+        })()}
+      </td>
+      {/* 15. 발주상태 */}
+      <td className="px-1.5 py-1.5 text-center">
+        {(() => {
+          const ps = derivePOStatus(o);
+          return ps.status ? (
+            <span className={`text-[11px] font-medium ${ps.statusStyle}`}>{ps.status}</span>
           ) : (
             <span className="text-gray-300">-</span>
           );
@@ -499,6 +507,7 @@ export default function UnifiedOrdersPage() {
   const [colFilterAddrStatus, setColFilterAddrStatus] = useState(saved.current?.colFilterAddrStatus || "");
   const [colFilterChannel, setColFilterChannel] = useState(saved.current?.colFilterChannel || "");
   const [colFilterPayment, setColFilterPayment] = useState(saved.current?.colFilterPayment || "");
+  const [colFilterPOType, setColFilterPOType] = useState(saved.current?.colFilterPOType || "");
   const [colFilterPOStatus, setColFilterPOStatus] = useState(saved.current?.colFilterPOStatus || "");
   const [colFilterQty, setColFilterQty] = useState(saved.current?.colFilterQty || "");
   const [colFilterAmount, setColFilterAmount] = useState(saved.current?.colFilterAmount || "");
@@ -511,13 +520,13 @@ export default function UnifiedOrdersPage() {
       filterStatus, filterStore, filterSupplier, dateFrom, dateTo, searchKeyword,
       filterNoTracking, filterNoSupplier, filterDomestic, colFilterOrderNo, colFilterProduct,
       colFilterCustomer, colFilterAddress, colFilterAddrStatus, colFilterChannel, colFilterPayment,
-      colFilterPOStatus, colFilterQty, colFilterAmount, colFilterTracking, poTab,
+      colFilterPOType, colFilterPOStatus, colFilterQty, colFilterAmount, colFilterTracking, poTab,
     };
     localStorage.setItem(FILTER_STORAGE_KEY, JSON.stringify(data));
   }, [filterStatus, filterStore, filterSupplier, dateFrom, dateTo, searchKeyword,
     filterNoTracking, filterNoSupplier, filterDomestic, colFilterOrderNo, colFilterProduct,
     colFilterCustomer, colFilterAddress, colFilterAddrStatus, colFilterChannel, colFilterPayment,
-    colFilterPOStatus, colFilterQty, colFilterAmount, colFilterTracking, poTab]);
+    colFilterPOType, colFilterPOStatus, colFilterQty, colFilterAmount, colFilterTracking, poTab]);
 
   // Address verification
   const [addrResults, setAddrResults] = useState<Record<string, AddrVerifyResult>>({});
@@ -854,10 +863,10 @@ export default function UnifiedOrdersPage() {
       if (colFilterAmount === "50k_100k" && (o.order_amount < 50000 || o.order_amount >= 100000)) return false;
       if (colFilterAmount === "over100k" && o.order_amount < 100000) return false;
       if (colFilterTracking === "missing" && (o.tracking_number || o.shipping_status === "cancelled" || o.shipping_status === "delivered")) return false;
-      if (colFilterPOStatus) {
+      if (colFilterPOType || colFilterPOStatus) {
         const ps = derivePOStatus(o);
-        if (colFilterPOStatus === "type_auto" && ps.type !== "자동발주") return false;
-        if (colFilterPOStatus === "type_manual" && ps.type !== "수동발주") return false;
+        if (colFilterPOType === "type_auto" && ps.type !== "자동발주") return false;
+        if (colFilterPOType === "type_manual" && ps.type !== "수동발주") return false;
         if (colFilterPOStatus === "no_po" && ps.status !== "미발주") return false;
         if (colFilterPOStatus === "mail_sent" && ps.status !== "발주서 이메일 발송") return false;
         if (colFilterPOStatus === "mail_read" && ps.status !== "발주서 이메일 열람") return false;
@@ -865,10 +874,10 @@ export default function UnifiedOrdersPage() {
       }
       return true;
     });
-  }, [rawOrders, filterSupplier, filterNoTracking, filterNoSupplier, filterDomestic, poTab, searchKeyword, colFilterOrderNo, colFilterProduct, colFilterCustomer, colFilterAddress, colFilterAddrStatus, colFilterChannel, colFilterPayment, colFilterPOStatus, colFilterQty, colFilterAmount, colFilterTracking]);
+  }, [rawOrders, filterSupplier, filterNoTracking, filterNoSupplier, filterDomestic, poTab, searchKeyword, colFilterOrderNo, colFilterProduct, colFilterCustomer, colFilterAddress, colFilterAddrStatus, colFilterChannel, colFilterPayment, colFilterPOType, colFilterPOStatus, colFilterQty, colFilterAmount, colFilterTracking]);
 
   // Reset page on filter change
-  useEffect(() => { setPage(0); }, [rawOrders, filterSupplier, filterNoTracking, filterNoSupplier, filterDomestic, poTab, searchKeyword, colFilterOrderNo, colFilterProduct, colFilterCustomer, colFilterAddress, colFilterAddrStatus, colFilterChannel, colFilterPayment, colFilterPOStatus, colFilterQty, colFilterAmount, colFilterTracking]);
+  useEffect(() => { setPage(0); }, [rawOrders, filterSupplier, filterNoTracking, filterNoSupplier, filterDomestic, poTab, searchKeyword, colFilterOrderNo, colFilterProduct, colFilterCustomer, colFilterAddress, colFilterAddrStatus, colFilterChannel, colFilterPayment, colFilterPOType, colFilterPOStatus, colFilterQty, colFilterAmount, colFilterTracking]);
 
   const totalPages = Math.max(1, Math.ceil(orders.length / pageSize));
   const pagedOrders = useMemo(() => orders.slice(page * pageSize, (page + 1) * pageSize), [orders, page, pageSize]);
@@ -1517,6 +1526,7 @@ export default function UnifiedOrdersPage() {
               <col className="w-[64px]" />{/* 판매배송비 */}
               <col className="w-[56px]" />{/* 입금 */}
               <col className="w-[120px]" />{/* 송장 */}
+              <col className="w-[64px]" />{/* 발주종류 */}
               <col className="w-[100px]" />{/* 발주상태 */}
               <col className="w-[72px]" />{/* 배송상태 */}
               <col className="w-[40px]" />{/* CS */}
@@ -1528,7 +1538,7 @@ export default function UnifiedOrdersPage() {
                 <th colSpan={10} className="py-0.5 bg-gray-50 border-b border-gray-100"></th>
                 <th colSpan={2} className="py-0.5 text-center font-semibold text-blue-500 bg-blue-50 border-b border-gray-100 border-x border-blue-100/50">공급</th>
                 <th colSpan={2} className="py-0.5 text-center font-semibold text-green-600 bg-green-50 border-b border-gray-100 border-x border-green-100/50">판매</th>
-                <th colSpan={6} className="py-0.5 bg-gray-50 border-b border-gray-100"></th>
+                <th colSpan={7} className="py-0.5 bg-gray-50 border-b border-gray-100"></th>
               </tr>
               <tr className="text-[11px] text-gray-500">
                 <th className="px-2 py-2 w-8 bg-gray-50 border-b border-gray-100">
@@ -1549,7 +1559,8 @@ export default function UnifiedOrdersPage() {
                 <th className="text-right px-1.5 py-2 font-medium bg-green-50 border-r border-green-100/50 border-b border-gray-100">배송비</th>
                 <th className="text-center px-1.5 py-2 font-medium bg-gray-50 border-b border-gray-100">입금</th>
                 <th className="text-left px-1.5 py-2 font-medium bg-gray-50 border-b border-gray-100">송장</th>
-                <th className="text-center px-1.5 py-2 font-medium bg-gray-50 border-b border-gray-100">발주</th>
+                <th className="text-center px-1.5 py-2 font-medium bg-gray-50 border-b border-gray-100">발주종류</th>
+                <th className="text-center px-1.5 py-2 font-medium bg-gray-50 border-b border-gray-100">발주상태</th>
                 <th className="text-center px-1.5 py-2 font-medium bg-gray-50 border-b border-gray-100">배송</th>
                 <th className="text-center px-1.5 py-2 font-medium bg-gray-50 border-b border-gray-100">CS</th>
                 <th className="text-right px-2 py-2 font-medium bg-gray-50 border-b border-gray-100">주문일</th>
@@ -1558,11 +1569,11 @@ export default function UnifiedOrdersPage() {
               <tr className="text-[10px] [&>th]:bg-gray-50 [&>th]:border-b [&>th]:border-gray-200" style={{ boxShadow: "0 2px 4px -1px rgba(0,0,0,0.1)" }}>
                 {/* 1. Reset button */}
                 <th className="px-1 py-0.5">
-                  {(colFilterOrderNo || colFilterProduct || colFilterCustomer || colFilterAddress || colFilterAddrStatus || colFilterChannel || colFilterPayment || colFilterPOStatus || colFilterQty || colFilterAmount || colFilterTracking || filterStore || filterSupplier || filterStatus) && (
+                  {(colFilterOrderNo || colFilterProduct || colFilterCustomer || colFilterAddress || colFilterAddrStatus || colFilterChannel || colFilterPayment || colFilterPOType || colFilterPOStatus || colFilterQty || colFilterAmount || colFilterTracking || filterStore || filterSupplier || filterStatus) && (
                     <button
                       onClick={() => {
                         setColFilterOrderNo(""); setColFilterProduct(""); setColFilterCustomer(""); setColFilterAddress(""); setColFilterAddrStatus("");
-                        setColFilterChannel(""); setColFilterPayment(""); setColFilterPOStatus("");
+                        setColFilterChannel(""); setColFilterPayment(""); setColFilterPOType(""); setColFilterPOStatus("");
                         setColFilterQty(""); setColFilterAmount(""); setColFilterTracking("");
                         setFilterStore(""); setFilterSupplier(""); setFilterStatus("");
                       }}
@@ -1677,21 +1688,24 @@ export default function UnifiedOrdersPage() {
                     <option value="missing">미입력</option>
                   </select>
                 </th>
-                {/* 17. 발주상태 select */}
+                {/* 17. 발주종류 select */}
+                <th className="px-0.5 py-0.5 text-center">
+                  <select value={colFilterPOType} onChange={(e) => setColFilterPOType(e.target.value)}
+                    className="w-full text-[10px] border border-gray-200 rounded px-0.5 py-px bg-white">
+                    <option value="">-</option>
+                    <option value="type_auto">자동발주</option>
+                    <option value="type_manual">수동발주</option>
+                  </select>
+                </th>
+                {/* 18. 발주상태 select */}
                 <th className="px-0.5 py-0.5 text-center">
                   <select value={colFilterPOStatus} onChange={(e) => setColFilterPOStatus(e.target.value)}
                     className="w-full text-[10px] border border-gray-200 rounded px-0.5 py-px bg-white">
                     <option value="">-</option>
-                    <optgroup label="발주 종류">
-                      <option value="type_auto">자동발주</option>
-                      <option value="type_manual">수동발주</option>
-                    </optgroup>
-                    <optgroup label="발주처리현황">
-                      <option value="no_po">미발주</option>
-                      <option value="mail_sent">발주서 이메일 발송</option>
-                      <option value="mail_read">발주서 이메일 열람</option>
-                      <option value="tracking">공급사 송장번호 등록</option>
-                    </optgroup>
+                    <option value="no_po">미발주</option>
+                    <option value="mail_sent">이메일 발송</option>
+                    <option value="mail_read">이메일 열람</option>
+                    <option value="tracking">송장번호 등록</option>
                   </select>
                 </th>
                 {/* 18. 배송상태 select */}
