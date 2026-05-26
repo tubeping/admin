@@ -37,14 +37,18 @@ export async function POST(request: NextRequest) {
 
   const sb = getServiceClient();
 
-  // 주문번호 prefix: MR-YYYYMMDD-NNN
+  // 주문번호 prefix: 채널별 접두사-YYYYMMDD-NNN
+  const CHANNEL_PREFIX: Record<string, string> = {
+    phone: "TEL", sms: "SMS", sample: "SPL", etc: "ETC", group: "JP",
+  };
+  const prefix = CHANNEL_PREFIX[sales_channel || ""] || "ETC";
   const now = new Date();
   const kst = new Date(now.getTime() + 9 * 3600000);
   const ymd = kst.toISOString().slice(0, 10).replace(/-/g, "");
   const { count } = await sb
     .from("orders")
     .select("id", { count: "exact", head: true })
-    .like("cafe24_order_id", `MR-${ymd}-%`);
+    .like("cafe24_order_id", `${prefix}-${ymd}-%`);
   let seq = (count || 0);
 
   const insertedIds: string[] = [];
@@ -69,7 +73,7 @@ export async function POST(request: NextRequest) {
     }
 
     seq++;
-    const orderId = `MR-${ymd}-${String(seq).padStart(3, "0")}`;
+    const orderId = `${prefix}-${ymd}-${String(seq).padStart(3, "0")}`;
     const quantity = o.quantity || 1;
     const unitPrice = o.unit_price || o.order_amount || 0;
     const orderAmount = unitPrice * quantity;
