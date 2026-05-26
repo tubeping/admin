@@ -15,6 +15,7 @@ interface PurchaseOrder {
   viewed_at: string | null;
   completed_at: string | null;
   created_at: string;
+  source: string;
   suppliers: { name: string; email: string } | null;
   shipment_stats: { tracked: number; synced: number; total: number };
   store_names: string[];
@@ -22,8 +23,8 @@ interface PurchaseOrder {
 
 const STATUS_LABEL: Record<string, string> = {
   draft: "작성중",
-  sent: "발송완료",
-  viewed: "열람",
+  sent: "발주서 이메일 발송",
+  viewed: "발주서 열람",
   completed: "송장등록완료",
   cancelled: "취소",
 };
@@ -43,9 +44,32 @@ export default function PurchaseOrdersPage() {
   const [bulkSyncing, setBulkSyncing] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [filterSupplier, setFilterSupplier] = useState("");
-  const [filterStore, setFilterStore] = useState("");
   const [filterStatus, setFilterStatus] = useState("");
   const [filterDate, setFilterDate] = useState("");
+  const [importing, setImporting] = useState(false);
+
+  const handleImportLegacy = async () => {
+    if (!confirm("발주모아 26년도 데이터를 임포트합니다.\n이미 임포트된 PO는 건너뜁니다.\n\n계속할까요?")) return;
+    setImporting(true);
+    try {
+      const res = await fetch("/admin/api/purchase-orders/import-legacy", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+      });
+      const data = await res.json();
+      if (data.success) {
+        alert(`임포트 완료!\n\n전체 PO: ${data.total_pos}건\n신규 임포트: ${data.imported}건\n중복 스킵: ${data.skipped}건${data.errors?.length > 0 ? `\n오류: ${data.errors.length}건` : ""}`);
+        fetchPOs();
+      } else {
+        alert(`임포트 실패: ${data.error}`);
+      }
+    } catch (e) {
+      alert(`오류: ${e instanceof Error ? e.message : "알 수 없음"}`);
+    } finally {
+      setImporting(false);
+    }
+  };
 
   const toggleSelect = (id: string) => {
     setSelected((prev) => { const n = new Set(prev); if (n.has(id)) n.delete(id); else n.add(id); return n; });
@@ -153,19 +177,17 @@ export default function PurchaseOrdersPage() {
 
   // 필터 옵션 목록
   const supplierOptions = [...new Set(pos.map((p) => p.suppliers?.name).filter(Boolean))].sort() as string[];
-  const storeOptions = [...new Set(pos.flatMap((p) => p.store_names || []))].sort();
   const dateOptions = [...new Set(pos.map((p) => p.order_date))].sort().reverse();
 
   // 필터 적용
   const filtered = pos.filter((p) => {
     if (filterSupplier && p.suppliers?.name !== filterSupplier) return false;
-    if (filterStore && !(p.store_names || []).includes(filterStore)) return false;
     if (filterStatus && p.status !== filterStatus) return false;
     if (filterDate && p.order_date !== filterDate) return false;
     return true;
   });
 
-  const hasFilter = filterSupplier || filterStore || filterStatus || filterDate;
+  const hasFilter = filterSupplier || filterStatus || filterDate;
 
   // 통계
   const stats = {
@@ -178,7 +200,8 @@ export default function PurchaseOrdersPage() {
   const bulkPendingTracking = pos.filter((p) => (p.status === "sent" || p.status === "viewed") && p.shipment_stats.tracked < p.shipment_stats.total).length;
 
   return (
-    <div className="p-8">
+    <div className="h-screen flex flex-col overflow-hidden">
+      <div className="flex-shrink-0 p-8 pb-0 bg-white">
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">발주서 관리</h1>
@@ -230,6 +253,13 @@ export default function PurchaseOrdersPage() {
           >
             {bulkSyncing ? "전송 중..." : bulkPendingCafe24 > 0 ? `카페24 송장 일괄 전송 (${bulkPendingCafe24}건)` : "카페24 송장 전송 (대기 없음)"}
           </button>
+          <button
+            onClick={handleImportLegacy}
+            disabled={importing}
+            className="px-4 py-2.5 bg-gray-700 text-white text-sm font-medium rounded-lg hover:bg-gray-800 transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {importing ? "임포트 중..." : "발주모아 임포트"}
+          </button>
           {bulkPendingTracking > 0 && (
             <button
               onClick={async () => {
@@ -268,7 +298,9 @@ export default function PurchaseOrdersPage() {
         ))}
       </div>
 
+      </div>
       {/* Table */}
+      <div className="flex-1 overflow-auto px-8 pb-8">
       <div className="bg-white rounded-xl border border-gray-200">
         {loading ? (
           <div className="p-12 text-center text-gray-400">불러오는 중...</div>
@@ -283,33 +315,32 @@ export default function PurchaseOrdersPage() {
                 <th className="px-4 py-3 w-10">
                   <input type="checkbox" checked={selected.size > 0 && selected.size === pos.length} onChange={toggleAll} className="rounded border-gray-300 cursor-pointer" />
                 </th>
+                <th className="text-right px-6 py-3 font-medium">발주일</th>
                 <th className="text-left px-6 py-3 font-medium">발주번호</th>
                 <th className="text-left px-3 py-3 font-medium">공급사</th>
-                <th className="text-left px-3 py-3 font-medium">판매사</th>
                 <th className="text-right px-3 py-3 font-medium">상품수</th>
                 <th className="text-right px-3 py-3 font-medium">금액</th>
                 <th className="text-center px-3 py-3 font-medium">상태</th>
-                <th className="text-center px-3 py-3 font-medium">발송</th>
-                <th className="text-center px-3 py-3 font-medium">열람</th>
+                <th className="text-center px-3 py-3 font-medium">발송시점</th>
+                <th className="text-center px-3 py-3 font-medium">열람시점</th>
                 <th className="text-center px-3 py-3 font-medium">송장/카페24</th>
                 <th className="text-center px-3 py-3 font-medium">접속만료</th>
-                <th className="text-right px-6 py-3 font-medium">발주일</th>
                 <th className="text-center px-3 py-3 font-medium">액션</th>
               </tr>
               {/* 필터 행 */}
               <tr className="border-b border-gray-200 bg-gray-50/80">
                 <th />
+                <th className="px-3 py-2">
+                  <select value={filterDate} onChange={(e) => setFilterDate(e.target.value)} className="w-full text-xs border border-gray-200 rounded px-1.5 py-1 bg-white cursor-pointer">
+                    <option value="">전체 날짜</option>
+                    {dateOptions.map((d) => <option key={d} value={d}>{d}</option>)}
+                  </select>
+                </th>
                 <th />
                 <th className="px-3 py-2">
                   <select value={filterSupplier} onChange={(e) => setFilterSupplier(e.target.value)} className="w-full text-xs border border-gray-200 rounded px-1.5 py-1 bg-white cursor-pointer">
                     <option value="">전체 공급사</option>
                     {supplierOptions.map((s) => <option key={s} value={s}>{s}</option>)}
-                  </select>
-                </th>
-                <th className="px-3 py-2">
-                  <select value={filterStore} onChange={(e) => setFilterStore(e.target.value)} className="w-full text-xs border border-gray-200 rounded px-1.5 py-1 bg-white cursor-pointer">
-                    <option value="">전체 판매사</option>
-                    {storeOptions.map((s) => <option key={s} value={s}>{s}</option>)}
                   </select>
                 </th>
                 <th />
@@ -325,14 +356,8 @@ export default function PurchaseOrdersPage() {
                 <th />
                 <th />
                 <th className="px-3 py-2">
-                  <select value={filterDate} onChange={(e) => setFilterDate(e.target.value)} className="w-full text-xs border border-gray-200 rounded px-1.5 py-1 bg-white cursor-pointer">
-                    <option value="">전체 날짜</option>
-                    {dateOptions.map((d) => <option key={d} value={d}>{d}</option>)}
-                  </select>
-                </th>
-                <th className="px-3 py-2">
                   {hasFilter && (
-                    <button onClick={() => { setFilterSupplier(""); setFilterStore(""); setFilterStatus(""); setFilterDate(""); }} className="text-[10px] text-red-500 hover:underline cursor-pointer whitespace-nowrap">
+                    <button onClick={() => { setFilterSupplier(""); setFilterStatus(""); setFilterDate(""); }} className="text-[10px] text-red-500 hover:underline cursor-pointer whitespace-nowrap">
                       초기화
                     </button>
                   )}
@@ -341,27 +366,26 @@ export default function PurchaseOrdersPage() {
             </thead>
             <tbody>
               {filtered.length === 0 && !loading ? (
-                <tr><td colSpan={13} className="py-8 text-center text-gray-400 text-sm">필터 조건에 맞는 발주서가 없습니다.</td></tr>
+                <tr><td colSpan={12} className="py-8 text-center text-gray-400 text-sm">필터 조건에 맞는 발주서가 없습니다.</td></tr>
               ) : filtered.map((po) => (
                 <tr key={po.id} className={`border-b border-gray-50 last:border-0 hover:bg-gray-50/50 ${selected.has(po.id) ? "bg-blue-50/40" : ""}`}>
                   <td className="px-4 py-3.5">
                     <input type="checkbox" checked={selected.has(po.id)} onChange={() => toggleSelect(po.id)} className="rounded border-gray-300 cursor-pointer" />
                   </td>
+                  <td className="px-6 py-3.5 text-sm text-gray-500 text-right">
+                    {po.order_date}
+                  </td>
                   <td className="px-6 py-3.5 text-sm font-medium text-gray-900">
-                    {po.po_number}
+                    <div className="flex items-center gap-1.5">
+                      {po.po_number}
+                      {po.source === "legacy" && (
+                        <span className="text-[9px] font-medium px-1.5 py-0.5 rounded bg-purple-100 text-purple-700">발주모아</span>
+                      )}
+                    </div>
                   </td>
                   <td className="px-3 py-3.5 text-sm text-gray-700">
                     <div>{po.suppliers?.name}</div>
                     <div className="text-xs text-gray-400">{po.suppliers?.email}</div>
-                  </td>
-                  <td className="px-3 py-3.5 text-xs text-gray-600">
-                    {(po.store_names || []).length > 0 ? (
-                      <div className="flex flex-wrap gap-1">
-                        {po.store_names.map((name, i) => (
-                          <span key={i} className="bg-gray-100 text-gray-700 px-1.5 py-0.5 rounded text-[10px] font-medium">{name}</span>
-                        ))}
-                      </div>
-                    ) : "-"}
                   </td>
                   <td className="px-3 py-3.5 text-sm text-gray-700 text-right">
                     {po.total_items}
@@ -434,69 +458,91 @@ export default function PurchaseOrdersPage() {
                       );
                     })()}
                   </td>
-                  <td className="px-6 py-3.5 text-sm text-gray-500 text-right">
-                    {po.order_date}
-                  </td>
-                  <td className="px-3 py-3.5 text-center space-x-2">
-                    {po.status === "draft" && (
-                      <button
-                        onClick={() => handleSendEmail(po)}
-                        className="text-xs text-[#C41E1E] hover:underline cursor-pointer"
-                      >
-                        메일 발송
-                      </button>
-                    )}
-                    {(po.status === "sent" || po.status === "viewed") && po.shipment_stats.tracked < po.shipment_stats.total && (
-                      <button
-                        onClick={async () => {
-                          const res = await fetch("/admin/api/purchase-orders/remind", {
-                            method: "POST",
-                            headers: { "Content-Type": "application/json" },
-                            body: JSON.stringify({ purchase_order_id: po.id }),
-                          });
-                          const data = await res.json();
-                          alert(data.sent > 0 ? `송장 리마인더 발송 완료: ${po.suppliers?.email}` : "발송 대상 없음");
-                        }}
-                        className="text-xs text-orange-600 hover:underline cursor-pointer"
-                      >
-                        송장 리마인더
-                      </button>
-                    )}
-                    {po.shipment_stats.tracked - po.shipment_stats.synced > 0 && (
-                      <button
-                        onClick={() => handleSyncCafe24(po)}
-                        disabled={syncingId === po.id}
-                        className="text-xs text-blue-600 hover:underline cursor-pointer disabled:opacity-50"
-                      >
-                        {syncingId === po.id ? "전송 중..." : "카페24 송장 전송"}
-                      </button>
-                    )}
-                    <button
-                      onClick={async () => {
-                        if (!confirm(`발주서 ${po.po_number}을(를) 삭제합니다.\n연결된 주문은 '미발주' 상태로 되돌아갑니다.\n\n계속할까요?`)) return;
-                        const res = await fetch("/admin/api/purchase-orders", {
-                          method: "DELETE",
-                          headers: { "Content-Type": "application/json" },
-                          body: JSON.stringify({ id: po.id }),
-                        });
-                        if (res.ok) {
-                          alert(`${po.po_number} 삭제 완료`);
-                          fetchPOs();
-                        } else {
-                          const data = await res.json().catch(() => ({}));
-                          alert(`삭제 실패: ${data.error || res.status}`);
-                        }
-                      }}
-                      className="text-xs text-red-500 hover:underline cursor-pointer"
-                    >
-                      삭제
-                    </button>
+                  <td className="px-3 py-3.5 text-center">
+                    <div className="flex flex-col items-center gap-1">
+                      <div className="flex items-center gap-2">
+                        {po.status !== "draft" && (
+                          <a
+                            href={`/admin/api/purchase-orders/download?id=${po.id}&type=po`}
+                            className="text-xs text-gray-600 hover:underline cursor-pointer"
+                            target="_blank"
+                          >
+                            발주파일
+                          </a>
+                        )}
+                        {po.shipment_stats.tracked > 0 && (
+                          <a
+                            href={`/admin/api/purchase-orders/download?id=${po.id}&type=shipment`}
+                            className="text-xs text-green-600 hover:underline cursor-pointer"
+                            target="_blank"
+                          >
+                            송장파일
+                          </a>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-2">
+                        {po.status === "draft" && (
+                          <button
+                            onClick={() => handleSendEmail(po)}
+                            className="text-xs text-[#C41E1E] hover:underline cursor-pointer"
+                          >
+                            메일 발송
+                          </button>
+                        )}
+                        {(po.status === "sent" || po.status === "viewed") && po.shipment_stats.tracked < po.shipment_stats.total && (
+                          <button
+                            onClick={async () => {
+                              const res = await fetch("/admin/api/purchase-orders/remind", {
+                                method: "POST",
+                                headers: { "Content-Type": "application/json" },
+                                body: JSON.stringify({ purchase_order_id: po.id }),
+                              });
+                              const data = await res.json();
+                              alert(data.sent > 0 ? `송장 리마인더 발송 완료: ${po.suppliers?.email}` : "발송 대상 없음");
+                            }}
+                            className="text-xs text-orange-600 hover:underline cursor-pointer"
+                          >
+                            송장 리마인더
+                          </button>
+                        )}
+                        {po.shipment_stats.tracked - po.shipment_stats.synced > 0 && (
+                          <button
+                            onClick={() => handleSyncCafe24(po)}
+                            disabled={syncingId === po.id}
+                            className="text-xs text-blue-600 hover:underline cursor-pointer disabled:opacity-50"
+                          >
+                            {syncingId === po.id ? "전송 중..." : "카페24 송장 전송"}
+                          </button>
+                        )}
+                        <button
+                          onClick={async () => {
+                            if (!confirm(`발주서 ${po.po_number}을(를) 삭제합니다.\n연결된 주문은 '미발주' 상태로 되돌아갑니다.\n\n계속할까요?`)) return;
+                            const res = await fetch("/admin/api/purchase-orders", {
+                              method: "DELETE",
+                              headers: { "Content-Type": "application/json" },
+                              body: JSON.stringify({ id: po.id }),
+                            });
+                            if (res.ok) {
+                              alert(`${po.po_number} 삭제 완료`);
+                              fetchPOs();
+                            } else {
+                              const data = await res.json().catch(() => ({}));
+                              alert(`삭제 실패: ${data.error || res.status}`);
+                            }
+                          }}
+                          className="text-xs text-red-500 hover:underline cursor-pointer"
+                        >
+                          삭제
+                        </button>
+                      </div>
+                    </div>
                   </td>
                 </tr>
               ))}
             </tbody>
           </table>
         )}
+      </div>
       </div>
     </div>
   );

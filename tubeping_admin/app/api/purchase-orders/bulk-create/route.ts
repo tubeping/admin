@@ -173,7 +173,7 @@ export async function POST(request: NextRequest) {
       return sum + (o.quantity || 0) * supplyPrice + supplyShipping;
     }, 0);
     const password = generatePassword();
-    const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
+    const expiresAt = new Date(Date.now() + 60 * 24 * 60 * 60 * 1000).toISOString();
 
     const { data: po, error: poErr } = await sb
       .from("purchase_orders")
