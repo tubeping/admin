@@ -46,6 +46,10 @@ export default function PurchaseOrdersPage() {
   const [filterSupplier, setFilterSupplier] = useState("");
   const [filterStatus, setFilterStatus] = useState("");
   const [filterDate, setFilterDate] = useState("");
+  const [filterPoNumber, setFilterPoNumber] = useState("");
+  const [filterSentAt, setFilterSentAt] = useState("");
+  const [filterViewedAt, setFilterViewedAt] = useState("");
+  const [filterExpiry, setFilterExpiry] = useState("");
   const [importing, setImporting] = useState(false);
 
   const handleImportLegacy = async () => {
@@ -184,10 +188,21 @@ export default function PurchaseOrdersPage() {
     if (filterSupplier && p.suppliers?.name !== filterSupplier) return false;
     if (filterStatus && p.status !== filterStatus) return false;
     if (filterDate && p.order_date !== filterDate) return false;
+    if (filterPoNumber && !p.po_number.toLowerCase().includes(filterPoNumber.toLowerCase())) return false;
+    if (filterSentAt === "sent" && !p.sent_at) return false;
+    if (filterSentAt === "not_sent" && p.sent_at) return false;
+    if (filterViewedAt === "viewed" && !p.viewed_at) return false;
+    if (filterViewedAt === "not_viewed" && p.viewed_at) return false;
+    if (filterExpiry === "expired") {
+      if (!p.access_expires_at || new Date(p.access_expires_at).getTime() > Date.now()) return false;
+    }
+    if (filterExpiry === "active") {
+      if (!p.access_expires_at || new Date(p.access_expires_at).getTime() <= Date.now()) return false;
+    }
     return true;
   });
 
-  const hasFilter = filterSupplier || filterStatus || filterDate;
+  const hasFilter = filterSupplier || filterStatus || filterDate || filterPoNumber || filterSentAt || filterViewedAt || filterExpiry;
 
   // 통계
   const stats = {
@@ -310,7 +325,7 @@ export default function PurchaseOrdersPage() {
           </div>
         ) : (
           <table className="w-full">
-            <thead>
+            <thead className="sticky top-0 z-10 bg-white shadow-[0_1px_0_0_#e5e7eb]">
               <tr className="text-xs text-gray-500 border-b border-gray-100">
                 <th className="px-4 py-3 w-10">
                   <input type="checkbox" checked={selected.size > 0 && selected.size === pos.length} onChange={toggleAll} className="rounded border-gray-300 cursor-pointer" />
@@ -328,18 +343,20 @@ export default function PurchaseOrdersPage() {
                 <th className="text-center px-3 py-3 font-medium">액션</th>
               </tr>
               {/* 필터 행 */}
-              <tr className="border-b border-gray-200 bg-gray-50/80">
+              <tr className="border-b border-gray-200 bg-gray-50">
                 <th />
                 <th className="px-3 py-2">
                   <select value={filterDate} onChange={(e) => setFilterDate(e.target.value)} className="w-full text-xs border border-gray-200 rounded px-1.5 py-1 bg-white cursor-pointer">
-                    <option value="">전체 날짜</option>
+                    <option value="">전체</option>
                     {dateOptions.map((d) => <option key={d} value={d}>{d}</option>)}
                   </select>
                 </th>
-                <th />
+                <th className="px-3 py-2">
+                  <input value={filterPoNumber} onChange={(e) => setFilterPoNumber(e.target.value)} placeholder="검색..." className="w-full text-xs border border-gray-200 rounded px-1.5 py-1 bg-white" />
+                </th>
                 <th className="px-3 py-2">
                   <select value={filterSupplier} onChange={(e) => setFilterSupplier(e.target.value)} className="w-full text-xs border border-gray-200 rounded px-1.5 py-1 bg-white cursor-pointer">
-                    <option value="">전체 공급사</option>
+                    <option value="">전체</option>
                     {supplierOptions.map((s) => <option key={s} value={s}>{s}</option>)}
                   </select>
                 </th>
@@ -347,17 +364,35 @@ export default function PurchaseOrdersPage() {
                 <th />
                 <th className="px-3 py-2">
                   <select value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)} className="w-full text-xs border border-gray-200 rounded px-1.5 py-1 bg-white cursor-pointer">
-                    <option value="">전체 상태</option>
+                    <option value="">전체</option>
                     {Object.entries(STATUS_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
                   </select>
                 </th>
-                <th />
-                <th />
-                <th />
+                <th className="px-3 py-2">
+                  <select value={filterSentAt} onChange={(e) => setFilterSentAt(e.target.value)} className="w-full text-xs border border-gray-200 rounded px-1.5 py-1 bg-white cursor-pointer">
+                    <option value="">전체</option>
+                    <option value="sent">발송됨</option>
+                    <option value="not_sent">미발송</option>
+                  </select>
+                </th>
+                <th className="px-3 py-2">
+                  <select value={filterViewedAt} onChange={(e) => setFilterViewedAt(e.target.value)} className="w-full text-xs border border-gray-200 rounded px-1.5 py-1 bg-white cursor-pointer">
+                    <option value="">전체</option>
+                    <option value="viewed">열람함</option>
+                    <option value="not_viewed">미열람</option>
+                  </select>
+                </th>
                 <th />
                 <th className="px-3 py-2">
+                  <select value={filterExpiry} onChange={(e) => setFilterExpiry(e.target.value)} className="w-full text-xs border border-gray-200 rounded px-1.5 py-1 bg-white cursor-pointer">
+                    <option value="">전체</option>
+                    <option value="active">유효</option>
+                    <option value="expired">만료됨</option>
+                  </select>
+                </th>
+                <th className="px-3 py-2">
                   {hasFilter && (
-                    <button onClick={() => { setFilterSupplier(""); setFilterStatus(""); setFilterDate(""); }} className="text-[10px] text-red-500 hover:underline cursor-pointer whitespace-nowrap">
+                    <button onClick={() => { setFilterSupplier(""); setFilterStatus(""); setFilterDate(""); setFilterPoNumber(""); setFilterSentAt(""); setFilterViewedAt(""); setFilterExpiry(""); }} className="text-[10px] text-red-500 hover:underline cursor-pointer whitespace-nowrap">
                       초기화
                     </button>
                   )}
