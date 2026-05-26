@@ -1142,7 +1142,23 @@ export default function UnifiedOrdersPage() {
 
   const handleShipmentSync = async () => {
     setSyncing(true);
-    await fetch("/admin/api/cafe24/shipments", { method: "POST", body: "{}" });
+    try {
+      const res = await fetch("/admin/api/cafe24/shipments", { method: "POST", body: "{}" });
+      const data = await res.json();
+      if (data.synced > 0) {
+        alert(`송장연동 완료: ${data.synced}건 성공` + (data.failed > 0 ? `, ${data.failed}건 실패` : ""));
+      } else if (data.failed > 0) {
+        const errors = (data.results || [])
+          .filter((r: { success: boolean }) => !r.success)
+          .map((r: { cafe24_order_id: string; error?: string }) => `${r.cafe24_order_id}: ${r.error}`)
+          .join("\n");
+        alert(`송장연동 실패 ${data.failed}건:\n${errors}`);
+      } else {
+        alert(data.message || "연동할 송장이 없습니다");
+      }
+    } catch (err) {
+      alert(`송장연동 오류: ${err instanceof Error ? err.message : "알 수 없는 오류"}`);
+    }
     await fetchOrders();
     setSyncing(false);
   };
