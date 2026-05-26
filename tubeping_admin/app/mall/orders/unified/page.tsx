@@ -70,15 +70,15 @@ function derivePOStatus(o: Order): { type: string; typeStyle: string; status: st
   const empty = { type: "", typeStyle: "", status: "", statusStyle: "" };
   if (o.shipping_status === "cancelled") return empty;
 
-  // 발주 종류
-  let type = "";
-  let typeStyle = "";
-  if (o.shipping_status === "ordered" && !o.purchase_order_id) {
-    type = "수동발주";
-    typeStyle = "text-amber-600";
-  } else if (o.purchase_order_id) {
+  // 발주 종류: PO 있으면 자동, 없으면 수동
+  let type: string;
+  let typeStyle: string;
+  if (o.purchase_order_id) {
     type = "자동발주";
     typeStyle = "text-blue-600";
+  } else {
+    type = "수동발주";
+    typeStyle = "text-amber-600";
   }
 
   // 발주처리현황
