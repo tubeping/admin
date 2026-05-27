@@ -196,7 +196,7 @@ function downloadSellerExcel(
   ws1["!cols"] = [{ wch: 30 }, { wch: 18 }];
   XLSX.utils.book_append_sheet(wb, ws1, "정산요약");
 
-  const chLabel: Record<string, string> = { cafe24: "자사몰", phone: "전화", sms: "문자", sample: "샘플", group: "공구", etc: "기타" };
+  const chLabel: Record<string, string> = { cafe24: "자사몰", phone: "전화", "전화주문": "전화", sms: "문자", sample: "샘플", group: "공구", etc: "기타" };
   const orderHeaders = [
     "구분", "판매방식", "주문번호", "주문일", "상품명", "옵션", "수량",
     "단가", "상품금액", "배송비", "쿠폰할인", "앱할인", "추가할인", "정산매출",
@@ -733,14 +733,23 @@ export default function SettlementPage() {
                       </span>
                     </td>
                     <td className="px-3 py-2.5">
-                      <span className={`text-xs font-medium px-1.5 py-0.5 rounded ${
-                        { cafe24: "bg-green-50 text-green-700", phone: "bg-orange-50 text-orange-700",
-                          sms: "bg-purple-50 text-purple-700", sample: "bg-gray-100 text-gray-500",
-                          etc: "bg-gray-50 text-gray-500" }[item.sales_channel] || "bg-gray-50 text-gray-500"
-                      }`}>
-                        {{ cafe24: "자사몰", phone: "전화", sms: "문자", sample: "샘플",
-                           group: "공구", etc: "기타" }[item.sales_channel] || item.sales_channel || "기타"}
-                      </span>
+                      {(() => {
+                        const colorMap: Record<string, string> = {
+                          cafe24: "bg-green-50 text-green-700", phone: "bg-orange-50 text-orange-700",
+                          "전화주문": "bg-orange-50 text-orange-700", sms: "bg-purple-50 text-purple-700",
+                          sample: "bg-gray-100 text-gray-500", etc: "bg-gray-50 text-gray-500",
+                        };
+                        const labelMap: Record<string, string> = {
+                          cafe24: "자사몰", phone: "전화", "전화주문": "전화", sms: "문자",
+                          sample: "샘플", group: "공구", etc: "기타",
+                        };
+                        const ch = item.sales_channel || "etc";
+                        return (
+                          <span className={`text-xs font-medium px-1.5 py-0.5 rounded ${colorMap[ch] || "bg-gray-50 text-gray-500"}`}>
+                            {labelMap[ch] || ch}
+                          </span>
+                        );
+                      })()}
                     </td>
                     <td className="px-3 py-2.5 text-xs font-mono text-gray-600 whitespace-nowrap">
                       {item.cafe24_order_id}
