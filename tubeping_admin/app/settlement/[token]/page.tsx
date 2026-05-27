@@ -327,11 +327,25 @@ export default function SettlementPortalPage() {
         {tab === "orders" && (
           <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
             <div className="overflow-x-auto">
-              <table className="w-full">
+              <table className="w-full min-w-[1100px]">
+                <colgroup>
+                  <col className="w-[60px]" />
+                  <col className="w-[70px]" />
+                  <col className="w-[180px]" />
+                  <col className="w-[90px]" />
+                  <col />
+                  <col className="w-[50px]" />
+                  <col className="w-[90px]" />
+                  <col className="w-[100px]" />
+                  <col className="w-[90px]" />
+                  <col className="w-[90px]" />
+                  <col className="w-[50px]" />
+                  <col className="w-[100px]" />
+                </colgroup>
                 <thead>
                   <tr className="bg-gray-50/80">
                     {["구분", "판매방식", "주문번호", "주문일", "상품명", "수량", "단가", "정산매출", "공급가", "순익", "과세", "공급사"].map((h, i) => (
-                      <th key={h} className={`px-3 py-3 text-[11px] font-semibold text-gray-500 uppercase tracking-wider whitespace-nowrap border-b border-gray-100 ${i >= 5 ? "text-right" : "text-left"}`}>{h}</th>
+                      <th key={h} className={`px-3 py-3 text-[11px] font-semibold text-gray-500 uppercase tracking-wider whitespace-nowrap border-b border-gray-100 ${i >= 5 && i <= 9 ? "text-right" : "text-left"}`}>{h}</th>
                     ))}
                   </tr>
                 </thead>
@@ -340,26 +354,26 @@ export default function SettlementPortalPage() {
                     const profit = item.settled_amount - item.supply_total - item.supply_shipping;
                     return (
                       <tr key={item.id || i} className="border-b border-gray-50 hover:bg-blue-50/30 transition-colors">
-                        <td className="px-3 py-2.5">
-                          <span className={`inline-flex text-[10px] font-medium px-2 py-0.5 rounded-full ${
+                        <td className="px-3 py-2.5 whitespace-nowrap">
+                          <span className={`inline-flex text-[11px] font-medium px-2 py-0.5 rounded-full ${
                             item.item_type === "취소" ? "bg-red-50 text-red-600" : "bg-emerald-50 text-emerald-700"
                           }`}>{item.item_type}</span>
                         </td>
-                        <td className="px-3 py-2.5">
-                          <span className={`inline-flex text-[10px] font-medium px-2 py-0.5 rounded-full ${CH_COLOR[item.sales_channel] || "bg-gray-100 text-gray-600"}`}>
+                        <td className="px-3 py-2.5 whitespace-nowrap">
+                          <span className={`inline-flex text-[11px] font-medium px-2 py-0.5 rounded-full ${CH_COLOR[item.sales_channel] || "bg-gray-100 text-gray-600"}`}>
                             {CH[item.sales_channel] || item.sales_channel || "기타"}
                           </span>
                         </td>
-                        <td className="px-3 py-2.5 text-[12px] font-mono text-gray-600">{item.cafe24_order_id}</td>
-                        <td className="px-3 py-2.5 text-[12px] text-gray-500">{(item.order_date || "").slice(0, 10)}</td>
-                        <td className="px-3 py-2.5 text-[12px] text-gray-700 max-w-[240px] truncate" title={item.product_name}>{item.product_name}</td>
+                        <td className="px-3 py-2.5 text-[12px] font-mono text-gray-600 whitespace-nowrap">{item.cafe24_order_id}</td>
+                        <td className="px-3 py-2.5 text-[12px] text-gray-500 whitespace-nowrap">{(item.order_date || "").slice(0, 10)}</td>
+                        <td className="px-3 py-2.5 text-[12px] text-gray-700 truncate max-w-0" title={item.product_name}>{item.product_name}</td>
                         <td className="px-3 py-2.5 text-[12px] text-gray-600 text-right tabular-nums">{item.quantity}</td>
-                        <td className="px-3 py-2.5 text-[12px] text-gray-600 text-right tabular-nums">{W(item.product_price)}</td>
-                        <td className="px-3 py-2.5 text-[12px] font-semibold text-gray-900 text-right tabular-nums">{W(item.settled_amount)}</td>
-                        <td className="px-3 py-2.5 text-[12px] text-gray-500 text-right tabular-nums">{W(item.supply_total)}</td>
-                        <td className={`px-3 py-2.5 text-[12px] font-semibold text-right tabular-nums ${profit >= 0 ? "text-emerald-600" : "text-red-500"}`}>{W(profit)}</td>
-                        <td className="px-3 py-2.5 text-[11px] text-gray-400">{item.tax_type}</td>
-                        <td className="px-3 py-2.5 text-[11px] text-gray-400">{item.supplier_name}</td>
+                        <td className="px-3 py-2.5 text-[12px] text-gray-600 text-right tabular-nums whitespace-nowrap">{W(item.product_price)}</td>
+                        <td className="px-3 py-2.5 text-[12px] font-semibold text-gray-900 text-right tabular-nums whitespace-nowrap">{W(item.settled_amount)}</td>
+                        <td className="px-3 py-2.5 text-[12px] text-gray-500 text-right tabular-nums whitespace-nowrap">{W(item.supply_total)}</td>
+                        <td className={`px-3 py-2.5 text-[12px] font-semibold text-right tabular-nums whitespace-nowrap ${profit >= 0 ? "text-emerald-600" : "text-red-500"}`}>{W(profit)}</td>
+                        <td className="px-3 py-2.5 text-[11px] text-gray-400 whitespace-nowrap">{item.tax_type}</td>
+                        <td className="px-3 py-2.5 text-[12px] text-gray-500 whitespace-nowrap">{item.supplier_name}</td>
                       </tr>
                     );
                   })}
@@ -367,9 +381,9 @@ export default function SettlementPortalPage() {
                 <tfoot>
                   <tr className="bg-gray-50/80 border-t border-gray-200">
                     <td colSpan={7} className="px-3 py-3 text-[12px] font-semibold text-gray-700">합계 ({items.length}건)</td>
-                    <td className="px-3 py-3 text-[12px] font-bold text-gray-900 text-right tabular-nums">{W(orderTotals.settled)}</td>
-                    <td className="px-3 py-3 text-[12px] font-semibold text-gray-600 text-right tabular-nums">{W(orderTotals.supply)}</td>
-                    <td className={`px-3 py-3 text-[12px] font-bold text-right tabular-nums ${orderTotals.profit >= 0 ? "text-emerald-600" : "text-red-500"}`}>{W(orderTotals.profit)}</td>
+                    <td className="px-3 py-3 text-[12px] font-bold text-gray-900 text-right tabular-nums whitespace-nowrap">{W(orderTotals.settled)}</td>
+                    <td className="px-3 py-3 text-[12px] font-semibold text-gray-600 text-right tabular-nums whitespace-nowrap">{W(orderTotals.supply)}</td>
+                    <td className={`px-3 py-3 text-[12px] font-bold text-right tabular-nums whitespace-nowrap ${orderTotals.profit >= 0 ? "text-emerald-600" : "text-red-500"}`}>{W(orderTotals.profit)}</td>
                     <td colSpan={2} />
                   </tr>
                 </tfoot>
