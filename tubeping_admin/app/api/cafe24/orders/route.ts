@@ -12,28 +12,6 @@ import { autoVerifyAddresses } from "@/lib/autoVerifyAddresses";
  * body: { store_id, start_date, end_date }
  */
 
-interface Cafe24OrderItem {
-  order_id: string;
-  order_item_code: string;
-  product_no: number;
-  product_name: string;
-  option_value: string;
-  quantity: number;
-  product_price: string;
-  order_date: string;
-  buyer_name: string;
-  buyer_email: string;
-  buyer_cellphone: string;
-  receiver_name: string;
-  receiver_cellphone: string;
-  receiver_address1: string;
-  receiver_address2: string;
-  receiver_zipcode: string;
-  shipping_company_name: string;
-  tracking_no: string;
-  order_status: string;
-}
-
 function mapCafe24Status(status: string): string {
   // N10(상품준비중)·N20(배송준비중)은 신용카드 PG 결제가 이미 완료된 상태 → admin에서 '입금완료'(ordered)로 반영
   // 수동 입금확인 대상은 N00(입금전) + 전화주문(EXCEL-*)만
@@ -150,12 +128,14 @@ async function fetchOrdersFromStore(
     if (offset > 5000) break; // 안전장치
   }
 
-  // embed=items가 누락된 주문은 개별 조회로 items 보충
+  // embed=items가 누락된 주문은 개별 조회로 items 보충 (5건 병렬)
   const missingItems = all.filter((o) => !o.items || o.items.length === 0);
   if (missingItems.length > 0) {
     console.log(`[cafe24/orders] ${missingItems.length}건 items 누락 → 개별 조회 시도`);
-    for (const order of missingItems) {
-      try {
+    const CONCURRENT = 5;
+    for (let i = 0; i < missingItems.length; i += CONCURRENT) {
+      const batch = missingItems.slice(i, i + CONCURRENT);
+      await Promise.allSettled(batch.map(async (order) => {
         const res = await cafe24Fetch(store, `/orders/${order.order_id}?embed=items,receivers`);
         if (res.ok) {
           const data = await res.json();
@@ -165,8 +145,8 @@ async function fetchOrdersFromStore(
             if (detail.receivers) order.receivers = detail.receivers;
           }
         }
-      } catch { /* 개별 조회 실패는 무시 — saveOrdersToDb에서 bare code skip */ }
-      await new Promise((r) => setTimeout(r, 100));
+      }));
+      if (i + CONCURRENT < missingItems.length) await new Promise((r) => setTimeout(r, 200));
     }
   }
 
@@ -278,7 +258,7 @@ async function saveOrdersToDb(
     console.log(`[cafe24/orders] ${rows.length - validRows.length}건 비정상 주문번호 형식 제외`);
   }
 
-  if (validRows.length === 0) return { inserted: 0, updated: 0 };
+  if (validRows.length === 0) return { saved: 0 };
 
   // 기존 row 조회 — 덮어쓰기 방지용
   // 이미 supplier/admin이 입력한 송장·배송상태는 카페24가 빈 값을 돌려줄 때 보존
@@ -374,11 +354,12 @@ export async function GET(request: NextRequest) {
           // 우리 DB도 해당 주문의 shipping_status를 ordered로 갱신
           if (transition.transitioned.length > 0) {
             const sb2 = getServiceClient();
+            const prefixed = transition.transitioned.map((id) => `C24-${id}`);
             await sb2
               .from("orders")
               .update({ shipping_status: "ordered" })
               .eq("store_id", store.id)
-              .in("cafe24_order_id", transition.transitioned)
+              .in("cafe24_order_id", prefixed)
               .eq("shipping_status", "pending");
           }
           return {
@@ -402,11 +383,15 @@ export async function GET(request: NextRequest) {
 
     // last_sync_at 갱신 (성공한 스토어만)
     const sb = getServiceClient();
-    await Promise.all(
-      stores.map((store) =>
-        sb.from("stores").update({ last_sync_at: new Date().toISOString() }).eq("id", store.id)
-      )
-    );
+    const successStoreIds = stores
+      .filter((_, i) => !("error" in results[i]))
+      .map((s) => s.id);
+    if (successStoreIds.length > 0) {
+      await sb
+        .from("stores")
+        .update({ last_sync_at: new Date().toISOString() })
+        .in("id", successStoreIds);
+    }
 
     // 공급사 자동 배정 (미배정 주문 전체)
     let autoAssign: { total: number; assigned: number; failed: number } | null = null;
