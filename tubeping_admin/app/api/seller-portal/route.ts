@@ -84,13 +84,17 @@ export async function GET(request: NextRequest) {
       const directPids = [...new Set(orders.map((o: any) => o.product_id).filter(Boolean))];
       const allPids = [...new Set([...directPids, ...Object.values(storeProductToProductId), ...Object.values(nameToProductId)])];
 
-      // products 테이블에서 판매가 fallback용만 조회 (공급가는 사용하지 않음)
+      // products 테이블에서 공급가 + 판매가 fallback 조회
+      const pidToSupplyPrice: Record<string, number> = {};
+      const pidToSupplyShipping: Record<string, number> = {};
       const pidToSalePrice: Record<string, number> = {};
       if (allPids.length > 0) {
         for (let i = 0; i < allPids.length; i += 500) {
           const batch = allPids.slice(i, i + 500);
-          const { data: products } = await sb.from("products").select("id, price").in("id", batch);
+          const { data: products } = await sb.from("products").select("id, supply_price, supply_shipping_fee, price").in("id", batch);
           for (const p of products || []) {
+            if (p.supply_price) pidToSupplyPrice[p.id] = p.supply_price;
+            if (p.supply_shipping_fee) pidToSupplyShipping[p.id] = p.supply_shipping_fee;
             if (p.price) pidToSalePrice[p.id] = p.price;
           }
         }
@@ -136,7 +140,7 @@ export async function GET(request: NextRequest) {
         if (!pid && o.store_id && o.cafe24_product_no > 0) pid = storeProductToProductId[`${o.store_id}::${o.cafe24_product_no}`];
         if (!pid && o.product_name) pid = nameToProductId[o.product_name.trim()];
 
-        // 공급가 우선순위: product_options → supplier_products → 없으면 0
+        // 공급가 우선순위: product_options → supplier_products → products
         const optKey = pid && o.option_text ? `${pid}|${(o.option_text as string).trim()}` : null;
         const opt = optKey ? optKeyToPrice[optKey] : null;
         const supKey = o.supplier_id && pid ? `${o.supplier_id}|${pid}` : null;
@@ -149,8 +153,8 @@ export async function GET(request: NextRequest) {
           o.supply_price = supInfo.supply_price;
           o.supply_shipping_fee = supInfo.supply_shipping_fee;
         } else {
-          o.supply_price = 0;
-          o.supply_shipping_fee = 0;
+          o.supply_price = pid ? pidToSupplyPrice[pid] || 0 : 0;
+          o.supply_shipping_fee = pid ? pidToSupplyShipping[pid] || 0 : 0;
         }
 
         // 판매가 비어있을 때만 fallback (실제 거래가가 없는 경우에 한해)

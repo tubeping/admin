@@ -139,13 +139,26 @@ export async function POST(request: NextRequest) {
     }
   }
 
-  // 공급가 조회 맵 (supplier_products만 사용, products fallback 없음)
+  // 공급가 조회 맵
   const supMap: Record<string, { supply_price: number; supply_shipping_fee: number; tax_type: string }> = {};
   for (const sp of (supProducts || [])) {
     supMap[`${sp.supplier_id}|${sp.product_id}`] = {
       supply_price: sp.supply_price || 0,
       supply_shipping_fee: sp.supply_shipping_fee || 0,
       tax_type: sp.tax_type || "과세",
+    };
+  }
+
+  // 3순위: products 테이블 기본 공급가
+  const { data: prodList } = productIds.length > 0
+    ? await sb.from("products").select("id, supply_price, supply_shipping_fee, tax_type").in("id", productIds)
+    : { data: [] };
+  const prodMap: Record<string, { supply_price: number; supply_shipping_fee: number; tax_type: string }> = {};
+  for (const p of (prodList || [])) {
+    prodMap[p.id] = {
+      supply_price: p.supply_price || 0,
+      supply_shipping_fee: p.supply_shipping_fee || 0,
+      tax_type: p.tax_type || "과세",
     };
   }
 
@@ -177,7 +190,8 @@ export async function POST(request: NextRequest) {
       const key = `${order.supplier_id}|${pid}`;
       if (supMap[key]) return supMap[key];
     }
-    // 없으면 0 (products 테이블 fallback 사용하지 않음)
+    // 3순위: products (상품관리 기본 공급가)
+    if (pid && prodMap[pid]) return prodMap[pid];
     return { supply_price: 0, supply_shipping_fee: 0, tax_type: "과세" };
   }
 
