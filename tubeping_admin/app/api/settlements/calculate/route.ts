@@ -196,16 +196,6 @@ export async function POST(request: NextRequest) {
   }
 
   // 옵션별 판매가 조회 (orders.product_price가 0일 때 fallback용)
-  function getOptionRetailPrice(order: Record<string, unknown>): number {
-    const pid = resolveProductId(order);
-    const optText = (order.option_text as string || "").trim();
-    if (pid && optText) {
-      const o = optMap[`${pid}|${optText}`];
-      if (o && o.retail_price > 0) return o.retail_price;
-    }
-    return 0;
-  }
-
   // ── 4. 주문별 정산 계산 ──
   interface SettlementItem {
     order_id: string;
@@ -239,17 +229,13 @@ export async function POST(request: NextRequest) {
     const qty = order.quantity || 1;
     const isCancelled = order.shipping_status === "cancelled";
 
-    // 정산매출: payment_amount > order_amount > product_price * qty > product_options.retail_price * qty
-    const optRetail = getOptionRetailPrice(order);
+    // 정산매출: order_amount (실제 주문 금액) 기준
     let settledAmount: number;
     if (isCancelled) {
-      settledAmount = -(order.payment_amount || order.order_amount || 0);
+      settledAmount = -(order.order_amount || 0);
       refundTotal += settledAmount;
     } else {
-      settledAmount = order.payment_amount
-        || order.order_amount
-        || (order.product_price || 0) * qty
-        || optRetail * qty;
+      settledAmount = order.order_amount || 0;
     }
 
     // 공급가 조회
