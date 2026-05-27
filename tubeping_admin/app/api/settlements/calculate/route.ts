@@ -201,7 +201,8 @@ export async function POST(request: NextRequest) {
     if (orderId.startsWith("SMS")) return "sms";
     if (orderId.startsWith("SMP")) return "sample";
     if (/^\d{8}-\d{7}$/.test(orderId)) return "cafe24";
-    return "etc";
+    // YYYYMMDD-NNNNNNN 외 숫자형 주문번호는 전화주문
+    return "phone";
   }
 
   // ── 4. 주문별 정산 계산 ──
