@@ -107,6 +107,7 @@ export default function SellerPortalPage() {
   const [tab, setTab] = useState<string>("all");
   const [lastRefresh, setLastRefresh] = useState<Date>(new Date());
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [filters, setFilters] = useState<Record<string, string>>({});
 
   // 월 선택 (기본: 당월)
   const now = new Date();
@@ -189,13 +190,31 @@ export default function SellerPortalPage() {
     { key: "etc", label: "기타", count: channelGroups.기타.length },
   ].filter((t) => t.key === "all" || t.count > 0);
 
-  const filteredMallOrders = tab === "all" ? mallOrders
+  const tabOrders = tab === "all" ? mallOrders
     : tab === "mall" ? channelGroups.자사몰
     : tab === "phone" ? channelGroups.전화주문
     : tab === "sms" ? channelGroups.문자주문
     : tab === "sample" ? channelGroups.샘플
     : tab === "etc" ? channelGroups.기타
     : mallOrders;
+
+  const filteredMallOrders = tabOrders.filter((o) => {
+    const q = (key: string) => filters[key]?.toLowerCase();
+    if (q("orderId") && !o.cafe24_order_id.toLowerCase().includes(q("orderId")!)) return false;
+    if (q("product") && !o.product_name.toLowerCase().includes(q("product")!) && !(o.option_text || "").toLowerCase().includes(q("product")!)) return false;
+    if (q("receiver") && !o.receiver_name.toLowerCase().includes(q("receiver")!)) return false;
+    if (q("status")) {
+      const st = MALL_STATUS[o.shipping_status]?.label || "";
+      if (!st.includes(filters.status)) return false;
+    }
+    if (q("channel")) {
+      const ch = detectChannel(o.sales_channel, o.cafe24_order_id);
+      if (!ch.includes(filters.channel)) return false;
+    }
+    return true;
+  });
+
+  const hasFilters = Object.values(filters).some((v) => v);
 
   const toggleSelect = (id: string) => {
     setSelectedIds((prev) => {
@@ -297,13 +316,6 @@ export default function SellerPortalPage() {
                 {lastRefresh.toLocaleTimeString("ko-KR")}
               </span>
               <button
-                onClick={handleExcelDownload}
-                disabled={mallOrders.length === 0}
-                className="px-3 py-1.5 text-[11px] font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg hover:bg-emerald-100 transition-all shadow-sm active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed"
-              >
-                {selectedIds.size > 0 ? `선택 ${selectedIds.size}건 다운로드` : "엑셀 다운로드"}
-              </button>
-              <button
                 onClick={() => { setLoading(true); fetchData(); }}
                 className="px-3 py-1.5 text-[11px] font-semibold text-white bg-[#C41E1E] rounded-lg hover:bg-[#a01818] transition-all shadow-sm active:scale-95"
               >
@@ -346,8 +358,27 @@ export default function SellerPortalPage() {
         </div>
 
         {/* 주문 테이블 */}
-        {filteredMallOrders.length > 0 && (
+        {tabOrders.length > 0 && (
           <section className="bg-white rounded-xl border border-gray-200/60 overflow-hidden shadow-sm">
+            {/* 테이블 상단 바 */}
+            <div className="flex items-center justify-between px-4 py-2.5 border-b border-gray-100 bg-gray-50/40">
+              <div className="flex items-center gap-2 text-[11px] text-gray-400">
+                <span>{filteredMallOrders.length}건{hasFilters ? ` (필터 적용)` : ""}</span>
+                {hasFilters && (
+                  <button onClick={() => setFilters({})} className="text-red-400 hover:text-red-600 underline">필터 초기화</button>
+                )}
+                {selectedIds.size > 0 && (
+                  <span className="text-[#C41E1E] font-semibold">{selectedIds.size}건 선택</span>
+                )}
+              </div>
+              <button
+                onClick={handleExcelDownload}
+                disabled={mallOrders.length === 0}
+                className="px-3 py-1.5 text-[11px] font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg hover:bg-emerald-100 transition-all shadow-sm active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                {selectedIds.size > 0 ? `선택 ${selectedIds.size}건 다운로드` : "엑셀 다운로드"}
+              </button>
+            </div>
             <div className="overflow-x-auto">
               <table className="w-full">
                 <thead>
@@ -371,6 +402,72 @@ export default function SellerPortalPage() {
                     <th className="px-3 py-3 text-center text-[11px] font-semibold text-gray-500 uppercase tracking-wider whitespace-nowrap">구분</th>
                     <th className="px-3 py-3 text-center text-[11px] font-semibold text-gray-500 uppercase tracking-wider whitespace-nowrap">상태</th>
                     <th className="px-5 py-3 text-left text-[11px] font-semibold text-gray-500 uppercase tracking-wider whitespace-nowrap min-w-[220px]">운송장</th>
+                  </tr>
+                  {/* 필터 행 */}
+                  <tr className="bg-white border-b border-gray-100">
+                    <td className="px-2 py-1.5" />
+                    <td className="px-4 py-1.5">
+                      <input
+                        type="text"
+                        placeholder="검색"
+                        value={filters.orderId || ""}
+                        onChange={(e) => setFilters((f) => ({ ...f, orderId: e.target.value }))}
+                        className="w-full px-2 py-1 text-[11px] border border-gray-200 rounded-md focus:outline-none focus:border-blue-300 bg-gray-50/50"
+                      />
+                    </td>
+                    <td className="px-3 py-1.5" />
+                    <td className="px-3 py-1.5">
+                      <input
+                        type="text"
+                        placeholder="검색"
+                        value={filters.product || ""}
+                        onChange={(e) => setFilters((f) => ({ ...f, product: e.target.value }))}
+                        className="w-full px-2 py-1 text-[11px] border border-gray-200 rounded-md focus:outline-none focus:border-blue-300 bg-gray-50/50"
+                      />
+                    </td>
+                    <td className="px-3 py-1.5" />
+                    <td className="px-3 py-1.5" />
+                    <td className="px-3 py-1.5" />
+                    <td className="px-3 py-1.5" />
+                    <td className="px-3 py-1.5">
+                      <input
+                        type="text"
+                        placeholder="검색"
+                        value={filters.receiver || ""}
+                        onChange={(e) => setFilters((f) => ({ ...f, receiver: e.target.value }))}
+                        className="w-full px-2 py-1 text-[11px] border border-gray-200 rounded-md focus:outline-none focus:border-blue-300 bg-gray-50/50"
+                      />
+                    </td>
+                    <td className="px-3 py-1.5">
+                      <select
+                        value={filters.channel || ""}
+                        onChange={(e) => setFilters((f) => ({ ...f, channel: e.target.value }))}
+                        className="w-full px-1 py-1 text-[11px] border border-gray-200 rounded-md focus:outline-none focus:border-blue-300 bg-gray-50/50"
+                      >
+                        <option value="">전체</option>
+                        <option value="자사몰">자사몰</option>
+                        <option value="공구주문">공구주문</option>
+                        <option value="전화주문">전화주문</option>
+                        <option value="문자주문">문자주문</option>
+                        <option value="샘플">샘플</option>
+                        <option value="기타">기타</option>
+                      </select>
+                    </td>
+                    <td className="px-3 py-1.5">
+                      <select
+                        value={filters.status || ""}
+                        onChange={(e) => setFilters((f) => ({ ...f, status: e.target.value }))}
+                        className="w-full px-1 py-1 text-[11px] border border-gray-200 rounded-md focus:outline-none focus:border-blue-300 bg-gray-50/50"
+                      >
+                        <option value="">전체</option>
+                        <option value="대기">대기</option>
+                        <option value="발주완료">발주완료</option>
+                        <option value="배송중">배송중</option>
+                        <option value="배송완료">배송완료</option>
+                        <option value="취소">취소</option>
+                      </select>
+                    </td>
+                    <td className="px-5 py-1.5" />
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-50">
