@@ -68,6 +68,9 @@ interface SettlementItem {
   order_amount: number;
   shipping_fee: number;
   discount_amount: number;
+  coupon_discount: number;
+  app_discount: number;
+  additional_discount: number;
   settled_amount: number;
   supply_price: number;
   supply_total: number;
@@ -194,11 +197,14 @@ function downloadSellerExcel(
 
   const orderHeaders = [
     "구분", "주문번호", "주문일", "상품명", "옵션", "수량",
-    "단가", "정산매출", "공급가", "공급배송비", "과세구분", "공급사",
+    "단가", "상품금액", "쿠폰할인", "앱할인", "추가할인", "정산매출",
+    "공급가", "공급배송비", "과세구분", "공급사",
   ];
   const orderRows = items.map((i) => [
     i.item_type, i.cafe24_order_id, (i.order_date || "").slice(0, 10),
     i.product_name, i.option_text || "", i.quantity, i.product_price,
+    i.product_price * i.quantity,
+    i.coupon_discount || 0, i.app_discount || 0, i.additional_discount || 0,
     i.settled_amount, i.supply_total, i.supply_shipping, i.tax_type,
     i.supplier_name || "",
   ]);
@@ -206,6 +212,7 @@ function downloadSellerExcel(
   ws2["!cols"] = [
     { wch: 8 }, { wch: 22 }, { wch: 12 }, { wch: 40 }, { wch: 20 },
     { wch: 6 }, { wch: 10 }, { wch: 12 }, { wch: 10 }, { wch: 10 },
+    { wch: 10 }, { wch: 12 }, { wch: 10 }, { wch: 10 },
     { wch: 8 }, { wch: 14 },
   ];
   XLSX.utils.book_append_sheet(wb, ws2, "주문상세");
@@ -693,11 +700,14 @@ export default function SettlementPage() {
                 <tr className="text-xs text-gray-500 border-b border-gray-100">
                   {[
                     "구분", "주문번호", "주문일", "상품명", "옵션", "수량",
-                    "단가", "정산매출", "공급가", "공급배송비", "과세", "공급사",
+                    "단가", "상품금액", "쿠폰할인", "앱할인", "추가할인", "정산매출",
+                    "공급가", "공급배송비", "과세", "공급사",
                   ].map((h) => (
                     <th
                       key={h}
-                      className="px-3 py-2.5 font-medium text-left whitespace-nowrap"
+                      className={`px-3 py-2.5 font-medium text-left whitespace-nowrap ${
+                        ["쿠폰할인", "앱할인", "추가할인"].includes(h) ? "text-red-500" : ""
+                      }`}
                     >
                       {h}
                     </th>
@@ -732,6 +742,18 @@ export default function SettlementPage() {
                     <td className="px-3 py-2.5 text-right">{item.quantity}</td>
                     <td className="px-3 py-2.5 text-right">
                       {W(item.product_price)}
+                    </td>
+                    <td className="px-3 py-2.5 text-right text-gray-500">
+                      {W(item.product_price * item.quantity)}
+                    </td>
+                    <td className="px-3 py-2.5 text-right text-red-500">
+                      {item.coupon_discount ? `-${W(item.coupon_discount)}` : "-"}
+                    </td>
+                    <td className="px-3 py-2.5 text-right text-red-500">
+                      {item.app_discount ? `-${W(item.app_discount)}` : "-"}
+                    </td>
+                    <td className="px-3 py-2.5 text-right text-red-500">
+                      {item.additional_discount ? `-${W(item.additional_discount)}` : "-"}
                     </td>
                     <td className="px-3 py-2.5 text-right font-medium bg-yellow-50">
                       {W(item.settled_amount)}

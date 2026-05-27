@@ -209,6 +209,9 @@ export async function POST(request: NextRequest) {
     order_amount: number;
     shipping_fee: number;
     discount_amount: number;
+    coupon_discount: number;
+    app_discount: number;
+    additional_discount: number;
     settled_amount: number;
     supply_price: number;
     supply_total: number;
@@ -267,6 +270,9 @@ export async function POST(request: NextRequest) {
       order_amount: order.order_amount || 0,
       shipping_fee: order.shipping_fee || 0,
       discount_amount: order.discount_amount || 0,
+      coupon_discount: order.coupon_discount || 0,
+      app_discount: order.app_discount || 0,
+      additional_discount: order.additional_discount || 0,
       settled_amount: settledAmount,
       supply_price: supplyPrice,
       supply_total: supplyTotal,
