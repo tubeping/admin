@@ -1977,8 +1977,8 @@ export default function UnifiedOrdersPage() {
       {/* Bottom Summary */}
       {orders.length > 0 && (
         <div className="mt-3 flex items-center gap-6 text-sm text-gray-500">
-          <span>조회: <b className="text-gray-900">{stats.displayed}건</b></span>
-          <span>수량 합계: <b className="text-gray-900">{stats.totalQty}개</b></span>
+          <span>주문건수: <b className="text-gray-900">{stats.displayed.toLocaleString()}건</b></span>
+          <span>수량 합계: <b className="text-gray-900">{stats.totalQty.toLocaleString()}개</b></span>
           <span>판매금액: <b className="text-gray-900">{stats.totalAmount.toLocaleString()}원</b></span>
         </div>
       )}
