@@ -43,6 +43,7 @@ interface Order {
   purchase_orders: { id: string; po_number: string; status: string; sent_at: string | null; viewed_at: string | null; completed_at: string | null } | null;
   address_verify_status: "valid" | "invalid" | "unknown" | null;
   address_verify_reason: string | null;
+  tp_code: string | null;
 }
 
 /* ── Status helpers ── */
@@ -439,9 +440,9 @@ const OrderRow = memo(function OrderRow({
         <div className="text-xs text-gray-900 truncate">{o.product_name}</div>
         {o.option_text && <div className="text-[10px] text-gray-400 truncate">{o.option_text}</div>}
       </td>
-      {/* 4.5. 상품코드 */}
+      {/* 4.5. TP코드 */}
       <td className="px-1.5 py-1.5 text-[10px] font-mono text-gray-400 whitespace-nowrap">
-        {o.cafe24_product_no > 0 ? o.cafe24_product_no : "-"}
+        {o.tp_code || "-"}
       </td>
       {/* 5. 주문자/수취인/연락처 */}
       <td className="px-1.5 py-1.5 whitespace-nowrap">
@@ -1806,7 +1807,7 @@ export default function UnifiedOrdersPage() {
                 <th className="text-left px-1.5 py-2 font-medium bg-gray-50 border-b border-gray-100">No</th>
                 <th className="text-left px-1.5 py-2 font-medium bg-gray-50 border-b border-gray-100">주문번호</th>
                 <th className="text-left px-1.5 py-2 font-medium bg-gray-50 border-b border-gray-100">상품/옵션</th>
-                <th className="text-left px-1.5 py-2 font-medium bg-gray-50 border-b border-gray-100">상품코드</th>
+                <th className="text-left px-1.5 py-2 font-medium bg-gray-50 border-b border-gray-100">TP코드</th>
                 <th className="text-left px-1.5 py-2 font-medium bg-gray-50 border-b border-gray-100">주문자/수취인</th>
                 <th className="text-left px-1.5 py-2 font-medium bg-gray-50 border-b border-gray-100">배송주소</th>
                 <th className="text-left px-1.5 py-2 font-medium bg-gray-50 border-b border-gray-100">판매방식</th>

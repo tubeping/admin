@@ -101,9 +101,13 @@ export async function GET(request: NextRequest) {
     // 3) product_name → product_id 매핑 (cafe24_product_no 없는 경우)
     const productNames = [...new Set(orders.map((o: any) => o.product_name?.trim()).filter(Boolean))];
     const nameToProductId: Record<string, string> = {};
+    const pidToTpCode: Record<string, string> = {};
     if (productNames.length > 0) {
-      const { data: byName } = await sb.from("products").select("id, product_name").in("product_name", productNames);
-      for (const p of byName || []) { if (p.product_name) nameToProductId[p.product_name.trim()] = p.id; }
+      const { data: byName } = await sb.from("products").select("id, product_name, tp_code").in("product_name", productNames);
+      for (const p of byName || []) {
+        if (p.product_name) nameToProductId[p.product_name.trim()] = p.id;
+        if (p.tp_code) pidToTpCode[p.id] = p.tp_code;
+      }
     }
     // 4) 모든 product_id에서 가격 정보 + 출고지 가져오기 (price 추가)
     const allPids = [...new Set([...directPids, ...Object.values(storeProductToProductId), ...Object.values(nameToProductId)])];
@@ -167,6 +171,7 @@ export async function GET(request: NextRequest) {
       if (!pid && o.product_name) pid = nameToProductId[o.product_name.trim()];
       const wId = pid ? pidToWarehouse[pid] : undefined;
       o.warehouse_name = wId ? warehouseNames[wId] || null : null;
+      o.tp_code = pid ? pidToTpCode[pid] || null : null;
 
       // 공급가 결정 우선순위:
       //   1순위: product_options (옵션 매칭) — 가장 구체적
