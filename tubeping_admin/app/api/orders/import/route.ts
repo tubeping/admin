@@ -3,6 +3,18 @@ import { getServiceClient } from "@/lib/supabase";
 import { CHANNEL_PREFIX } from "@/lib/orderPrefix";
 import * as XLSX from "xlsx";
 
+/** 주문번호에서 YYYYMMDD 날짜를 파싱하여 ISO 문자열 반환 (없으면 null) */
+function parseDateFromOrderId(orderId: string): string | null {
+  const m = orderId.match(/(\d{8})/);
+  if (!m) return null;
+  const ds = m[1];
+  const y = parseInt(ds.slice(0, 4), 10);
+  const mo = parseInt(ds.slice(4, 6), 10);
+  const d = parseInt(ds.slice(6, 8), 10);
+  if (y < 2020 || y > 2099 || mo < 1 || mo > 12 || d < 1 || d > 31) return null;
+  return new Date(`${ds.slice(0, 4)}-${ds.slice(4, 6)}-${ds.slice(6, 8)}T09:00:00+09:00`).toISOString();
+}
+
 /**
  * POST /api/orders/import — 엑셀(xlsx/xls/csv) 주문 등록 (폐쇄몰 등)
  * FormData: file, store_name (스토어명, 선택)
@@ -218,7 +230,7 @@ export async function POST(request: NextRequest) {
       store_id: store.id,
       cafe24_order_id: orderId,
       cafe24_order_item_code: lineKey,
-      order_date: cols[col.order_date] || new Date().toISOString(),
+      order_date: cols[col.order_date] || parseDateFromOrderId(orderId) || new Date().toISOString(),
       product_name: productName,
       option_text: cols[col.option_text] || "",
       quantity,

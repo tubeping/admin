@@ -46,7 +46,7 @@ export async function GET(request: NextRequest) {
     if (store) {
       const { data } = await sb
         .from("orders")
-        .select("id, cafe24_order_id, order_date, product_name, option_text, quantity, product_price, order_amount, receiver_name, shipping_status, shipping_company, tracking_number, sales_channel")
+        .select("id, cafe24_order_id, order_date, product_name, option_text, quantity, product_price, order_amount, shipping_fee, receiver_name, shipping_status, shipping_company, tracking_number, sales_channel")
         .eq("store_id", store.id)
         .gte("order_date", monthStart)
         .lt("order_date", nextMonth)
@@ -55,7 +55,36 @@ export async function GET(request: NextRequest) {
       orders = data || [];
     }
 
-    // 5. 금액 0인 주문에 상품 기본가 보정
+    // 5. 상품 기본 정보에서 supply_price, supply_shipping_fee 보강
+    const productNames = [...new Set(orders.map((o: any) => (o.product_name as string)?.trim()).filter(Boolean))];
+    const nameToSupply: Record<string, { supply_price: number; supply_shipping_fee: number; price: number }> = {};
+    if (productNames.length > 0) {
+      const { data: prods } = await sb
+        .from("products")
+        .select("product_name, supply_price, supply_shipping_fee, price")
+        .in("product_name", productNames);
+      for (const p of prods || []) {
+        if (p.product_name) {
+          nameToSupply[p.product_name.trim()] = {
+            supply_price: p.supply_price || 0,
+            supply_shipping_fee: p.supply_shipping_fee || 0,
+            price: p.price || 0,
+          };
+        }
+      }
+    }
+    for (const o of orders) {
+      const info = nameToSupply[(o.product_name as string)?.trim()];
+      if (info) {
+        (o as any).supply_price = info.supply_price;
+        (o as any).supply_shipping_fee = info.supply_shipping_fee;
+      } else {
+        (o as any).supply_price = 0;
+        (o as any).supply_shipping_fee = 0;
+      }
+    }
+
+    // 6. 금액 0인 주문에 상품 기본가 보정
     const zeroNames = new Set<string>();
     for (const o of orders) {
       if (!(o.order_amount as number) && !(o.product_price as number) && o.product_name) {

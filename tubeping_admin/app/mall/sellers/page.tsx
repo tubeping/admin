@@ -71,7 +71,12 @@ export default function SellersPage() {
 
   const handleDelete = async (seller: Store) => {
     if (!confirm(`"${seller.name}" 판매자를 삭제하시겠습니까?\n이 작업은 되돌릴 수 없습니다.`)) return;
-    await fetch(`/admin/api/stores/${seller.id}`, { method: "DELETE" });
+    const res = await fetch(`/admin/api/stores/${seller.id}`, { method: "DELETE" });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      alert(`삭제 실패: ${err.error || res.statusText}`);
+      return;
+    }
     fetchSellers();
   };
 

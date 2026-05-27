@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { useParams } from "next/navigation";
+import * as XLSX from "xlsx";
 
 interface MallOrder {
   id: string;
@@ -12,6 +13,9 @@ interface MallOrder {
   quantity: number;
   product_price: number;
   order_amount: number;
+  shipping_fee: number;
+  supply_price: number;
+  supply_shipping_fee: number;
   receiver_name: string;
   shipping_status: string;
   shipping_company: string | null;
@@ -102,6 +106,7 @@ export default function SellerPortalPage() {
   const [period, setPeriod] = useState("");
   const [tab, setTab] = useState<string>("all");
   const [lastRefresh, setLastRefresh] = useState<Date>(new Date());
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
   // 월 선택 (기본: 당월)
   const now = new Date();
@@ -192,6 +197,59 @@ export default function SellerPortalPage() {
     : tab === "etc" ? channelGroups.기타
     : mallOrders;
 
+  const toggleSelect = (id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+  const toggleSelectAll = () => {
+    if (selectedIds.size === filteredMallOrders.length) {
+      setSelectedIds(new Set());
+    } else {
+      setSelectedIds(new Set(filteredMallOrders.map((o) => o.id)));
+    }
+  };
+  const isAllSelected = filteredMallOrders.length > 0 && selectedIds.size === filteredMallOrders.length;
+
+  const handleExcelDownload = () => {
+    const target = selectedIds.size > 0
+      ? filteredMallOrders.filter((o) => selectedIds.has(o.id))
+      : filteredMallOrders;
+    const rows = target.map((o) => {
+      const channel = detectChannel(o.sales_channel, o.cafe24_order_id);
+      const st = MALL_STATUS[o.shipping_status] || MALL_STATUS.pending;
+      return {
+        "주문번호": o.cafe24_order_id,
+        "날짜": o.order_date ? new Date(o.order_date).toLocaleDateString("ko-KR") : "",
+        "상품명": o.product_name,
+        "옵션": o.option_text || "",
+        "수량": o.quantity,
+        "판매금액": o.order_amount || o.product_price * o.quantity || 0,
+        "공급액": o.supply_price * o.quantity || 0,
+        "배송비": o.shipping_fee || 0,
+        "공급배송비": o.supply_shipping_fee || 0,
+        "수령인": o.receiver_name,
+        "구분": channel,
+        "상태": st.label,
+        "택배사": o.shipping_company || "",
+        "운송장번호": o.tracking_number || "",
+      };
+    });
+    const ws = XLSX.utils.json_to_sheet(rows);
+    ws["!cols"] = [
+      { wch: 20 }, { wch: 12 }, { wch: 30 }, { wch: 20 }, { wch: 6 },
+      { wch: 12 }, { wch: 10 }, { wch: 10 }, { wch: 10 }, { wch: 10 },
+      { wch: 10 }, { wch: 10 }, { wch: 10 }, { wch: 18 },
+    ];
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "주문현황");
+    const tabLabel = tabs.find((t) => t.key === tab)?.label || "전체";
+    XLSX.writeFile(wb, `${clientName}_${selectedMonth}_${tabLabel}_주문현황.xlsx`);
+  };
+
   return (
     <div className="min-h-screen bg-gradient-to-b from-[#f8f9fb] to-[#f0f2f5]">
       {/* 헤더 */}
@@ -238,6 +296,13 @@ export default function SellerPortalPage() {
               <span className="text-[11px] text-gray-300 hidden sm:inline">
                 {lastRefresh.toLocaleTimeString("ko-KR")}
               </span>
+              <button
+                onClick={handleExcelDownload}
+                disabled={mallOrders.length === 0}
+                className="px-3 py-1.5 text-[11px] font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg hover:bg-emerald-100 transition-all shadow-sm active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                {selectedIds.size > 0 ? `선택 ${selectedIds.size}건 다운로드` : "엑셀 다운로드"}
+              </button>
               <button
                 onClick={() => { setLoading(true); fetchData(); }}
                 className="px-3 py-1.5 text-[11px] font-semibold text-white bg-[#C41E1E] rounded-lg hover:bg-[#a01818] transition-all shadow-sm active:scale-95"
@@ -287,11 +352,21 @@ export default function SellerPortalPage() {
               <table className="w-full">
                 <thead>
                   <tr className="bg-gray-50/80 border-b border-gray-100">
+                    <th className="px-2 py-3 text-center w-10">
+                      <input
+                        type="checkbox"
+                        checked={isAllSelected}
+                        onChange={toggleSelectAll}
+                        className="w-3.5 h-3.5 rounded border-gray-300 text-[#C41E1E] focus:ring-[#C41E1E] cursor-pointer"
+                      />
+                    </th>
                     <th className="px-4 py-3 text-left text-[11px] font-semibold text-gray-500 uppercase tracking-wider whitespace-nowrap">주문번호</th>
                     <th className="px-3 py-3 text-center text-[11px] font-semibold text-gray-500 uppercase tracking-wider whitespace-nowrap">날짜</th>
                     <th className="px-3 py-3 text-left text-[11px] font-semibold text-gray-500 uppercase tracking-wider">상품명</th>
                     <th className="px-3 py-3 text-center text-[11px] font-semibold text-gray-500 uppercase tracking-wider whitespace-nowrap">수량</th>
-                    <th className="px-3 py-3 text-right text-[11px] font-semibold text-gray-500 uppercase tracking-wider whitespace-nowrap">금액</th>
+                    <th className="px-3 py-3 text-right text-[11px] font-semibold text-gray-500 uppercase tracking-wider whitespace-nowrap">판매금액</th>
+                    <th className="px-3 py-3 text-right text-[11px] font-semibold text-gray-500 uppercase tracking-wider whitespace-nowrap">공급액</th>
+                    <th className="px-3 py-3 text-right text-[11px] font-semibold text-gray-500 uppercase tracking-wider whitespace-nowrap">배송비</th>
                     <th className="px-3 py-3 text-left text-[11px] font-semibold text-gray-500 uppercase tracking-wider whitespace-nowrap">수령인</th>
                     <th className="px-3 py-3 text-center text-[11px] font-semibold text-gray-500 uppercase tracking-wider whitespace-nowrap">구분</th>
                     <th className="px-3 py-3 text-center text-[11px] font-semibold text-gray-500 uppercase tracking-wider whitespace-nowrap">상태</th>
@@ -301,11 +376,21 @@ export default function SellerPortalPage() {
                 <tbody className="divide-y divide-gray-50">
                   {filteredMallOrders.map((o) => {
                     const st = MALL_STATUS[o.shipping_status] || MALL_STATUS.pending;
-                    const amount = o.order_amount || o.product_price || 0;
+                    const saleAmount = o.order_amount || o.product_price * o.quantity || 0;
+                    const supplyAmount = (o.supply_price || 0) * o.quantity;
+                    const shippingFee = o.shipping_fee || 0;
                     const channel = detectChannel(o.sales_channel, o.cafe24_order_id);
                     const trackingUrl = o.tracking_number ? getTrackingUrl(o.shipping_company, o.tracking_number) : null;
                     return (
-                      <tr key={o.id} className="hover:bg-blue-50/30 transition-colors">
+                      <tr key={o.id} className={`hover:bg-blue-50/30 transition-colors ${selectedIds.has(o.id) ? "bg-blue-50/40" : ""}`}>
+                        <td className="px-2 py-3 text-center">
+                          <input
+                            type="checkbox"
+                            checked={selectedIds.has(o.id)}
+                            onChange={() => toggleSelect(o.id)}
+                            className="w-3.5 h-3.5 rounded border-gray-300 text-[#C41E1E] focus:ring-[#C41E1E] cursor-pointer"
+                          />
+                        </td>
                         <td className="px-4 py-3 font-mono text-[11px] text-gray-400 whitespace-nowrap">{o.cafe24_order_id}</td>
                         <td className="px-3 py-3 text-[11px] text-gray-500 text-center whitespace-nowrap">{formatDate(o.order_date)}</td>
                         <td className="px-3 py-3 text-xs text-gray-900 max-w-[260px]">
@@ -314,7 +399,13 @@ export default function SellerPortalPage() {
                         </td>
                         <td className="px-3 py-3 text-center text-xs text-gray-600 font-medium">{o.quantity}</td>
                         <td className="px-3 py-3 text-right text-xs font-semibold text-gray-900 whitespace-nowrap tabular-nums">
-                          {formatAmount(amount)}
+                          {formatAmount(saleAmount)}
+                        </td>
+                        <td className="px-3 py-3 text-right text-xs text-gray-600 whitespace-nowrap tabular-nums">
+                          {supplyAmount ? formatAmount(supplyAmount) : "-"}
+                        </td>
+                        <td className="px-3 py-3 text-right text-xs text-gray-600 whitespace-nowrap tabular-nums">
+                          {shippingFee ? formatAmount(shippingFee) : "-"}
                         </td>
                         <td className="px-3 py-3 text-xs text-gray-700 whitespace-nowrap">{o.receiver_name}</td>
                         <td className="px-3 py-3 text-center">
