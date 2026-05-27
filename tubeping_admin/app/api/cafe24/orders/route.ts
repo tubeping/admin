@@ -179,6 +179,7 @@ async function saveOrdersToDb(
     quantity: number;
     product_price: number;
     order_amount: number;
+    shipping_fee: number;
     discount_amount: number;
     coupon_discount: number;
     app_discount: number;
@@ -202,6 +203,7 @@ async function saveOrdersToDb(
       const appDiscount = Math.round(parseFloat(item.app_item_discount_amount || "0"));
       const additionalDiscount = Math.round(parseFloat(item.additional_discount_price || "0"));
       const itemDiscount = couponDiscount + appDiscount + additionalDiscount;
+      const shippingFee = Math.round(parseFloat(item.individual_shipping_fee || "0"));
       rows.push({
         store_id: storeId,
         cafe24_order_id: order.order_id || item.order_id,
@@ -221,7 +223,8 @@ async function saveOrdersToDb(
         option_text: item.option_value || "",
         quantity: qty,
         product_price: unitPrice,
-        order_amount: itemTotal - itemDiscount,
+        order_amount: itemTotal - itemDiscount + shippingFee,
+        shipping_fee: shippingFee,
         discount_amount: itemDiscount,
         coupon_discount: couponDiscount,
         app_discount: appDiscount,
