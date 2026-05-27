@@ -535,9 +535,10 @@ const OrderRow = memo(function OrderRow({
         {o.suppliers?.name ? (
           <div>
             <span className="text-xs text-gray-700">{o.suppliers.name}</span>
-            {o.warehouse_name && (
-              <div><span className="text-[10px] px-1 py-px rounded bg-blue-50 text-blue-700 font-medium">{o.warehouse_name}</span></div>
-            )}
+            <div>{o.warehouse_name
+              ? <span className="text-[10px] px-1 py-px rounded bg-blue-50 text-blue-700 font-medium">{o.warehouse_name}</span>
+              : <span className="text-[10px] px-1 py-px rounded bg-gray-100 text-gray-500">자체출고</span>
+            }</div>
           </div>
         ) : (
           <span className="text-[11px] text-red-400 font-medium">미배정</span>
@@ -1393,6 +1394,7 @@ export default function UnifiedOrdersPage() {
       "배송지": o.receiver_address || "",
       "배송메시지": o.memo || "",
       "공급사": o.suppliers?.name || "",
+      "출고지": o.warehouse_name || (o.suppliers?.name ? "자체출고" : ""),
       "상태": STATUS_LABEL[o.shipping_status] || o.shipping_status,
       "택배사": o.shipping_company || "",
       "송장번호": o.tracking_number || "",
@@ -1770,7 +1772,7 @@ export default function UnifiedOrdersPage() {
               <col className="w-[160px]" />{/* 배송주소 */}
               <col className="w-[64px]" />{/* 판매방식 */}
               <col className="w-[80px]" />{/* 판매사 */}
-              <col className="w-[90px]" />{/* 공급사 */}
+              <col className="w-[100px]" />{/* 공급사/출고지 */}
               <col className="w-[36px]" />{/* 수량 */}
               <col className="w-[72px]" />{/* 공급가 */}
               <col className="w-[64px]" />{/* 공급배송비 */}
@@ -1803,7 +1805,7 @@ export default function UnifiedOrdersPage() {
                 <th className="text-left px-1.5 py-2 font-medium bg-gray-50 border-b border-gray-100">배송주소</th>
                 <th className="text-left px-1.5 py-2 font-medium bg-gray-50 border-b border-gray-100">판매방식</th>
                 <th className="text-left px-1.5 py-2 font-medium bg-gray-50 border-b border-gray-100">판매사</th>
-                <th className="text-left px-1.5 py-2 font-medium bg-gray-50 border-b border-gray-100">공급사</th>
+                <th className="text-left px-1.5 py-2 font-medium bg-gray-50 border-b border-gray-100">공급사/출고지</th>
                 <th className="text-right px-1.5 py-2 font-medium bg-gray-50 border-b border-gray-100">수량</th>
                 <th className="text-right px-1.5 py-2 font-medium bg-blue-50 border-l border-blue-100/50 border-b border-gray-100">상품가</th>
                 <th className="text-right px-1.5 py-2 font-medium bg-blue-50 border-r border-blue-100/50 border-b border-gray-100">배송비</th>
