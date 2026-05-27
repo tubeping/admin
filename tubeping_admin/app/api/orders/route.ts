@@ -112,12 +112,32 @@ export async function GET(request: NextRequest) {
     const pidToSupplyShipping: Record<string, number> = {};
     const pidToSalePrice: Record<string, number> = {};
     if (allPids.length > 0) {
-      const { data: products } = await sb.from("products").select("id, fulfillment_warehouse_supplier_id, supply_price, supply_shipping_fee, price").in("id", allPids);
-      for (const p of products || []) {
-        if (p.fulfillment_warehouse_supplier_id) pidToWarehouse[p.id] = p.fulfillment_warehouse_supplier_id;
-        if (p.supply_price) pidToSupplyPrice[p.id] = p.supply_price;
-        if (p.supply_shipping_fee) pidToSupplyShipping[p.id] = p.supply_shipping_fee;
-        if (p.price) pidToSalePrice[p.id] = p.price;
+      // batch in chunks of 500 to avoid URL length limits
+      for (let i = 0; i < allPids.length; i += 500) {
+        const batch = allPids.slice(i, i + 500);
+        const { data: products } = await sb.from("products").select("id, fulfillment_warehouse_supplier_id, supply_price, supply_shipping_fee, price").in("id", batch);
+        for (const p of products || []) {
+          if (p.fulfillment_warehouse_supplier_id) pidToWarehouse[p.id] = p.fulfillment_warehouse_supplier_id;
+          if (p.supply_price) pidToSupplyPrice[p.id] = p.supply_price;
+          if (p.supply_shipping_fee) pidToSupplyShipping[p.id] = p.supply_shipping_fee;
+          if (p.price) pidToSalePrice[p.id] = p.price;
+        }
+      }
+    }
+    // 5) supplier_products 조회 — 공급사+상품 조합의 공급가가 있으면 products보다 우선
+    const supMap: Record<string, { supply_price: number; supply_shipping_fee: number }> = {};
+    const supplierIds = [...new Set(orders.map((o: any) => o.supplier_id).filter(Boolean))];
+    if (supplierIds.length > 0 && allPids.length > 0) {
+      const { data: supProducts } = await sb
+        .from("supplier_products")
+        .select("supplier_id, product_id, supply_price, supply_shipping_fee")
+        .in("supplier_id", supplierIds)
+        .in("product_id", allPids);
+      for (const sp of (supProducts || [])) {
+        supMap[`${sp.supplier_id}|${sp.product_id}`] = {
+          supply_price: sp.supply_price || 0,
+          supply_shipping_fee: sp.supply_shipping_fee || 0,
+        };
       }
     }
     // warehouse supplier_id → name
@@ -135,8 +155,11 @@ export async function GET(request: NextRequest) {
       if (!pid && o.product_name) pid = nameToProductId[o.product_name.trim()];
       const wId = pid ? pidToWarehouse[pid] : undefined;
       o.warehouse_name = wId ? warehouseNames[wId] || null : null;
-      o.supply_price = pid ? pidToSupplyPrice[pid] || 0 : 0;
-      o.supply_shipping_fee = pid ? pidToSupplyShipping[pid] || 0 : 0;
+      // 1순위: supplier_products (공급사+상품 조합), 2순위: products 테이블
+      const supKey = o.supplier_id && pid ? `${o.supplier_id}|${pid}` : null;
+      const supInfo = supKey ? supMap[supKey] : null;
+      o.supply_price = supInfo ? supInfo.supply_price : (pid ? pidToSupplyPrice[pid] || 0 : 0);
+      o.supply_shipping_fee = supInfo ? supInfo.supply_shipping_fee : (pid ? pidToSupplyShipping[pid] || 0 : 0);
       // 판매가가 비어있으면 상품관리 가격으로 보충
       if (pid && pidToSalePrice[pid]) {
         if (!o.product_price) o.product_price = pidToSalePrice[pid];
