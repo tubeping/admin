@@ -83,6 +83,20 @@ export async function POST(request: NextRequest) {
     .from("supplier_products")
     .select("supplier_id, product_id, supply_price, supply_shipping_fee, tax_type");
 
+  // product_options: product_id + option_text → 옵션별 공급가/판매가
+  const { data: prodOptions } = await sb
+    .from("product_options")
+    .select("product_id, option_text, supply_price, retail_price, supply_shipping_fee, tax_type");
+  const optMap: Record<string, { supply_price: number; retail_price: number; supply_shipping_fee: number; tax_type: string }> = {};
+  for (const po of (prodOptions || [])) {
+    optMap[`${po.product_id}|${po.option_text}`] = {
+      supply_price: po.supply_price || 0,
+      retail_price: po.retail_price || 0,
+      supply_shipping_fee: po.supply_shipping_fee || 0,
+      tax_type: po.tax_type || "과세",
+    };
+  }
+
   // product_id가 있는 주문의 products 조회
   const productIds = [...new Set(orders.map((o: Record<string, unknown>) => o.product_id).filter(Boolean))];
 
@@ -125,10 +139,6 @@ export async function POST(request: NextRequest) {
     }
   }
 
-  const { data: products } = productIds.length > 0
-    ? await sb.from("products").select("id, supply_price, supply_shipping_fee, tax_type").in("id", productIds)
-    : { data: [] };
-
   // 공급가 조회 맵
   const supMap: Record<string, { supply_price: number; supply_shipping_fee: number; tax_type: string }> = {};
   for (const sp of (supProducts || [])) {
@@ -138,8 +148,13 @@ export async function POST(request: NextRequest) {
       tax_type: sp.tax_type || "과세",
     };
   }
+
+  // 3순위: products 테이블 기본 공급가
+  const { data: prodList } = productIds.length > 0
+    ? await sb.from("products").select("id, supply_price, supply_shipping_fee, tax_type").in("id", productIds)
+    : { data: [] };
   const prodMap: Record<string, { supply_price: number; supply_shipping_fee: number; tax_type: string }> = {};
-  for (const p of (products || [])) {
+  for (const p of (prodList || [])) {
     prodMap[p.id] = {
       supply_price: p.supply_price || 0,
       supply_shipping_fee: p.supply_shipping_fee || 0,
@@ -161,16 +176,33 @@ export async function POST(request: NextRequest) {
 
   function getSupplyInfo(order: Record<string, unknown>) {
     const pid = resolveProductId(order);
-    // 1순위: supplier_products (공급사+상품 조합)
+    const optText = (order.option_text as string || "").trim();
+    // 0순위: product_options (옵션 매칭) — 옵션별 공급가 우선
+    if (pid && optText) {
+      const optKey = `${pid}|${optText}`;
+      if (optMap[optKey]) {
+        const o = optMap[optKey];
+        return { supply_price: o.supply_price, supply_shipping_fee: o.supply_shipping_fee, tax_type: o.tax_type };
+      }
+    }
+    // 2순위: supplier_products (공급사+상품 조합)
     if (order.supplier_id && pid) {
       const key = `${order.supplier_id}|${pid}`;
       if (supMap[key]) return supMap[key];
     }
-    // 2순위: products 테이블
-    if (pid && prodMap[pid]) {
-      return prodMap[pid];
-    }
+    // 3순위: products (상품관리 기본 공급가)
+    if (pid && prodMap[pid]) return prodMap[pid];
     return { supply_price: 0, supply_shipping_fee: 0, tax_type: "과세" };
+  }
+
+  // 주문번호 패턴으로 판매방식 추론 (sales_channel이 없는 기존 데이터용)
+  function inferSalesChannel(orderId: string): string {
+    if (orderId.startsWith("C24-")) return "cafe24";
+    if (orderId.startsWith("TEL")) return "phone";
+    if (orderId.startsWith("SMS")) return "sms";
+    if (orderId.startsWith("SPL")) return "sample";
+    if (orderId.startsWith("JP")) return "group";
+    return "phone";
   }
 
   // ── 4. 주문별 정산 계산 ──
@@ -186,12 +218,16 @@ export async function POST(request: NextRequest) {
     order_amount: number;
     shipping_fee: number;
     discount_amount: number;
+    coupon_discount: number;
+    app_discount: number;
+    additional_discount: number;
     settled_amount: number;
     supply_price: number;
     supply_total: number;
     supply_shipping: number;
     tax_type: string;
     item_type: string;
+    sales_channel: string;
     supplier_id: string | null;
     supplier_name: string;
     store_name: string;
@@ -206,13 +242,13 @@ export async function POST(request: NextRequest) {
     const qty = order.quantity || 1;
     const isCancelled = order.shipping_status === "cancelled";
 
-    // 정산매출: payment_amount > order_amount > product_price * qty
+    // 정산매출: order_amount (실제 주문 금액) 기준
     let settledAmount: number;
     if (isCancelled) {
-      settledAmount = -(order.payment_amount || order.order_amount || 0);
+      settledAmount = -(order.order_amount || 0);
       refundTotal += settledAmount;
     } else {
-      settledAmount = order.payment_amount || order.order_amount || (order.product_price || 0) * qty;
+      settledAmount = order.order_amount || 0;
     }
 
     // 공급가 조회
@@ -226,8 +262,12 @@ export async function POST(request: NextRequest) {
       if (supplyShipping > 0) supplyShipping = Math.round(supplyShipping * 1.1);
     }
 
-    const supplyTotal = isCancelled ? 0 : supplyPrice * qty;
-    const supShipFinal = isCancelled ? 0 : supplyShipping;
+    const channel = order.sales_channel || inferSalesChannel(order.cafe24_order_id || "");
+    const isSample = channel === "sample";
+
+    // 샘플: 공급가 = 정산매출, 공급배송비 = 0 (순익 0)
+    const supplyTotal = isCancelled ? 0 : isSample ? settledAmount : supplyPrice * qty;
+    const supShipFinal = isCancelled || isSample ? 0 : supplyShipping;
 
     const itemType = isCancelled ? "취소" : "매출";
     const supplierData = order.suppliers as { id: string; name: string } | null;
@@ -244,12 +284,16 @@ export async function POST(request: NextRequest) {
       order_amount: order.order_amount || 0,
       shipping_fee: order.shipping_fee || 0,
       discount_amount: order.discount_amount || 0,
+      coupon_discount: order.coupon_discount || 0,
+      app_discount: order.app_discount || 0,
+      additional_discount: order.additional_discount || 0,
       settled_amount: settledAmount,
-      supply_price: supplyPrice,
+      supply_price: isSample && !isCancelled ? order.product_price || 0 : supplyPrice,
       supply_total: supplyTotal,
       supply_shipping: supShipFinal,
       tax_type: supInfo.tax_type,
       item_type: itemType,
+      sales_channel: channel,
       supplier_id: order.supplier_id || null,
       supplier_name: supplierData?.name || "",
       store_name: store.name || "",

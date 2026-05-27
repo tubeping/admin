@@ -21,16 +21,25 @@ async function checkDeliveryStatus(
   trackingNumber: string
 ): Promise<string | null> {
   const url = `https://apis.tracker.delivery/carriers/${carrierCode}/tracks/${trackingNumber}`;
-  try {
-    const res = await fetch(url, {
-      signal: AbortSignal.timeout(10000),
-    });
-    if (!res.ok) return null;
-    const data = await res.json();
-    return data?.state?.id ?? null;
-  } catch {
-    return null;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      if (attempt > 0) await new Promise((r) => setTimeout(r, 2000));
+      const res = await fetch(url, {
+        signal: AbortSignal.timeout(10000),
+      });
+      if (res.status === 429) {
+        await new Promise((r) => setTimeout(r, 3000));
+        continue;
+      }
+      if (!res.ok) return null;
+      const data = await res.json();
+      return data?.state?.id ?? null;
+    } catch {
+      if (attempt === 0) continue;
+      return null;
+    }
   }
+  return null;
 }
 
 /**
@@ -93,9 +102,9 @@ export async function GET(request: NextRequest) {
       errors++;
     }
 
-    // Rate limiting: 50건마다 1초 대기
-    if (checked % 50 === 0) {
-      await new Promise((r) => setTimeout(r, 1000));
+    // Rate limiting: 20건마다 2초 대기
+    if (checked % 20 === 0) {
+      await new Promise((r) => setTimeout(r, 2000));
     }
   }
 

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useMemo, memo, useRef } from "react";
+import { orderIdSortKey } from "@/lib/orderPrefix";
 
 interface Store { id: string; name: string; mall_id: string; status: string; }
 interface Supplier { id: string; name: string; email: string; }
@@ -42,6 +43,7 @@ interface Order {
   purchase_orders: { id: string; po_number: string; status: string; sent_at: string | null; viewed_at: string | null; completed_at: string | null } | null;
   address_verify_status: "valid" | "invalid" | "unknown" | null;
   address_verify_reason: string | null;
+  tp_code: string | null;
 }
 
 /* ── Status helpers ── */
@@ -263,9 +265,10 @@ function AddressEditModal({ order, onClose, onSave }: {
   );
 }
 
+const PO_STATUS_EMPTY = { type: "", typeStyle: "", status: "", statusStyle: "" } as const;
+
 function derivePOStatus(o: Order): { type: string; typeStyle: string; status: string; statusStyle: string } {
-  const empty = { type: "", typeStyle: "", status: "", statusStyle: "" };
-  if (o.shipping_status === "cancelled") return empty;
+  if (o.shipping_status === "cancelled") return PO_STATUS_EMPTY;
 
   // 발주 종류: PO 있으면 자동, 없으면 수동
   let type: string;
@@ -299,6 +302,9 @@ function derivePOStatus(o: Order): { type: string; typeStyle: string; status: st
       status = "미발주";
       statusStyle = "text-orange-500";
     }
+  } else if (o.shipping_status === "ordered") {
+    status = "수동발주완료";
+    statusStyle = "text-teal-600";
   } else {
     status = "미발주";
     statusStyle = "text-orange-500";
@@ -344,17 +350,12 @@ function formatDateTime(d: string) {
 function today() { return new Date().toISOString().slice(0, 10); }
 function daysAgo(n: number) { return new Date(Date.now() - n * 86400000).toISOString().slice(0, 10); }
 function normPhone(s: string) { return (s || "").replace(/[^0-9]/g, ""); }
-/** 주문번호에서 접두사 제거 → 숫자부분만 추출 (정렬용) */
-function orderIdSortKey(id: string): string {
-  return id.replace(/^(TEL|SMS|SPL|ETC|JP|MR|EXCEL)-/, "");
-}
-
 /* ── OrderRow (memo-ized) ── */
 const OrderRow = memo(function OrderRow({
-  o, idx, displayedCount, pageOffset, isSelected, toggleSelect, editingField, onStartEdit, saveCellEdit, stores, fetchOrders,
+  o, idx, displayedCount, isSelected, toggleSelect, editingField, onStartEdit, saveCellEdit, stores, fetchOrders,
   trackingEdit, onTrackingEdit, onSaveTracking, saving, onOpenCs, addrStatus, onEditAddress,
 }: {
-  o: Order; idx: number; displayedCount: number; pageOffset: number; isSelected: boolean;
+  o: Order; idx: number; displayedCount: number; isSelected: boolean;
   toggleSelect: (id: string) => void;
   editingField: "channel" | "store" | "orderId" | null;
   onStartEdit: (orderId: string, field: "channel" | "store" | "orderId") => void;
@@ -371,7 +372,8 @@ const OrderRow = memo(function OrderRow({
 }) {
   const noTrack = !o.tracking_number && o.shipping_status !== "cancelled" && o.shipping_status !== "delivered";
   const noSup = !o.supplier_id;
-  const noPO = !o.purchase_order_id && o.shipping_status !== "cancelled" && o.shipping_status !== "delivered" && o.shipping_status !== "ordered";
+  const poStatus = derivePOStatus(o);
+  const noPO = poStatus.status === "미발주";
   const editing = !!trackingEdit;
   // 로컬 state로 입력 처리 — 키 입력마다 상위 리렌더 방지
   const [localTrackingCompany, setLocalTrackingCompany] = useState(trackingEdit?.company || "CJ대한통운");
@@ -393,8 +395,6 @@ const OrderRow = memo(function OrderRow({
       <td className="px-2 py-1.5">
         <input type="checkbox" checked={isSelected} onChange={() => toggleSelect(o.id)} onClick={(e) => e.stopPropagation()} className="rounded w-3.5 h-3.5" />
       </td>
-      {/* 2. No */}
-      <td className="px-1.5 py-1.5 text-[11px] text-gray-400">{displayedCount - pageOffset - idx}</td>
       {/* 3. 주문번호 (inline editable) */}
       <td
         className="px-1.5 py-1.5 whitespace-nowrap cursor-pointer hover:bg-gray-100/60"
@@ -437,6 +437,10 @@ const OrderRow = memo(function OrderRow({
       <td className="px-1.5 py-1.5 max-w-[200px]">
         <div className="text-xs text-gray-900 truncate">{o.product_name}</div>
         {o.option_text && <div className="text-[10px] text-gray-400 truncate">{o.option_text}</div>}
+      </td>
+      {/* 4.5. TP코드 */}
+      <td className="px-1.5 py-1.5 text-[10px] font-mono text-gray-400 whitespace-nowrap">
+        {o.tp_code || "-"}
       </td>
       {/* 5. 주문자/수취인/연락처 */}
       <td className="px-1.5 py-1.5 whitespace-nowrap">
@@ -534,9 +538,10 @@ const OrderRow = memo(function OrderRow({
         {o.suppliers?.name ? (
           <div>
             <span className="text-xs text-gray-700">{o.suppliers.name}</span>
-            {o.warehouse_name && (
-              <div><span className="text-[10px] px-1 py-px rounded bg-blue-50 text-blue-700 font-medium">{o.warehouse_name}</span></div>
-            )}
+            <div>{o.warehouse_name
+              ? <span className="text-[10px] px-1 py-px rounded bg-blue-50 text-blue-700 font-medium">{o.warehouse_name}</span>
+              : <span className="text-[10px] px-1 py-px rounded bg-gray-100 text-gray-500">자체출고</span>
+            }</div>
           </div>
         ) : (
           <span className="text-[11px] text-red-400 font-medium">미배정</span>
@@ -544,45 +549,15 @@ const OrderRow = memo(function OrderRow({
       </td>
       {/* 10. 수량 */}
       <td className="px-1.5 py-1.5 text-right text-xs text-gray-700">{o.quantity}</td>
-      {/* 11. 공급가 */}
-      <td className="px-1.5 py-1.5 text-right text-xs text-gray-700 whitespace-nowrap bg-blue-50/30">{(() => { const v = o.supply_price * o.quantity; return v === 0 ? <span className="text-gray-300">-</span> : v.toLocaleString(); })()}</td>
-      {/* 12. 공급배송비 */}
-      <td className="px-1.5 py-1.5 text-right text-xs text-gray-700 whitespace-nowrap bg-blue-50/30">{o.supply_shipping_fee === 0 ? <span className="text-gray-300">-</span> : o.supply_shipping_fee.toLocaleString()}</td>
-      {/* 13. 판매가 */}
-      <td className="px-1.5 py-1.5 text-right text-xs text-gray-700 whitespace-nowrap bg-green-50/30">{o.order_amount === 0 ? <span className="text-gray-300">-</span> : o.order_amount.toLocaleString()}</td>
-      {/* 14. 판매배송비 */}
-      <td className="px-1.5 py-1.5 text-right text-xs text-gray-700 whitespace-nowrap bg-green-50/30">{(o.shipping_fee || 0) === 0 ? <span className="text-gray-300">-</span> : (o.shipping_fee || 0).toLocaleString()}</td>
-      {/* 12. 입금 */}
-      <td className="px-1.5 py-1.5 text-center">
-        {(() => {
-          const isPaid = o.shipping_status !== "pending" && o.shipping_status !== "cancelled";
-          const isCancelled = o.shipping_status === "cancelled";
-          if (isCancelled) return <span className="text-[10px] text-gray-300">-</span>;
-          return (
-            <button
-              onClick={async (e) => {
-                e.stopPropagation();
-                const newStatus = isPaid ? "pending" : "ordered";
-                const label = isPaid ? "입금전으로 되돌림" : "입금확인 처리";
-                if (!confirm(`${label}하시겠습니까?`)) return;
-                await fetch("/admin/api/orders", {
-                  method: "PATCH",
-                  headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify({ ids: [o.id], updates: { shipping_status: newStatus } }),
-                });
-                fetchOrders();
-              }}
-              className={`text-[11px] font-medium px-2 py-0.5 rounded-full border cursor-pointer transition-colors ${
-                isPaid
-                  ? "bg-green-100 text-green-700 border-green-300 hover:bg-green-200"
-                  : "bg-red-50 text-red-600 border-red-300 hover:bg-red-100"
-              }`}
-              title={isPaid ? "클릭하면 입금전으로 되돌림" : "클릭하면 입금확인 처리"}
-            >
-              {isPaid ? "완료" : "입금전"}
-            </button>
-          );
-        })()}
+      {/* 11. 공급 (상품가 + 배송비) */}
+      <td className="px-1.5 py-1 text-right whitespace-nowrap bg-blue-50/30">
+        <div className="text-xs text-gray-700">{(() => { const v = o.supply_price * o.quantity; return v === 0 ? <span className="text-gray-300">-</span> : v.toLocaleString(); })()}</div>
+        <div className="text-[10px] text-blue-400">{o.supply_shipping_fee === 0 ? <span className="text-gray-200">-</span> : o.supply_shipping_fee.toLocaleString()}</div>
+      </td>
+      {/* 12. 판매 (상품가 + 배송비) */}
+      <td className="px-1.5 py-1 text-right whitespace-nowrap bg-green-50/30">
+        <div className="text-xs text-gray-700">{o.order_amount === 0 ? <span className="text-gray-300">-</span> : o.order_amount.toLocaleString()}</div>
+        <div className="text-[10px] text-green-500">{(o.shipping_fee || 0) === 0 ? <span className="text-gray-200">-</span> : (o.shipping_fee || 0).toLocaleString()}</div>
       </td>
       {/* 13. 송장 (inline editable) */}
       <td className="px-1.5 py-1.5 text-xs" onClick={(e) => e.stopPropagation()}>
@@ -676,8 +651,6 @@ const OrderRow = memo(function OrderRow({
           <span className="text-gray-300">-</span>
         )}
       </td>
-      {/* 17. 주문일 */}
-      <td className="px-2 py-1.5 text-[11px] text-gray-400 text-right whitespace-nowrap">{formatDate(o.order_date)}</td>
     </tr>
   );
 });
@@ -694,13 +667,10 @@ function loadSavedFilters() {
 }
 
 export default function UnifiedOrdersPage() {
-  const pageSize = 50;
-
   const [rawOrders, setRawOrders] = useState<Order[]>([]);
   const [stores, setStores] = useState<Store[]>([]);
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [total, setTotal] = useState(0);
-  const [page, setPage] = useState(0);
   const sampleCount = useMemo(() => rawOrders.filter((o) => o.sales_channel === "sample").length, [rawOrders]);
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
@@ -730,6 +700,7 @@ export default function UnifiedOrdersPage() {
   const [filterDomestic, setFilterDomestic] = useState(saved.current?.filterDomestic || false);
   const [colFilterOrderNo, setColFilterOrderNo] = useState(saved.current?.colFilterOrderNo || "");
   const [colFilterProduct, setColFilterProduct] = useState(saved.current?.colFilterProduct || "");
+  const [colFilterTpCode, setColFilterTpCode] = useState(saved.current?.colFilterTpCode || "");
   const [colFilterCustomer, setColFilterCustomer] = useState(saved.current?.colFilterCustomer || "");
   const [colFilterAddress, setColFilterAddress] = useState(saved.current?.colFilterAddress || "");
   const [colFilterAddrStatus, setColFilterAddrStatus] = useState(saved.current?.colFilterAddrStatus || "");
@@ -746,13 +717,13 @@ export default function UnifiedOrdersPage() {
   useEffect(() => {
     const data = {
       filterStatus, filterStore, filterSupplier, dateFrom, dateTo, searchKeyword,
-      filterNoTracking, filterNoSupplier, filterDomestic, colFilterOrderNo, colFilterProduct,
+      filterNoTracking, filterNoSupplier, filterDomestic, colFilterOrderNo, colFilterProduct, colFilterTpCode,
       colFilterCustomer, colFilterAddress, colFilterAddrStatus, colFilterChannel, colFilterPayment,
       colFilterPOType, colFilterPOStatus, colFilterQty, colFilterAmount, colFilterTracking, poTab,
     };
     localStorage.setItem(FILTER_STORAGE_KEY, JSON.stringify(data));
   }, [filterStatus, filterStore, filterSupplier, dateFrom, dateTo, searchKeyword,
-    filterNoTracking, filterNoSupplier, filterDomestic, colFilterOrderNo, colFilterProduct,
+    filterNoTracking, filterNoSupplier, filterDomestic, colFilterOrderNo, colFilterProduct, colFilterTpCode,
     colFilterCustomer, colFilterAddress, colFilterAddrStatus, colFilterChannel, colFilterPayment,
     colFilterPOType, colFilterPOStatus, colFilterQty, colFilterAmount, colFilterTracking, poTab]);
 
@@ -1077,8 +1048,18 @@ export default function UnifiedOrdersPage() {
       if (filterNoTracking && (o.tracking_number || o.shipping_status === "cancelled" || o.shipping_status === "delivered")) return false;
       if ((filterNoSupplier || filterSupplier === "__none__") && o.supplier_id) return false;
       if (filterDomestic && (o.sales_channel || !o.stores?.name)) return false;
-      if (poTab === "no_po" && (!o.supplier_id || o.purchase_order_id || o.tracking_number || o.shipping_status === "cancelled" || o.shipping_status === "delivered" || o.shipping_status === "pending" || o.shipping_status === "ordered")) return false;
-      if (poTab === "has_po" && !o.purchase_order_id) return false;
+      // PO 관련 필터 — derivePOStatus를 한 번만 호출
+      if (poTab !== "all" || colFilterPOType || colFilterPOStatus) {
+        const ps = derivePOStatus(o);
+        if (poTab === "no_po" && ps.status !== "미발주") return false;
+        if (poTab === "has_po" && !o.purchase_order_id) return false;
+        if (colFilterPOType === "type_auto" && ps.type !== "자동발주") return false;
+        if (colFilterPOType === "type_manual" && ps.type !== "수동발주") return false;
+        if (colFilterPOStatus === "no_po" && ps.status !== "미발주") return false;
+        if (colFilterPOStatus === "mail_sent" && ps.status !== "발주서 이메일 발송") return false;
+        if (colFilterPOStatus === "mail_read" && ps.status !== "발주서 이메일 열람") return false;
+        if (colFilterPOStatus === "tracking" && ps.status !== "공급사 송장번호 등록") return false;
+      }
       if (kw) {
         const phoneMatch = kwDigits.length >= 4 && (
           normPhone(o.buyer_phone).includes(kwDigits) ||
@@ -1088,6 +1069,10 @@ export default function UnifiedOrdersPage() {
       }
       if (kOrderNo && !o.cafe24_order_id?.toLowerCase().includes(kOrderNo)) return false;
       if (kProduct && !(o.product_name?.toLowerCase().includes(kProduct) || o.option_text?.toLowerCase().includes(kProduct))) return false;
+      if (colFilterTpCode) {
+        if (colFilterTpCode === "-") { if (o.tp_code) return false; }
+        else if (!(o.tp_code?.toLowerCase().includes(colFilterTpCode.toLowerCase()))) return false;
+      }
       if (kCustomer) {
         const phoneMatch = kCustomerPhone.length >= 4 && (
           normPhone(o.buyer_phone).includes(kCustomerPhone) ||
@@ -1116,24 +1101,9 @@ export default function UnifiedOrdersPage() {
       if (colFilterAmount === "50k_100k" && (o.order_amount < 50000 || o.order_amount >= 100000)) return false;
       if (colFilterAmount === "over100k" && o.order_amount < 100000) return false;
       if (colFilterTracking === "missing" && (o.tracking_number || o.shipping_status === "cancelled" || o.shipping_status === "delivered")) return false;
-      if (colFilterPOType || colFilterPOStatus) {
-        const ps = derivePOStatus(o);
-        if (colFilterPOType === "type_auto" && ps.type !== "자동발주") return false;
-        if (colFilterPOType === "type_manual" && ps.type !== "수동발주") return false;
-        if (colFilterPOStatus === "no_po" && ps.status !== "미발주") return false;
-        if (colFilterPOStatus === "mail_sent" && ps.status !== "발주서 이메일 발송") return false;
-        if (colFilterPOStatus === "mail_read" && ps.status !== "발주서 이메일 열람") return false;
-        if (colFilterPOStatus === "tracking" && ps.status !== "공급사 송장번호 등록") return false;
-      }
       return true;
     });
-  }, [rawOrders, filterSupplier, filterNoTracking, filterNoSupplier, filterDomestic, poTab, searchKeyword, colFilterOrderNo, colFilterProduct, colFilterCustomer, colFilterAddress, colFilterAddrStatus, colFilterChannel, colFilterPayment, colFilterPOType, colFilterPOStatus, colFilterQty, colFilterAmount, colFilterTracking]);
-
-  // Reset page on filter change
-  useEffect(() => { setPage(0); }, [rawOrders, filterSupplier, filterNoTracking, filterNoSupplier, filterDomestic, poTab, searchKeyword, colFilterOrderNo, colFilterProduct, colFilterCustomer, colFilterAddress, colFilterAddrStatus, colFilterChannel, colFilterPayment, colFilterPOType, colFilterPOStatus, colFilterQty, colFilterAmount, colFilterTracking]);
-
-  const totalPages = 1;
-  const pagedOrders = orders;
+  }, [rawOrders, filterSupplier, filterNoTracking, filterNoSupplier, filterDomestic, poTab, searchKeyword, colFilterOrderNo, colFilterProduct, colFilterTpCode, colFilterCustomer, colFilterAddress, colFilterAddrStatus, colFilterChannel, colFilterPayment, colFilterPOType, colFilterPOStatus, colFilterQty, colFilterAmount, colFilterTracking]);
 
   const filteredStores = useMemo(() => stores.filter((s) => !PSEUDO_STORES.includes(s.name)), [stores]);
 
@@ -1246,7 +1216,7 @@ export default function UnifiedOrdersPage() {
 
   const toggleSelect = useCallback((id: string) => { setSelected((prev) => { const next = new Set(prev); if (next.has(id)) next.delete(id); else next.add(id); return next; }); }, []);
   const toggleAll = () => {
-    const pageIds = pagedOrders.map((o) => o.id);
+    const pageIds = orders.map((o) => o.id);
     const allPageSelected = pageIds.every((id) => selected.has(id));
     if (allPageSelected) {
       setSelected((prev) => { const next = new Set(prev); pageIds.forEach((id) => next.delete(id)); return next; });
@@ -1356,18 +1326,19 @@ export default function UnifiedOrdersPage() {
   };
 
   const stats = useMemo(() => {
-    let pending = 0, noTracking = 0, noSupplier = 0, noPO = 0, unsynced = 0, totalQty = 0, totalAmount = 0;
+    let pending = 0, noTracking = 0, noSupplier = 0, noPO = 0, unsynced = 0, delivered = 0, totalQty = 0, totalAmount = 0;
     const notActive = (s: string) => s === "cancelled" || s === "delivered";
     for (const o of orders) {
       totalQty += o.quantity;
       totalAmount += o.order_amount;
       if (o.shipping_status === "pending") pending++;
+      if (o.shipping_status === "delivered") delivered++;
       if (!o.tracking_number && !notActive(o.shipping_status)) noTracking++;
       if (!o.supplier_id && !notActive(o.shipping_status)) noSupplier++;
-      if (!o.purchase_order_id && !o.tracking_number && o.supplier_id && !notActive(o.shipping_status) && o.shipping_status !== "pending" && o.shipping_status !== "ordered" && o.sales_channel !== "sample") noPO++;
+      if (derivePOStatus(o).status === "미발주") noPO++;
       if (o.tracking_number && !o.cafe24_shipping_synced) unsynced++;
     }
-    return { total, displayed: orders.length, pending, noTracking, noSupplier, noPO, unsynced, totalQty, totalAmount, sample: sampleCount };
+    return { total, displayed: orders.length, pending, delivered, noTracking, noSupplier, noPO, unsynced, totalQty, totalAmount, sample: sampleCount };
   }, [orders, total, sampleCount]);
 
   const handleReset = () => {
@@ -1375,8 +1346,8 @@ export default function UnifiedOrdersPage() {
     setFilterStatus(""); setFilterStore(""); setFilterSupplier(""); setFilterNoTracking(false); setFilterNoSupplier(false); setFilterDomestic(false);
     setDateFrom(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-01`); setDateTo(today());
     setSearchKeyword(""); setPoTab("all");
-    setColFilterOrderNo(""); setColFilterProduct(""); setColFilterCustomer(""); setColFilterAddress("");
-    setColFilterChannel(""); setColFilterPayment(""); setColFilterPOStatus("");
+    setColFilterOrderNo(""); setColFilterProduct(""); setColFilterCustomer(""); setColFilterAddress(""); setColFilterAddrStatus("");
+    setColFilterChannel(""); setColFilterPayment(""); setColFilterPOType(""); setColFilterPOStatus("");
     setColFilterQty(""); setColFilterAmount(""); setColFilterTracking("");
     localStorage.removeItem(FILTER_STORAGE_KEY);
   };
@@ -1400,6 +1371,7 @@ export default function UnifiedOrdersPage() {
       "배송지": o.receiver_address || "",
       "배송메시지": o.memo || "",
       "공급사": o.suppliers?.name || "",
+      "출고지": o.warehouse_name || (o.suppliers?.name ? "자체출고" : ""),
       "상태": STATUS_LABEL[o.shipping_status] || o.shipping_status,
       "택배사": o.shipping_company || "",
       "송장번호": o.tracking_number || "",
@@ -1503,19 +1475,21 @@ export default function UnifiedOrdersPage() {
       </div>
 
       {/* Summary Cards */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-2 mb-3">
-        {[
-          { label: "주문수량", value: `${stats.totalQty}개` },
+      <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-2 mb-3">
+        {([
+          { label: "주문건수", value: `${stats.displayed.toLocaleString()}건`, sub: `수량 ${stats.totalQty.toLocaleString()}개` },
           { label: "판매금액", value: `${stats.totalAmount.toLocaleString()}원` },
-          { label: "처리대기", value: `${stats.pending}건`, hl: stats.pending > 0 },
-          { label: "미발주", value: `${stats.noPO}건`, hl: stats.noPO > 0 },
+          { label: "입금대기", value: `${stats.pending}건`, hl: stats.pending > 0 },
           { label: "공급사 미배정", value: `${stats.noSupplier}건`, hl: stats.noSupplier > 0 },
-          { label: "송장 미입력", value: `${stats.noTracking}건`, hl: stats.noTracking > 0 },
+          { label: "미발주", value: `${stats.noPO}건`, hl: stats.noPO > 0 },
+          { label: "송장 미등록", value: `${stats.noTracking}건`, hl: stats.noTracking > 0 },
           { label: "카페24 미연동", value: `${stats.unsynced}건`, hl: stats.unsynced > 0 },
-        ].map((s) => (
+          { label: "배송완료", value: `${stats.delivered.toLocaleString()}건`, color: "text-green-600" },
+        ] as { label: string; value: string; hl?: boolean; sub?: string; color?: string }[]).map((s) => (
           <div key={s.label} className="bg-white rounded-lg border border-gray-200 px-2.5 py-2">
             <p className="text-[10px] text-gray-400">{s.label}</p>
-            <p className={`text-sm font-bold mt-0.5 ${s.hl ? "text-[#C41E1E]" : "text-gray-900"}`}>{s.value}</p>
+            <p className={`text-sm font-bold mt-0.5 ${s.hl ? "text-[#C41E1E]" : s.color || "text-gray-900"}`}>{s.value}</p>
+            {s.sub && <p className="text-[10px] text-gray-400 mt-0.5">{s.sub}</p>}
           </div>
         ))}
       </div>
@@ -1770,68 +1744,60 @@ export default function UnifiedOrdersPage() {
           <table className="w-full text-sm table-fixed border-separate border-spacing-0">
             <colgroup>
               <col className="w-[36px]" />{/* checkbox */}
-              <col className="w-[36px]" />{/* No */}
               <col className="w-[120px]" />{/* 주문번호 */}
               <col className="w-[180px]" />{/* 상품/옵션 */}
+              <col className="w-[56px]" />{/* 상품코드 */}
               <col className="w-[110px]" />{/* 주문자 */}
-              <col className="w-[160px]" />{/* 배송주소 */}
+              <col className="w-[80px]" />{/* 배송주소 */}
               <col className="w-[64px]" />{/* 판매방식 */}
               <col className="w-[80px]" />{/* 판매사 */}
-              <col className="w-[90px]" />{/* 공급사 */}
+              <col className="w-[100px]" />{/* 공급사/출고지 */}
               <col className="w-[36px]" />{/* 수량 */}
-              <col className="w-[72px]" />{/* 공급가 */}
-              <col className="w-[64px]" />{/* 공급배송비 */}
-              <col className="w-[72px]" />{/* 판매가 */}
-              <col className="w-[64px]" />{/* 판매배송비 */}
-              <col className="w-[56px]" />{/* 입금 */}
+              <col className="w-[80px]" />{/* 공급 (상품가+배송비) */}
+              <col className="w-[80px]" />{/* 판매 (상품가+배송비) */}
               <col className="w-[130px]" />{/* 송장 */}
               <col className="w-[64px]" />{/* 발주종류 */}
               <col className="w-[100px]" />{/* 발주상태 */}
               <col className="w-[72px]" />{/* 배송상태 */}
               <col className="w-[40px]" />{/* CS */}
-              <col className="w-[80px]" />{/* 주문일 */}
             </colgroup>
             <thead className="sticky top-0 z-10">
               {/* Parent header row for column groups */}
               <tr className="text-[10px] text-gray-400">
                 <th colSpan={10} className="py-0.5 bg-gray-50 border-b border-gray-100"></th>
-                <th colSpan={2} className="py-0.5 text-center font-semibold text-blue-500 bg-blue-50 border-b border-gray-100 border-x border-blue-100/50">공급</th>
-                <th colSpan={2} className="py-0.5 text-center font-semibold text-green-600 bg-green-50 border-b border-gray-100 border-x border-green-100/50">판매</th>
-                <th colSpan={7} className="py-0.5 bg-gray-50 border-b border-gray-100"></th>
+                <th className="py-0.5 text-center font-semibold text-blue-500 bg-blue-50 border-b border-gray-100 border-x border-blue-100/50">공급</th>
+                <th className="py-0.5 text-center font-semibold text-green-600 bg-green-50 border-b border-gray-100 border-x border-green-100/50">판매</th>
+                <th colSpan={5} className="py-0.5 bg-gray-50 border-b border-gray-100"></th>
               </tr>
               <tr className="text-[11px] text-gray-500">
                 <th className="px-2 py-2 w-8 bg-gray-50 border-b border-gray-100">
-                  <input type="checkbox" checked={pagedOrders.length > 0 && pagedOrders.every((o) => selected.has(o.id))} onChange={toggleAll} className="rounded w-3.5 h-3.5" />
+                  <input type="checkbox" checked={orders.length > 0 && orders.every((o) => selected.has(o.id))} onChange={toggleAll} className="rounded w-3.5 h-3.5" />
                 </th>
-                <th className="text-left px-1.5 py-2 font-medium bg-gray-50 border-b border-gray-100">No</th>
-                <th className="text-left px-1.5 py-2 font-medium bg-gray-50 border-b border-gray-100">주문번호</th>
+                <th className="text-left px-1.5 py-2 font-medium bg-gray-50 border-b border-gray-100">주문번호(주문일자)</th>
                 <th className="text-left px-1.5 py-2 font-medium bg-gray-50 border-b border-gray-100">상품/옵션</th>
+                <th className="text-left px-1.5 py-2 font-medium bg-gray-50 border-b border-gray-100">TP코드</th>
                 <th className="text-left px-1.5 py-2 font-medium bg-gray-50 border-b border-gray-100">주문자/수취인</th>
                 <th className="text-left px-1.5 py-2 font-medium bg-gray-50 border-b border-gray-100">배송주소</th>
                 <th className="text-left px-1.5 py-2 font-medium bg-gray-50 border-b border-gray-100">판매방식</th>
                 <th className="text-left px-1.5 py-2 font-medium bg-gray-50 border-b border-gray-100">판매사</th>
-                <th className="text-left px-1.5 py-2 font-medium bg-gray-50 border-b border-gray-100">공급사</th>
+                <th className="text-left px-1.5 py-2 font-medium bg-gray-50 border-b border-gray-100">공급사/출고지</th>
                 <th className="text-right px-1.5 py-2 font-medium bg-gray-50 border-b border-gray-100">수량</th>
-                <th className="text-right px-1.5 py-2 font-medium bg-blue-50 border-l border-blue-100/50 border-b border-gray-100">상품가</th>
-                <th className="text-right px-1.5 py-2 font-medium bg-blue-50 border-r border-blue-100/50 border-b border-gray-100">배송비</th>
-                <th className="text-right px-1.5 py-2 font-medium bg-green-50 border-l border-green-100/50 border-b border-gray-100">상품가</th>
-                <th className="text-right px-1.5 py-2 font-medium bg-green-50 border-r border-green-100/50 border-b border-gray-100">배송비</th>
-                <th className="text-center px-1.5 py-2 font-medium bg-gray-50 border-b border-gray-100">입금</th>
+                <th className="text-right px-1.5 py-2 font-medium bg-blue-50 border-x border-blue-100/50 border-b border-gray-100"><div>상품가</div><div className="text-[9px] text-blue-400 font-normal">배송비</div></th>
+                <th className="text-right px-1.5 py-2 font-medium bg-green-50 border-x border-green-100/50 border-b border-gray-100"><div>상품가</div><div className="text-[9px] text-green-500 font-normal">배송비</div></th>
                 <th className="text-left px-1.5 py-2 font-medium bg-gray-50 border-b border-gray-100">송장</th>
                 <th className="text-center px-1.5 py-2 font-medium bg-gray-50 border-b border-gray-100">발주종류</th>
                 <th className="text-center px-1.5 py-2 font-medium bg-gray-50 border-b border-gray-100">발주상태</th>
                 <th className="text-center px-1.5 py-2 font-medium bg-gray-50 border-b border-gray-100">배송</th>
                 <th className="text-center px-1.5 py-2 font-medium bg-gray-50 border-b border-gray-100">CS</th>
-                <th className="text-right px-2 py-2 font-medium bg-gray-50 border-b border-gray-100">주문일</th>
               </tr>
               {/* Column filters — compact */}
               <tr className="text-[10px] [&>th]:bg-gray-50 [&>th]:border-b [&>th]:border-gray-200" style={{ boxShadow: "0 2px 4px -1px rgba(0,0,0,0.1)" }}>
                 {/* 1. Reset button */}
                 <th className="px-1 py-0.5">
-                  {(colFilterOrderNo || colFilterProduct || colFilterCustomer || colFilterAddress || colFilterAddrStatus || colFilterChannel || colFilterPayment || colFilterPOType || colFilterPOStatus || colFilterQty || colFilterAmount || colFilterTracking || filterStore || filterSupplier || filterStatus) && (
+                  {(colFilterOrderNo || colFilterProduct || colFilterTpCode || colFilterCustomer || colFilterAddress || colFilterAddrStatus || colFilterChannel || colFilterPayment || colFilterPOType || colFilterPOStatus || colFilterQty || colFilterAmount || colFilterTracking || filterStore || filterSupplier || filterStatus) && (
                     <button
                       onClick={() => {
-                        setColFilterOrderNo(""); setColFilterProduct(""); setColFilterCustomer(""); setColFilterAddress(""); setColFilterAddrStatus("");
+                        setColFilterOrderNo(""); setColFilterProduct(""); setColFilterTpCode(""); setColFilterCustomer(""); setColFilterAddress(""); setColFilterAddrStatus("");
                         setColFilterChannel(""); setColFilterPayment(""); setColFilterPOType(""); setColFilterPOStatus("");
                         setColFilterQty(""); setColFilterAmount(""); setColFilterTracking("");
                         setFilterStore(""); setFilterSupplier(""); setFilterStatus("");
@@ -1841,8 +1807,6 @@ export default function UnifiedOrdersPage() {
                     >X</button>
                   )}
                 </th>
-                {/* 2. empty (No) */}
-                <th></th>
                 {/* 3. 주문번호 input */}
                 <th className="px-0.5 py-0.5">
                   <input type="text" value={colFilterOrderNo} onChange={(e) => setColFilterOrderNo(e.target.value)}
@@ -1852,6 +1816,14 @@ export default function UnifiedOrdersPage() {
                 <th className="px-0.5 py-0.5">
                   <input type="text" value={colFilterProduct} onChange={(e) => setColFilterProduct(e.target.value)}
                     placeholder="상품/옵션" className="w-full text-[10px] border border-gray-200 rounded px-1 py-px bg-white" />
+                </th>
+                {/* 4.5. TP코드 */}
+                <th className="px-0.5 py-0.5">
+                  <select value={colFilterTpCode} onChange={(e) => setColFilterTpCode(e.target.value)}
+                    className="w-full text-[10px] border border-gray-200 rounded px-0.5 py-px bg-white">
+                    <option value="">-</option>
+                    <option value="-">없음</option>
+                  </select>
                 </th>
                 {/* 5. 이름/연락처 input */}
                 <th className="px-0.5 py-0.5">
@@ -1913,11 +1885,9 @@ export default function UnifiedOrdersPage() {
                     <option value="2+">2+</option>
                   </select>
                 </th>
-                {/* 11. 공급가 */}
+                {/* 11. 공급 */}
                 <th className="!bg-blue-50"></th>
-                {/* 12. 공급배송비 */}
-                <th className="!bg-blue-50"></th>
-                {/* 13. 판매가 select */}
+                {/* 12. 판매 */}
                 <th className="px-0.5 py-0.5 !bg-green-50">
                   <select value={colFilterAmount} onChange={(e) => setColFilterAmount(e.target.value)}
                     className="w-full text-[10px] border border-gray-200 rounded px-0.5 py-px bg-white">
@@ -1926,17 +1896,6 @@ export default function UnifiedOrdersPage() {
                     <option value="10k_50k">1~5만</option>
                     <option value="50k_100k">5~10만</option>
                     <option value="over100k">10만~</option>
-                  </select>
-                </th>
-                {/* 14. 판매배송비 */}
-                <th className="!bg-green-50"></th>
-                {/* 15. 입금 select */}
-                <th className="px-0.5 py-0.5 text-center">
-                  <select value={colFilterPayment} onChange={(e) => setColFilterPayment(e.target.value)}
-                    className="w-full text-[10px] border border-gray-200 rounded px-0.5 py-px bg-white">
-                    <option value="">-</option>
-                    <option value="paid">완료</option>
-                    <option value="unpaid">미입금</option>
                   </select>
                 </th>
                 {/* 16. 송장 tracking filter select */}
@@ -1981,20 +1940,17 @@ export default function UnifiedOrdersPage() {
                 </th>
                 {/* 19. empty (CS) */}
                 <th></th>
-                {/* 20. empty (주문일) */}
-                <th></th>
               </tr>
             </thead>
             <tbody>
               {orders.length === 0 ? (
-                <tr><td colSpan={20} className="p-12 text-center text-gray-400">조건에 맞는 주문이 없습니다.</td></tr>
-              ) : pagedOrders.map((o, idx) => (
+                <tr><td colSpan={17} className="p-12 text-center text-gray-400">조건에 맞는 주문이 없습니다.</td></tr>
+              ) : orders.map((o, idx) => (
                 <OrderRow
                   key={o.id}
                   o={o}
                   idx={idx}
                   displayedCount={stats.displayed}
-                  pageOffset={0}
                   isSelected={selected.has(o.id)}
                   toggleSelect={toggleSelect}
                   editingField={editingCell?.orderId === o.id ? editingCell.field : null}
@@ -2014,44 +1970,6 @@ export default function UnifiedOrdersPage() {
             </tbody>
           </table>
 
-          {/* Pagination */}
-          {totalPages > 1 && (
-            <div className="flex items-center justify-between px-4 py-3 border-t border-gray-100">
-              <span className="text-xs text-gray-500">
-                {page * pageSize + 1}~{Math.min((page + 1) * pageSize, orders.length)} / {orders.length}건
-              </span>
-              <div className="flex items-center gap-1">
-                <button onClick={() => setPage(0)} disabled={page === 0}
-                  className="px-2 py-1 text-xs border border-gray-300 rounded hover:bg-gray-50 disabled:opacity-30 disabled:cursor-default cursor-pointer">&#171;</button>
-                <button onClick={() => setPage((p) => Math.max(0, p - 1))} disabled={page === 0}
-                  className="px-2 py-1 text-xs border border-gray-300 rounded hover:bg-gray-50 disabled:opacity-30 disabled:cursor-default cursor-pointer">&#8249;</button>
-                {Array.from({ length: totalPages }, (_, i) => i)
-                  .filter((i) => i === 0 || i === totalPages - 1 || Math.abs(i - page) <= 2)
-                  .reduce<(number | "...")[]>((acc, i, idx, arr) => {
-                    if (idx > 0 && i - (arr[idx - 1] as number) > 1) acc.push("...");
-                    acc.push(i);
-                    return acc;
-                  }, [])
-                  .map((item, i) =>
-                    item === "..." ? (
-                      <span key={`dot-${i}`} className="px-1 text-xs text-gray-400">...</span>
-                    ) : (
-                      <button
-                        key={item}
-                        onClick={() => setPage(item as number)}
-                        className={`px-2.5 py-1 text-xs rounded cursor-pointer ${
-                          page === item ? "bg-[#C41E1E] text-white" : "border border-gray-300 hover:bg-gray-50"
-                        }`}
-                      >{(item as number) + 1}</button>
-                    )
-                  )}
-                <button onClick={() => setPage((p) => Math.min(totalPages - 1, p + 1))} disabled={page === totalPages - 1}
-                  className="px-2 py-1 text-xs border border-gray-300 rounded hover:bg-gray-50 disabled:opacity-30 disabled:cursor-default cursor-pointer">&#8250;</button>
-                <button onClick={() => setPage(totalPages - 1)} disabled={page === totalPages - 1}
-                  className="px-2 py-1 text-xs border border-gray-300 rounded hover:bg-gray-50 disabled:opacity-30 disabled:cursor-default cursor-pointer">&#187;</button>
-              </div>
-            </div>
-          )}
           </>
         )}
       </div>
@@ -2059,8 +1977,8 @@ export default function UnifiedOrdersPage() {
       {/* Bottom Summary */}
       {orders.length > 0 && (
         <div className="mt-3 flex items-center gap-6 text-sm text-gray-500">
-          <span>조회: <b className="text-gray-900">{stats.displayed}건</b></span>
-          <span>수량 합계: <b className="text-gray-900">{stats.totalQty}개</b></span>
+          <span>주문건수: <b className="text-gray-900">{stats.displayed.toLocaleString()}건</b></span>
+          <span>수량 합계: <b className="text-gray-900">{stats.totalQty.toLocaleString()}개</b></span>
           <span>판매금액: <b className="text-gray-900">{stats.totalAmount.toLocaleString()}원</b></span>
         </div>
       )}

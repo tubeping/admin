@@ -106,67 +106,48 @@ export async function POST(request: NextRequest) {
 
   const results: { order_id: string; cafe24_order_id: string; success: boolean; error?: string }[] = [];
 
-  for (const order of cafe24Orders) {
+  // 스토어 택배사 목록 사전 로드 (중복 방지)
+  const uniqueStoreIds = [...new Set(cafe24Orders.map((o) => o.store_id))];
+  await Promise.all(
+    uniqueStoreIds
+      .filter((sid) => storeMap[sid])
+      .map(async (sid) => { carriersByStore[sid] = await fetchStoreCarriers(storeMap[sid]); })
+  );
+
+  // 개별 주문 처리 함수
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  async function processOrder(order: any) {
     const store = storeMap[order.store_id];
     if (!store) {
-      results.push({
-        order_id: order.id,
-        cafe24_order_id: order.cafe24_order_id,
-        success: false,
-        error: "스토어 정보 없음",
-      });
-      continue;
+      return { order_id: order.id, cafe24_order_id: order.cafe24_order_id, success: false, error: "스토어 정보 없음" };
     }
 
-    // 카페24 주문이 아닌 건 skip:
-    // 1) 비카페24 스토어 (manual_/excel_)
-    // 2) 주문번호가 카페24 형식(YYYYMMDD-NNNNNNN)이 아닌 건 (전화주문/수기주문)
-    const isCafe24Order = /^\d{8}-\d{7}$/.test(order.cafe24_order_id || "");
+    // C24- 접두어 제거 → Cafe24 API용 원본 주문번호
+    const rawOrderId = (order.cafe24_order_id || "").replace(/^C24-/, "");
+    const isCafe24Order = /^\d{8}-\d{7}$/.test(rawOrderId);
     if (!isCafe24Mall(store.mall_id) || !isCafe24Order) {
-      // 카페24 연동 불필요 → synced 처리해서 다시 안 뜨게
       await sb
         .from("orders")
         .update({ cafe24_shipping_synced: true, cafe24_shipping_synced_at: new Date().toISOString() })
         .eq("id", order.id);
-      results.push({
-        order_id: order.id,
-        cafe24_order_id: order.cafe24_order_id,
-        success: true,
-        error: undefined,
-      });
-      continue;
+      return { order_id: order.id, cafe24_order_id: order.cafe24_order_id, success: true };
     }
 
-    // 스토어 택배사 로드 (한 번만)
-    if (!carriersByStore[order.store_id]) {
-      carriersByStore[order.store_id] = await fetchStoreCarriers(store);
-    }
-    const code = resolveShippingCode(order.shipping_company || "", carriersByStore[order.store_id]);
+    const code = resolveShippingCode(order.shipping_company || "", carriersByStore[order.store_id] || {});
     if (!code) {
-      const registered = Object.keys(carriersByStore[order.store_id]).join(", ") || "(조회 실패)";
-      results.push({
-        order_id: order.id,
-        cafe24_order_id: order.cafe24_order_id,
-        success: false,
-        error: `택배사 '${order.shipping_company}' 미등록 — 등록된 택배사: ${registered}`,
-      });
-      continue;
+      const registered = Object.keys(carriersByStore[order.store_id] || {}).join(", ") || "(조회 실패)";
+      return { order_id: order.id, cafe24_order_id: order.cafe24_order_id, success: false, error: `택배사 '${order.shipping_company}' 미등록 — 등록된 택배사: ${registered}` };
     }
 
     try {
-      // 송장 등록 전 주문 상태가 N10이면 N20으로 전환 (안전망)
       try {
         await cafe24Fetch(store, `/orders`, {
           method: "PUT",
-          body: JSON.stringify({
-            shop_no: 1,
-            requests: [{ order_id: order.cafe24_order_id, process_status: "prepare" }],
-          }),
+          body: JSON.stringify({ shop_no: 1, requests: [{ order_id: rawOrderId, process_status: "prepare" }] }),
         });
       } catch (e) { console.error("[cafe24/shipments] set prepare status failed (이미 N20 이상일 수 있음):", e); }
 
-      // 카페24 배송정보 등록 API
-      const res = await cafe24Fetch(store, `/orders/${order.cafe24_order_id}/shipments`, {
+      const res = await cafe24Fetch(store, `/orders/${rawOrderId}/shipments`, {
         method: "POST",
         body: JSON.stringify({
           shop_no: 1,
@@ -174,71 +155,53 @@ export async function POST(request: NextRequest) {
             shipping_company_code: code,
             tracking_no: order.tracking_number,
             order_item_code: [order.cafe24_order_item_code],
-            status: "shipping", // 배송중으로 변경
+            status: "shipping",
           },
         }),
       });
 
       if (res.ok) {
-        // DB 업데이트
-        await sb
-          .from("orders")
-          .update({
-            cafe24_shipping_synced: true,
-            cafe24_shipping_synced_at: new Date().toISOString(),
-            shipping_status: "shipping",
-            shipped_at: new Date().toISOString(),
-          })
-          .eq("id", order.id);
-
-        results.push({
-          order_id: order.id,
-          cafe24_order_id: order.cafe24_order_id,
-          success: true,
-        });
+        await sb.from("orders").update({
+          cafe24_shipping_synced: true, cafe24_shipping_synced_at: new Date().toISOString(),
+          shipping_status: "shipping", shipped_at: new Date().toISOString(),
+        }).eq("id", order.id);
+        return { order_id: order.id, cafe24_order_id: order.cafe24_order_id, success: true };
       } else {
         const errText = await res.text();
-        // "You cannot change to that order state" = 이미 배송 진행 중일 수 있음 → 카페24 상태 확인 후 reconcile
         if (res.status === 422 && errText.includes("cannot change")) {
           try {
-            const checkRes = await cafe24Fetch(store, `/orders/${order.cafe24_order_id}?embed=items`);
+            const checkRes = await cafe24Fetch(store, `/orders/${rawOrderId}?embed=items`);
             if (checkRes.ok) {
               const detailData = await checkRes.json();
               // eslint-disable-next-line @typescript-eslint/no-explicit-any
               const items: any[] = detailData?.order?.items || [];
-              const it = items.find((i) => i.order_item_code === order.cafe24_order_item_code);
+              const it = items.find((i: { order_item_code: string }) => i.order_item_code === order.cafe24_order_item_code);
               if (it && it.tracking_no && ["N21", "N22", "N30", "N40"].includes(it.order_status || "")) {
-                await sb
-                  .from("orders")
-                  .update({
-                    cafe24_shipping_synced: true,
-                    cafe24_shipping_synced_at: new Date().toISOString(),
-                    shipping_status: "shipping",
-                    tracking_number: it.tracking_no,
-                    shipping_company: it.shipping_company_name || order.shipping_company,
-                    shipped_at: new Date().toISOString(),
-                  })
-                  .eq("id", order.id);
-                results.push({ order_id: order.id, cafe24_order_id: order.cafe24_order_id, success: true });
-                continue;
+                await sb.from("orders").update({
+                  cafe24_shipping_synced: true, cafe24_shipping_synced_at: new Date().toISOString(),
+                  shipping_status: "shipping", tracking_number: it.tracking_no,
+                  shipping_company: it.shipping_company_name || order.shipping_company, shipped_at: new Date().toISOString(),
+                }).eq("id", order.id);
+                return { order_id: order.id, cafe24_order_id: order.cafe24_order_id, success: true };
               }
             }
           } catch (e) { console.error("[cafe24/shipments] shipment retry/fallback failed:", e); }
         }
-        results.push({
-          order_id: order.id,
-          cafe24_order_id: order.cafe24_order_id,
-          success: false,
-          error: `${res.status}: ${errText}`,
-        });
+        return { order_id: order.id, cafe24_order_id: order.cafe24_order_id, success: false, error: `${res.status}: ${errText}` };
       }
     } catch (err) {
-      results.push({
-        order_id: order.id,
-        cafe24_order_id: order.cafe24_order_id,
-        success: false,
-        error: err instanceof Error ? err.message : "알 수 없는 오류",
-      });
+      return { order_id: order.id, cafe24_order_id: order.cafe24_order_id, success: false, error: err instanceof Error ? err.message : "알 수 없는 오류" };
+    }
+  }
+
+  // 5개씩 배치로 병렬 처리 (카페24 API rate limit 고려)
+  const BATCH_SIZE = 5;
+  for (let i = 0; i < cafe24Orders.length; i += BATCH_SIZE) {
+    const batch = cafe24Orders.slice(i, i + BATCH_SIZE);
+    const batchResults = await Promise.allSettled(batch.map(processOrder));
+    for (const r of batchResults) {
+      if (r.status === "fulfilled") results.push(r.value);
+      else results.push({ order_id: "", cafe24_order_id: "", success: false, error: String(r.reason) });
     }
   }
 

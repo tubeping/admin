@@ -3,6 +3,18 @@ import { getServiceClient } from "@/lib/supabase";
 import { autoAssignSuppliers } from "@/lib/autoAssignSuppliers";
 import { autoVerifyAddresses } from "@/lib/autoVerifyAddresses";
 
+/** 주문번호에서 YYYYMMDD 날짜를 파싱하여 ISO 문자열 반환 (없으면 null) */
+function parseDateFromOrderNo(orderNo: string): string | null {
+  const m = orderNo.match(/(\d{8})/);
+  if (!m) return null;
+  const ds = m[1];
+  const y = parseInt(ds.slice(0, 4), 10);
+  const mo = parseInt(ds.slice(4, 6), 10);
+  const d = parseInt(ds.slice(6, 8), 10);
+  if (y < 2020 || y > 2099 || mo < 1 || mo > 12 || d < 1 || d > 31) return null;
+  return new Date(`${ds.slice(0, 4)}-${ds.slice(4, 6)}-${ds.slice(6, 8)}T09:00:00+09:00`).toISOString();
+}
+
 /**
  * POST /api/sms-orders/transfer - 문자주문을 orders 테이블로 이관
  * body: { ids: string[] }
@@ -53,14 +65,18 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "문자주문 판매처 생성 실패" }, { status: 500 });
   }
 
-  // 3. 이미 이관된 주문번호 체크
-  const orderNos = notTransferred.map((o) =>
+  // 3. 이미 이관된 주문번호 체크 (SMS- 형태 그대로 사용)
+  const orderNos = notTransferred.map((o) => {
+    const no = o.order_number.replace(/^PS-/, "");
+    return no.startsWith("SMS-") ? no : `SMS-${no}`;
+  });
+  const legacyNos = notTransferred.map((o) =>
     o.order_number.startsWith("PS-") ? o.order_number : `PS-${o.order_number}`
   );
   const { data: existing } = await sb
     .from("orders")
     .select("cafe24_order_id")
-    .in("cafe24_order_id", orderNos);
+    .in("cafe24_order_id", [...orderNos, ...legacyNos]);
   const existingSet = new Set((existing || []).map((e) => e.cafe24_order_id));
 
   // 4. 상품명 -> 가격 매핑
@@ -84,9 +100,11 @@ export async function POST(request: NextRequest) {
   const details: Array<{ order_number: string; status: string; reason?: string }> = [];
 
   for (const so of notTransferred) {
-    const orderNo = so.order_number.startsWith("PS-") ? so.order_number : `PS-${so.order_number}`;
+    const stripped = so.order_number.replace(/^PS-/, "");
+    const orderNo = stripped.startsWith("SMS-") ? stripped : `SMS-${stripped}`;
+    const legacyNo = so.order_number.startsWith("PS-") ? so.order_number : `PS-${so.order_number}`;
 
-    if (existingSet.has(orderNo)) {
+    if (existingSet.has(orderNo) || existingSet.has(legacyNo)) {
       skipped++;
       transferredSmsOrderIds.push(so.id);
       details.push({ order_number: so.order_number, status: "이미 이관됨" });
@@ -100,7 +118,7 @@ export async function POST(request: NextRequest) {
 
     const orderDateStr = so.order_date
       ? new Date(so.order_date + "T09:00:00+09:00").toISOString()
-      : new Date().toISOString();
+      : (parseDateFromOrderNo(so.order_number) || new Date().toISOString());
 
     const { data: inserted, error: insertErr } = await sb
       .from("orders")

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServiceClient } from "@/lib/supabase";
 import { autoAssignSuppliers } from "@/lib/autoAssignSuppliers";
 import { autoVerifyAddresses } from "@/lib/autoVerifyAddresses";
+import { CHANNEL_PREFIX } from "@/lib/orderPrefix";
 
 /**
  * POST /api/orders/manual-register — 수기/OCR 주문 일괄 등록
@@ -38,9 +39,6 @@ export async function POST(request: NextRequest) {
   const sb = getServiceClient();
 
   // 주문번호 prefix: 채널별 접두사-YYYYMMDD-NNN
-  const CHANNEL_PREFIX: Record<string, string> = {
-    phone: "TEL", sms: "SMS", sample: "SPL", etc: "ETC", group: "JP",
-  };
   const prefix = CHANNEL_PREFIX[sales_channel || ""] || "ETC";
   const now = new Date();
   const kst = new Date(now.getTime() + 9 * 3600000);
@@ -48,6 +46,7 @@ export async function POST(request: NextRequest) {
   const { count } = await sb
     .from("orders")
     .select("id", { count: "exact", head: true })
+    .eq("store_id", store_id)
     .like("cafe24_order_id", `${prefix}-${ymd}-%`);
   let seq = (count || 0);
 

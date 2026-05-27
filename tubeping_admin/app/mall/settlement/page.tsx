@@ -53,6 +53,9 @@ interface Settlement {
   total_items: number;
   memo: string | null;
   created_at: string;
+  share_token: string | null;
+  seller_confirmed: boolean;
+  seller_confirmed_at: string | null;
   stores?: Store;
 }
 interface SettlementItem {
@@ -68,12 +71,16 @@ interface SettlementItem {
   order_amount: number;
   shipping_fee: number;
   discount_amount: number;
+  coupon_discount: number;
+  app_discount: number;
+  additional_discount: number;
   settled_amount: number;
   supply_price: number;
   supply_total: number;
   supply_shipping: number;
   tax_type: string;
   item_type: string;
+  sales_channel: string;
   supplier_name: string;
   store_name: string;
 }
@@ -192,21 +199,28 @@ function downloadSellerExcel(
   ws1["!cols"] = [{ wch: 30 }, { wch: 18 }];
   XLSX.utils.book_append_sheet(wb, ws1, "정산요약");
 
+  const chLabel: Record<string, string> = { cafe24: "자사몰", phone: "전화", sms: "문자", sample: "샘플", group: "공구" };
   const orderHeaders = [
-    "구분", "주문번호", "주문일", "상품명", "옵션", "수량",
-    "단가", "정산매출", "공급가", "공급배송비", "과세구분", "공급사",
+    "구분", "판매방식", "주문번호", "주문일", "상품명", "옵션", "수량",
+    "단가", "상품금액", "배송비", "쿠폰할인", "앱할인", "추가할인", "정산매출",
+    "공급가", "공급배송비", "순익", "과세구분", "공급사",
   ];
   const orderRows = items.map((i) => [
-    i.item_type, i.cafe24_order_id, (i.order_date || "").slice(0, 10),
+    i.item_type, chLabel[i.sales_channel] || i.sales_channel || "기타",
+    i.cafe24_order_id, (i.order_date || "").slice(0, 10),
     i.product_name, i.option_text || "", i.quantity, i.product_price,
-    i.settled_amount, i.supply_total, i.supply_shipping, i.tax_type,
-    i.supplier_name || "",
+    i.product_price * i.quantity, i.shipping_fee || 0,
+    i.coupon_discount || 0, i.app_discount || 0, i.additional_discount || 0,
+    i.settled_amount, i.supply_total, i.supply_shipping,
+    i.settled_amount - i.supply_total - i.supply_shipping,
+    i.tax_type, i.supplier_name || "",
   ]);
   const ws2 = XLSX.utils.aoa_to_sheet([orderHeaders, ...orderRows]);
   ws2["!cols"] = [
-    { wch: 8 }, { wch: 22 }, { wch: 12 }, { wch: 40 }, { wch: 20 },
+    { wch: 6 }, { wch: 8 }, { wch: 22 }, { wch: 12 }, { wch: 40 }, { wch: 20 },
     { wch: 6 }, { wch: 10 }, { wch: 12 }, { wch: 10 }, { wch: 10 },
-    { wch: 8 }, { wch: 14 },
+    { wch: 10 }, { wch: 10 }, { wch: 12 }, { wch: 10 }, { wch: 10 },
+    { wch: 10 }, { wch: 8 }, { wch: 14 },
   ];
   XLSX.utils.book_append_sheet(wb, ws2, "주문상세");
 
@@ -543,11 +557,39 @@ export default function SettlementPage() {
               {s.settlement_no} · {s.period} · {sType} · {infPct}:{coPct} 분배
             </p>
           </div>
-          <div className="flex gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
+            {s.seller_confirmed ? (
+              <span className="px-2.5 py-1 text-xs font-medium rounded-full bg-green-100 text-green-700" title={s.seller_confirmed_at ? new Date(s.seller_confirmed_at).toLocaleString("ko-KR") : ""}>
+                판매자 확정 ✓
+              </span>
+            ) : (
+              <span className="px-2.5 py-1 text-xs font-medium rounded-full bg-yellow-100 text-yellow-700">
+                판매자 미확인
+              </span>
+            )}
+            {s.share_token && (
+              <button
+                onClick={() => {
+                  const url = `${window.location.origin}/admin/settlement/${s.share_token}`;
+                  navigator.clipboard.writeText(url);
+                  alert("공유 링크가 복사되었습니다");
+                }}
+                className="px-3 py-2 border border-gray-300 text-gray-600 text-sm rounded-lg hover:bg-gray-50 cursor-pointer"
+              >
+                공유 링크 복사
+              </button>
+            )}
             <button
-              onClick={() =>
-                downloadSellerExcel(s, detailItems, productSummary)
-              }
+              onClick={async () => {
+                const res = await fetch(`/admin/api/settlements/${s.id}/excel`);
+                const blob = await res.blob();
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement("a");
+                a.href = url;
+                a.download = `${storeName}_${s.period}_정산서.xlsx`;
+                a.click();
+                URL.revokeObjectURL(url);
+              }}
               className="px-3 py-2 bg-green-600 text-white text-sm rounded-lg hover:bg-green-700 cursor-pointer"
             >
               Excel 다운로드
@@ -692,12 +734,16 @@ export default function SettlementPage() {
               <thead>
                 <tr className="text-xs text-gray-500 border-b border-gray-100">
                   {[
-                    "구분", "주문번호", "주문일", "상품명", "옵션", "수량",
-                    "단가", "정산매출", "공급가", "공급배송비", "과세", "공급사",
+                    "구분", "판매방식", "주문번호", "주문일", "상품명", "옵션", "수량",
+                    "단가", "상품금액", "배송비", "쿠폰할인", "앱할인", "추가할인", "정산매출",
+                    "공급가", "공급배송비", "순익", "과세", "공급사",
                   ].map((h) => (
                     <th
                       key={h}
-                      className="px-3 py-2.5 font-medium text-left whitespace-nowrap"
+                      className={`px-3 py-2.5 font-medium text-left whitespace-nowrap ${
+                        ["쿠폰할인", "앱할인", "추가할인"].includes(h) ? "text-red-500"
+                        : h === "순익" ? "text-blue-600" : ""
+                      }`}
                     >
                       {h}
                     </th>
@@ -717,6 +763,25 @@ export default function SettlementPage() {
                         {item.item_type}
                       </span>
                     </td>
+                    <td className="px-3 py-2.5">
+                      {(() => {
+                        const colorMap: Record<string, string> = {
+                          cafe24: "bg-green-50 text-green-700", phone: "bg-orange-50 text-orange-700",
+                          sms: "bg-purple-50 text-purple-700", group: "bg-blue-50 text-blue-700",
+                          sample: "bg-gray-100 text-gray-500",
+                        };
+                        const labelMap: Record<string, string> = {
+                          cafe24: "자사몰", phone: "전화", sms: "문자",
+                          sample: "샘플", group: "공구",
+                        };
+                        const ch = item.sales_channel || "etc";
+                        return (
+                          <span className={`text-xs font-medium px-1.5 py-0.5 rounded ${colorMap[ch] || "bg-gray-50 text-gray-500"}`}>
+                            {labelMap[ch] || ch}
+                          </span>
+                        );
+                      })()}
+                    </td>
                     <td className="px-3 py-2.5 text-xs font-mono text-gray-600 whitespace-nowrap">
                       {item.cafe24_order_id}
                     </td>
@@ -733,6 +798,21 @@ export default function SettlementPage() {
                     <td className="px-3 py-2.5 text-right">
                       {W(item.product_price)}
                     </td>
+                    <td className="px-3 py-2.5 text-right text-gray-500">
+                      {W(item.product_price * item.quantity)}
+                    </td>
+                    <td className="px-3 py-2.5 text-right text-gray-500">
+                      {item.shipping_fee ? W(item.shipping_fee) : "-"}
+                    </td>
+                    <td className="px-3 py-2.5 text-right text-red-500">
+                      {item.coupon_discount ? `-${W(item.coupon_discount)}` : "-"}
+                    </td>
+                    <td className="px-3 py-2.5 text-right text-red-500">
+                      {item.app_discount ? `-${W(item.app_discount)}` : "-"}
+                    </td>
+                    <td className="px-3 py-2.5 text-right text-red-500">
+                      {item.additional_discount ? `-${W(item.additional_discount)}` : "-"}
+                    </td>
                     <td className="px-3 py-2.5 text-right font-medium bg-yellow-50">
                       {W(item.settled_amount)}
                     </td>
@@ -741,6 +821,12 @@ export default function SettlementPage() {
                     </td>
                     <td className="px-3 py-2.5 text-right">
                       {W(item.supply_shipping)}
+                    </td>
+                    <td className={`px-3 py-2.5 text-right font-medium ${
+                      (item.settled_amount - item.supply_total - item.supply_shipping) >= 0
+                        ? "text-blue-600" : "text-red-600"
+                    }`}>
+                      {W(item.settled_amount - item.supply_total - item.supply_shipping)}
                     </td>
                     <td className="px-3 py-2.5">
                       <span

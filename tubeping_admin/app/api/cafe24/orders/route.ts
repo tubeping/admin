@@ -12,28 +12,6 @@ import { autoVerifyAddresses } from "@/lib/autoVerifyAddresses";
  * body: { store_id, start_date, end_date }
  */
 
-interface Cafe24OrderItem {
-  order_id: string;
-  order_item_code: string;
-  product_no: number;
-  product_name: string;
-  option_value: string;
-  quantity: number;
-  product_price: string;
-  order_date: string;
-  buyer_name: string;
-  buyer_email: string;
-  buyer_cellphone: string;
-  receiver_name: string;
-  receiver_cellphone: string;
-  receiver_address1: string;
-  receiver_address2: string;
-  receiver_zipcode: string;
-  shipping_company_name: string;
-  tracking_no: string;
-  order_status: string;
-}
-
 function mapCafe24Status(status: string): string {
   // N10(상품준비중)·N20(배송준비중)은 신용카드 PG 결제가 이미 완료된 상태 → admin에서 '입금완료'(ordered)로 반영
   // 수동 입금확인 대상은 N00(입금전) + 전화주문(EXCEL-*)만
@@ -149,6 +127,29 @@ async function fetchOrdersFromStore(
     offset += pageLimit;
     if (offset > 5000) break; // 안전장치
   }
+
+  // embed=items가 누락된 주문은 개별 조회로 items 보충 (5건 병렬)
+  const missingItems = all.filter((o) => !o.items || o.items.length === 0);
+  if (missingItems.length > 0) {
+    console.log(`[cafe24/orders] ${missingItems.length}건 items 누락 → 개별 조회 시도`);
+    const CONCURRENT = 5;
+    for (let i = 0; i < missingItems.length; i += CONCURRENT) {
+      const batch = missingItems.slice(i, i + CONCURRENT);
+      await Promise.allSettled(batch.map(async (order) => {
+        const res = await cafe24Fetch(store, `/orders/${order.order_id}?embed=items,receivers`);
+        if (res.ok) {
+          const data = await res.json();
+          const detail = data.order;
+          if (detail?.items?.length > 0) {
+            order.items = detail.items;
+            if (detail.receivers) order.receivers = detail.receivers;
+          }
+        }
+      }));
+      if (i + CONCURRENT < missingItems.length) await new Promise((r) => setTimeout(r, 200));
+    }
+  }
+
   return all;
 }
 
@@ -179,6 +180,12 @@ async function saveOrdersToDb(
     quantity: number;
     product_price: number;
     order_amount: number;
+    shipping_fee: number;
+    discount_amount: number;
+    coupon_discount: number;
+    app_discount: number;
+    additional_discount: number;
+    sales_channel: string;
     memo: string;
     shipping_company: string;
     tracking_number: string;
@@ -190,10 +197,27 @@ async function saveOrdersToDb(
     const items = order.items || [order];
     const receiver = order.receivers?.[0] || {};
     for (const item of items) {
+      // 품목별 주문번호(order_item_code)가 없거나 주문번호와 동일하면 skip
+      // → embed=items 실패 시 order-level fallback에서 bare code가 저장되는 것을 방지
+      const itemCode = item.order_item_code || "";
+      const orderId = order.order_id || item.order_id || "";
+      if (!itemCode || itemCode === orderId) {
+        console.log(`[cafe24/orders] skip bare item_code: order=${orderId} item_code=${itemCode}`);
+        continue;
+      }
+      const qty = item.quantity || 1;
+      const unitPrice = parseInt(item.product_price || "0", 10);
+      const itemTotal = qty * unitPrice;
+      // 아이템별 할인 유형별 분리
+      const couponDiscount = Math.round(parseFloat(item.coupon_discount_price || "0"));
+      const appDiscount = Math.round(parseFloat(item.app_item_discount_amount || "0"));
+      const additionalDiscount = Math.round(parseFloat(item.additional_discount_price || "0"));
+      const itemDiscount = couponDiscount + appDiscount + additionalDiscount;
+      const shippingFee = Math.round(parseFloat(item.individual_shipping_fee || "0"));
       rows.push({
         store_id: storeId,
-        cafe24_order_id: order.order_id || item.order_id,
-        cafe24_order_item_code: item.order_item_code || "",
+        cafe24_order_id: `C24-${orderId}`,
+        cafe24_order_item_code: itemCode,
         order_date: order.order_date || item.order_date,
         buyer_name: order.buyer_name || "",
         buyer_email: order.buyer_email || "",
@@ -207,14 +231,19 @@ async function saveOrdersToDb(
         cafe24_product_no: item.product_no || 0,
         product_name: item.product_name || "",
         option_text: item.option_value || "",
-        quantity: item.quantity || 1,
-        product_price: parseInt(item.product_price || "0", 10),
-        order_amount:
-          (item.quantity || 1) * parseInt(item.product_price || "0", 10),
+        quantity: qty,
+        product_price: unitPrice,
+        order_amount: itemTotal - itemDiscount + shippingFee,
+        shipping_fee: shippingFee,
+        discount_amount: itemDiscount,
+        coupon_discount: couponDiscount,
+        app_discount: appDiscount,
+        additional_discount: additionalDiscount,
         memo: receiver.shipping_message || order.shipping_message || order.user_message || "",
         shipping_company: item.shipping_company_name || "",
         tracking_number: item.tracking_no || "",
         shipped_at: item.tracking_no ? (item.shipped_date || new Date().toISOString()) : null,
+        sales_channel: "cafe24",
         // cancel_date가 있으면 order_status와 무관하게 cancelled 강제 (C* 외 코드 커버)
         shipping_status: (item.cancel_date || order.cancel_date)
           ? "cancelled"
@@ -223,13 +252,13 @@ async function saveOrdersToDb(
     }
   }
 
-  // 카페24 자사몰 주문번호는 YYYYMMDD-NNNNNNN 형식만 허용 (순수 숫자 등 비정상 형식 제외)
-  const validRows = rows.filter((r) => /^\d{8}-\d+$/.test(r.cafe24_order_id));
+  // C24- 접두어 + YYYYMMDD-NNNNNNN 형식만 허용
+  const validRows = rows.filter((r) => /^C24-\d{8}-\d+$/.test(r.cafe24_order_id));
   if (validRows.length < rows.length) {
     console.log(`[cafe24/orders] ${rows.length - validRows.length}건 비정상 주문번호 형식 제외`);
   }
 
-  if (validRows.length === 0) return { inserted: 0, updated: 0 };
+  if (validRows.length === 0) return { saved: 0 };
 
   // 기존 row 조회 — 덮어쓰기 방지용
   // 이미 supplier/admin이 입력한 송장·배송상태는 카페24가 빈 값을 돌려줄 때 보존
@@ -325,11 +354,12 @@ export async function GET(request: NextRequest) {
           // 우리 DB도 해당 주문의 shipping_status를 ordered로 갱신
           if (transition.transitioned.length > 0) {
             const sb2 = getServiceClient();
+            const prefixed = transition.transitioned.map((id) => `C24-${id}`);
             await sb2
               .from("orders")
               .update({ shipping_status: "ordered" })
               .eq("store_id", store.id)
-              .in("cafe24_order_id", transition.transitioned)
+              .in("cafe24_order_id", prefixed)
               .eq("shipping_status", "pending");
           }
           return {
@@ -353,11 +383,15 @@ export async function GET(request: NextRequest) {
 
     // last_sync_at 갱신 (성공한 스토어만)
     const sb = getServiceClient();
-    await Promise.all(
-      stores.map((store) =>
-        sb.from("stores").update({ last_sync_at: new Date().toISOString() }).eq("id", store.id)
-      )
-    );
+    const successStoreIds = stores
+      .filter((_, i) => !("error" in results[i]))
+      .map((s) => s.id);
+    if (successStoreIds.length > 0) {
+      await sb
+        .from("stores")
+        .update({ last_sync_at: new Date().toISOString() })
+        .in("id", successStoreIds);
+    }
 
     // 공급사 자동 배정 (미배정 주문 전체)
     let autoAssign: { total: number; assigned: number; failed: number } | null = null;
