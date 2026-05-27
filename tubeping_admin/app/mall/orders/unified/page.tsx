@@ -1069,7 +1069,10 @@ export default function UnifiedOrdersPage() {
       }
       if (kOrderNo && !o.cafe24_order_id?.toLowerCase().includes(kOrderNo)) return false;
       if (kProduct && !(o.product_name?.toLowerCase().includes(kProduct) || o.option_text?.toLowerCase().includes(kProduct))) return false;
-      if (colFilterTpCode && !(o.tp_code?.toLowerCase().includes(colFilterTpCode.toLowerCase()))) return false;
+      if (colFilterTpCode) {
+        if (colFilterTpCode === "-") { if (o.tp_code) return false; }
+        else if (!(o.tp_code?.toLowerCase().includes(colFilterTpCode.toLowerCase()))) return false;
+      }
       if (kCustomer) {
         const phoneMatch = kCustomerPhone.length >= 4 && (
           normPhone(o.buyer_phone).includes(kCustomerPhone) ||
@@ -1813,8 +1816,11 @@ export default function UnifiedOrdersPage() {
                 </th>
                 {/* 4.5. TP코드 */}
                 <th className="px-0.5 py-0.5">
-                  <input type="text" value={colFilterTpCode} onChange={(e) => setColFilterTpCode(e.target.value)}
-                    placeholder="TP코드" className="w-full text-[10px] border border-gray-200 rounded px-1 py-px bg-white" />
+                  <select value={colFilterTpCode} onChange={(e) => setColFilterTpCode(e.target.value)}
+                    className="w-full text-[10px] border border-gray-200 rounded px-0.5 py-px bg-white">
+                    <option value="">-</option>
+                    <option value="-">없음</option>
+                  </select>
                 </th>
                 {/* 5. 이름/연락처 input */}
                 <th className="px-0.5 py-0.5">
