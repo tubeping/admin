@@ -1326,18 +1326,19 @@ export default function UnifiedOrdersPage() {
   };
 
   const stats = useMemo(() => {
-    let pending = 0, noTracking = 0, noSupplier = 0, noPO = 0, unsynced = 0, totalQty = 0, totalAmount = 0;
+    let pending = 0, noTracking = 0, noSupplier = 0, noPO = 0, unsynced = 0, delivered = 0, totalQty = 0, totalAmount = 0;
     const notActive = (s: string) => s === "cancelled" || s === "delivered";
     for (const o of orders) {
       totalQty += o.quantity;
       totalAmount += o.order_amount;
       if (o.shipping_status === "pending") pending++;
+      if (o.shipping_status === "delivered") delivered++;
       if (!o.tracking_number && !notActive(o.shipping_status)) noTracking++;
       if (!o.supplier_id && !notActive(o.shipping_status)) noSupplier++;
       if (derivePOStatus(o).status === "미발주") noPO++;
       if (o.tracking_number && !o.cafe24_shipping_synced) unsynced++;
     }
-    return { total, displayed: orders.length, pending, noTracking, noSupplier, noPO, unsynced, totalQty, totalAmount, sample: sampleCount };
+    return { total, displayed: orders.length, pending, delivered, noTracking, noSupplier, noPO, unsynced, totalQty, totalAmount, sample: sampleCount };
   }, [orders, total, sampleCount]);
 
   const handleReset = () => {
@@ -1474,19 +1475,21 @@ export default function UnifiedOrdersPage() {
       </div>
 
       {/* Summary Cards */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-2 mb-3">
-        {[
-          { label: "주문수량", value: `${stats.totalQty}개` },
+      <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-2 mb-3">
+        {([
+          { label: "주문건수", value: `${stats.displayed.toLocaleString()}건`, sub: `수량 ${stats.totalQty.toLocaleString()}개` },
           { label: "판매금액", value: `${stats.totalAmount.toLocaleString()}원` },
-          { label: "처리대기", value: `${stats.pending}건`, hl: stats.pending > 0 },
-          { label: "미발주", value: `${stats.noPO}건`, hl: stats.noPO > 0 },
+          { label: "입금대기", value: `${stats.pending}건`, hl: stats.pending > 0 },
           { label: "공급사 미배정", value: `${stats.noSupplier}건`, hl: stats.noSupplier > 0 },
-          { label: "송장 미입력", value: `${stats.noTracking}건`, hl: stats.noTracking > 0 },
+          { label: "미발주", value: `${stats.noPO}건`, hl: stats.noPO > 0 },
+          { label: "송장 미등록", value: `${stats.noTracking}건`, hl: stats.noTracking > 0 },
           { label: "카페24 미연동", value: `${stats.unsynced}건`, hl: stats.unsynced > 0 },
-        ].map((s) => (
+          { label: "배송완료", value: `${stats.delivered.toLocaleString()}건`, color: "text-green-600" },
+        ] as { label: string; value: string; hl?: boolean; sub?: string; color?: string }[]).map((s) => (
           <div key={s.label} className="bg-white rounded-lg border border-gray-200 px-2.5 py-2">
             <p className="text-[10px] text-gray-400">{s.label}</p>
-            <p className={`text-sm font-bold mt-0.5 ${s.hl ? "text-[#C41E1E]" : "text-gray-900"}`}>{s.value}</p>
+            <p className={`text-sm font-bold mt-0.5 ${s.hl ? "text-[#C41E1E]" : s.color || "text-gray-900"}`}>{s.value}</p>
+            {s.sub && <p className="text-[10px] text-gray-400 mt-0.5">{s.sub}</p>}
           </div>
         ))}
       </div>
