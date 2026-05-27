@@ -199,7 +199,7 @@ export async function POST(request: NextRequest) {
   function inferSalesChannel(orderId: string): string {
     if (orderId.startsWith("TEL")) return "phone";
     if (orderId.startsWith("SMS")) return "sms";
-    if (orderId.startsWith("SMP")) return "sample";
+    if (orderId.startsWith("SPL")) return "sample";
     if (/^\d{8}-\d{7}$/.test(orderId)) return "cafe24";
     // YYYYMMDD-NNNNNNN 외 숫자형 주문번호는 전화주문
     return "phone";
