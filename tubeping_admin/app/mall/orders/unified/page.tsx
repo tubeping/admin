@@ -301,6 +301,9 @@ function derivePOStatus(o: Order): { type: string; typeStyle: string; status: st
       status = "미발주";
       statusStyle = "text-orange-500";
     }
+  } else if (o.shipping_status === "ordered") {
+    status = "수동발주완료";
+    statusStyle = "text-teal-600";
   } else {
     status = "미발주";
     statusStyle = "text-orange-500";
