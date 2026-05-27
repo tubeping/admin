@@ -16,9 +16,7 @@ interface MallOrder {
   shipping_status: string;
   shipping_company: string | null;
   tracking_number: string | null;
-  shipped_at: string | null;
   sales_channel: string | null;
-  created_at: string;
 }
 
 interface Stats {
@@ -66,12 +64,13 @@ function getTrackingUrl(company: string | null, trackingNumber: string): string 
 function detectChannel(salesChannel: string | null, orderId: string): string {
   // sales_channel 우선 판단
   if (salesChannel === "phone") return "전화주문";
+  if (salesChannel === "sms") return "문자주문";
   if (salesChannel === "sample") return "샘플";
   if (salesChannel === "group") return "공구주문";
   if (salesChannel === "etc") return "기타";
   // 주문번호 접두사로 판단
-  if (/^PT-TEL-|^TEL-/.test(orderId)) return "전화주문";
-  if (/^PT-SMS-|^SMS-/.test(orderId)) return "전화주문";
+  if (/^TEL-/.test(orderId)) return "전화주문";
+  if (/^SMS-/.test(orderId)) return "문자주문";
   if (/^ETC-/.test(orderId)) return "기타";
   if (/^SPL-/.test(orderId)) return "샘플";
   if (/^JP-/.test(orderId)) return "공구주문";
@@ -164,12 +163,10 @@ export default function SellerPortalPage() {
     );
   }
 
-  const channelGroups = { 자사몰: [] as MallOrder[], 전화주문: [] as MallOrder[], 샘플: [] as MallOrder[], 기타: [] as MallOrder[] };
+  const channelGroups = { 자사몰: [] as MallOrder[], 전화주문: [] as MallOrder[], 문자주문: [] as MallOrder[], 샘플: [] as MallOrder[], 기타: [] as MallOrder[] };
   for (const o of mallOrders) {
     const ch = detectChannel(o.sales_channel, o.cafe24_order_id);
-    if (ch === "자사몰") channelGroups.자사몰.push(o);
-    else if (ch === "전화주문") channelGroups.전화주문.push(o);
-    else if (ch === "샘플") channelGroups.샘플.push(o);
+    if (ch in channelGroups) (channelGroups as Record<string, MallOrder[]>)[ch].push(o);
     else channelGroups.기타.push(o);
   }
   const totalOrders = mallOrders.length;
@@ -182,6 +179,7 @@ export default function SellerPortalPage() {
     { key: "all", label: "전체", count: totalOrders },
     { key: "mall", label: "자사몰", count: channelGroups.자사몰.length },
     { key: "phone", label: "전화주문", count: channelGroups.전화주문.length },
+    { key: "sms", label: "문자주문", count: channelGroups.문자주문.length },
     { key: "sample", label: "샘플", count: channelGroups.샘플.length },
     { key: "etc", label: "기타", count: channelGroups.기타.length },
   ].filter((t) => t.key === "all" || t.count > 0);
@@ -189,6 +187,7 @@ export default function SellerPortalPage() {
   const filteredMallOrders = tab === "all" ? mallOrders
     : tab === "mall" ? channelGroups.자사몰
     : tab === "phone" ? channelGroups.전화주문
+    : tab === "sms" ? channelGroups.문자주문
     : tab === "sample" ? channelGroups.샘플
     : tab === "etc" ? channelGroups.기타
     : mallOrders;
@@ -323,6 +322,7 @@ export default function SellerPortalPage() {
                             channel === "자사몰" ? "text-indigo-600 bg-indigo-50" :
                             channel === "샘플" ? "text-orange-600 bg-orange-50" :
                             channel === "전화주문" ? "text-teal-600 bg-teal-50" :
+                            channel === "문자주문" ? "text-cyan-600 bg-cyan-50" :
                             "text-gray-500 bg-gray-50"
                           }`}>
                             {channel}

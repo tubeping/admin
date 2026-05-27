@@ -39,7 +39,7 @@ export async function GET(request: NextRequest) {
       .from("stores")
       .select("id")
       .eq("name", client.name)
-      .single();
+      .maybeSingle();
 
     // 4. orders 테이블에서 주문 조회 (주문수집 및 조회와 동일한 데이터 소스)
     let orders: Array<Record<string, unknown>> = [];
