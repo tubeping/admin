@@ -122,7 +122,9 @@ export async function POST(request: NextRequest) {
       return { order_id: order.id, cafe24_order_id: order.cafe24_order_id, success: false, error: "스토어 정보 없음" };
     }
 
-    const isCafe24Order = /^\d{8}-\d{7}$/.test(order.cafe24_order_id || "");
+    // C24- 접두어 제거 → Cafe24 API용 원본 주문번호
+    const rawOrderId = (order.cafe24_order_id || "").replace(/^C24-/, "");
+    const isCafe24Order = /^\d{8}-\d{7}$/.test(rawOrderId);
     if (!isCafe24Mall(store.mall_id) || !isCafe24Order) {
       await sb
         .from("orders")
@@ -141,11 +143,11 @@ export async function POST(request: NextRequest) {
       try {
         await cafe24Fetch(store, `/orders`, {
           method: "PUT",
-          body: JSON.stringify({ shop_no: 1, requests: [{ order_id: order.cafe24_order_id, process_status: "prepare" }] }),
+          body: JSON.stringify({ shop_no: 1, requests: [{ order_id: rawOrderId, process_status: "prepare" }] }),
         });
       } catch (e) { console.error("[cafe24/shipments] set prepare status failed (이미 N20 이상일 수 있음):", e); }
 
-      const res = await cafe24Fetch(store, `/orders/${order.cafe24_order_id}/shipments`, {
+      const res = await cafe24Fetch(store, `/orders/${rawOrderId}/shipments`, {
         method: "POST",
         body: JSON.stringify({
           shop_no: 1,
@@ -168,7 +170,7 @@ export async function POST(request: NextRequest) {
         const errText = await res.text();
         if (res.status === 422 && errText.includes("cannot change")) {
           try {
-            const checkRes = await cafe24Fetch(store, `/orders/${order.cafe24_order_id}?embed=items`);
+            const checkRes = await cafe24Fetch(store, `/orders/${rawOrderId}?embed=items`);
             if (checkRes.ok) {
               const detailData = await checkRes.json();
               // eslint-disable-next-line @typescript-eslint/no-explicit-any

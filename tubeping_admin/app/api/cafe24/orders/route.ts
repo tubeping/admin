@@ -207,7 +207,7 @@ async function saveOrdersToDb(
       const shippingFee = Math.round(parseFloat(item.individual_shipping_fee || "0"));
       rows.push({
         store_id: storeId,
-        cafe24_order_id: order.order_id || item.order_id,
+        cafe24_order_id: `C24-${order.order_id || item.order_id}`,
         cafe24_order_item_code: item.order_item_code || "",
         order_date: order.order_date || item.order_date,
         buyer_name: order.buyer_name || "",
@@ -243,8 +243,8 @@ async function saveOrdersToDb(
     }
   }
 
-  // 카페24 자사몰 주문번호는 YYYYMMDD-NNNNNNN 형식만 허용 (순수 숫자 등 비정상 형식 제외)
-  const validRows = rows.filter((r) => /^\d{8}-\d+$/.test(r.cafe24_order_id));
+  // C24- 접두어 + YYYYMMDD-NNNNNNN 형식만 허용
+  const validRows = rows.filter((r) => /^C24-\d{8}-\d+$/.test(r.cafe24_order_id));
   if (validRows.length < rows.length) {
     console.log(`[cafe24/orders] ${rows.length - validRows.length}건 비정상 주문번호 형식 제외`);
   }

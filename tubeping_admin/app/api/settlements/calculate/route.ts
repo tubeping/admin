@@ -197,11 +197,11 @@ export async function POST(request: NextRequest) {
 
   // 주문번호 패턴으로 판매방식 추론 (sales_channel이 없는 기존 데이터용)
   function inferSalesChannel(orderId: string): string {
+    if (orderId.startsWith("C24-")) return "cafe24";
     if (orderId.startsWith("TEL")) return "phone";
     if (orderId.startsWith("SMS")) return "sms";
     if (orderId.startsWith("SPL")) return "sample";
-    if (/^\d{8}-\d{7}$/.test(orderId)) return "cafe24";
-    // YYYYMMDD-NNNNNNN 외 숫자형 주문번호는 전화주문
+    if (orderId.startsWith("JP")) return "group";
     return "phone";
   }
 
