@@ -11,7 +11,15 @@
     },
     {
       "path": "/admin/api/cron/sync-shipments",
-      "schedule": "0 12 * * *"
+      "schedule": "0 1 * * *"
+    },
+    {
+      "path": "/admin/api/cron/sync-shipments",
+      "schedule": "0 6 * * *"
+    },
+    {
+      "path": "/admin/api/cron/sync-shipments",
+      "schedule": "0 10 * * *"
     },
     {
       "path": "/admin/api/cron/update-delivery-status",
@@ -32,6 +40,18 @@
     {
       "path": "/admin/api/cron/verify-addresses",
       "schedule": "0 7 * * *"
+    },
+    {
+      "path": "/admin/api/cron/enrich-orders",
+      "schedule": "0 23 * * *"
+    },
+    {
+      "path": "/admin/api/cron/enrich-orders",
+      "schedule": "0 4 * * *"
+    },
+    {
+      "path": "/admin/api/cron/enrich-orders",
+      "schedule": "0 8 * * *"
     }
   ],
   "functions": {

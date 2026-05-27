@@ -5,7 +5,7 @@ const CRON_SECRET = env.CRON_SECRET;
 
 /**
  * GET /api/cron/sync-shipments — 카페24 송장 자동 전송
- * Vercel Cron으로 매일 저녁 9시(KST) 실행
+ * Vercel Cron으로 매일 오전 10시, 오후 3시, 오후 7시(KST) 실행
  * tracking_number 있고 cafe24_shipping_synced=false인 건을 카페24에 일괄 전송
  */
 export async function GET(request: NextRequest) {
