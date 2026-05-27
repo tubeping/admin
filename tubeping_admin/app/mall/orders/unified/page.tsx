@@ -436,9 +436,12 @@ const OrderRow = memo(function OrderRow({
       </td>
       {/* 4. 상품/옵션 */}
       <td className="px-1.5 py-1.5 max-w-[200px]">
-        {o.cafe24_product_no > 0 && <div className="text-[9px] font-mono text-gray-300">{o.cafe24_product_no}</div>}
         <div className="text-xs text-gray-900 truncate">{o.product_name}</div>
         {o.option_text && <div className="text-[10px] text-gray-400 truncate">{o.option_text}</div>}
+      </td>
+      {/* 4.5. 상품코드 */}
+      <td className="px-1.5 py-1.5 text-[10px] font-mono text-gray-400 whitespace-nowrap">
+        {o.cafe24_product_no > 0 ? o.cafe24_product_no : "-"}
       </td>
       {/* 5. 주문자/수취인/연락처 */}
       <td className="px-1.5 py-1.5 whitespace-nowrap">
@@ -1769,6 +1772,7 @@ export default function UnifiedOrdersPage() {
               <col className="w-[36px]" />{/* No */}
               <col className="w-[120px]" />{/* 주문번호 */}
               <col className="w-[180px]" />{/* 상품/옵션 */}
+              <col className="w-[56px]" />{/* 상품코드 */}
               <col className="w-[110px]" />{/* 주문자 */}
               <col className="w-[160px]" />{/* 배송주소 */}
               <col className="w-[64px]" />{/* 판매방식 */}
@@ -1790,7 +1794,7 @@ export default function UnifiedOrdersPage() {
             <thead className="sticky top-0 z-10">
               {/* Parent header row for column groups */}
               <tr className="text-[10px] text-gray-400">
-                <th colSpan={10} className="py-0.5 bg-gray-50 border-b border-gray-100"></th>
+                <th colSpan={11} className="py-0.5 bg-gray-50 border-b border-gray-100"></th>
                 <th colSpan={2} className="py-0.5 text-center font-semibold text-blue-500 bg-blue-50 border-b border-gray-100 border-x border-blue-100/50">공급</th>
                 <th colSpan={2} className="py-0.5 text-center font-semibold text-green-600 bg-green-50 border-b border-gray-100 border-x border-green-100/50">판매</th>
                 <th colSpan={7} className="py-0.5 bg-gray-50 border-b border-gray-100"></th>
@@ -1802,6 +1806,7 @@ export default function UnifiedOrdersPage() {
                 <th className="text-left px-1.5 py-2 font-medium bg-gray-50 border-b border-gray-100">No</th>
                 <th className="text-left px-1.5 py-2 font-medium bg-gray-50 border-b border-gray-100">주문번호</th>
                 <th className="text-left px-1.5 py-2 font-medium bg-gray-50 border-b border-gray-100">상품/옵션</th>
+                <th className="text-left px-1.5 py-2 font-medium bg-gray-50 border-b border-gray-100">상품코드</th>
                 <th className="text-left px-1.5 py-2 font-medium bg-gray-50 border-b border-gray-100">주문자/수취인</th>
                 <th className="text-left px-1.5 py-2 font-medium bg-gray-50 border-b border-gray-100">배송주소</th>
                 <th className="text-left px-1.5 py-2 font-medium bg-gray-50 border-b border-gray-100">판매방식</th>
@@ -1849,6 +1854,8 @@ export default function UnifiedOrdersPage() {
                   <input type="text" value={colFilterProduct} onChange={(e) => setColFilterProduct(e.target.value)}
                     placeholder="상품/옵션" className="w-full text-[10px] border border-gray-200 rounded px-1 py-px bg-white" />
                 </th>
+                {/* 4.5. 상품코드 */}
+                <th></th>
                 {/* 5. 이름/연락처 input */}
                 <th className="px-0.5 py-0.5">
                   <input type="text" value={colFilterCustomer} onChange={(e) => setColFilterCustomer(e.target.value)}
@@ -1983,7 +1990,7 @@ export default function UnifiedOrdersPage() {
             </thead>
             <tbody>
               {orders.length === 0 ? (
-                <tr><td colSpan={20} className="p-12 text-center text-gray-400">조건에 맞는 주문이 없습니다.</td></tr>
+                <tr><td colSpan={21} className="p-12 text-center text-gray-400">조건에 맞는 주문이 없습니다.</td></tr>
               ) : orders.map((o, idx) => (
                 <OrderRow
                   key={o.id}
