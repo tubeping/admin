@@ -149,6 +149,27 @@ async function fetchOrdersFromStore(
     offset += pageLimit;
     if (offset > 5000) break; // 안전장치
   }
+
+  // embed=items가 누락된 주문은 개별 조회로 items 보충
+  const missingItems = all.filter((o) => !o.items || o.items.length === 0);
+  if (missingItems.length > 0) {
+    console.log(`[cafe24/orders] ${missingItems.length}건 items 누락 → 개별 조회 시도`);
+    for (const order of missingItems) {
+      try {
+        const res = await cafe24Fetch(store, `/orders/${order.order_id}?embed=items,receivers`);
+        if (res.ok) {
+          const data = await res.json();
+          const detail = data.order;
+          if (detail?.items?.length > 0) {
+            order.items = detail.items;
+            if (detail.receivers) order.receivers = detail.receivers;
+          }
+        }
+      } catch { /* 개별 조회 실패는 무시 — saveOrdersToDb에서 bare code skip */ }
+      await new Promise((r) => setTimeout(r, 100));
+    }
+  }
+
   return all;
 }
 
@@ -196,6 +217,14 @@ async function saveOrdersToDb(
     const items = order.items || [order];
     const receiver = order.receivers?.[0] || {};
     for (const item of items) {
+      // 품목별 주문번호(order_item_code)가 없거나 주문번호와 동일하면 skip
+      // → embed=items 실패 시 order-level fallback에서 bare code가 저장되는 것을 방지
+      const itemCode = item.order_item_code || "";
+      const orderId = order.order_id || item.order_id || "";
+      if (!itemCode || itemCode === orderId) {
+        console.log(`[cafe24/orders] skip bare item_code: order=${orderId} item_code=${itemCode}`);
+        continue;
+      }
       const qty = item.quantity || 1;
       const unitPrice = parseInt(item.product_price || "0", 10);
       const itemTotal = qty * unitPrice;
@@ -207,8 +236,8 @@ async function saveOrdersToDb(
       const shippingFee = Math.round(parseFloat(item.individual_shipping_fee || "0"));
       rows.push({
         store_id: storeId,
-        cafe24_order_id: `C24-${order.order_id || item.order_id}`,
-        cafe24_order_item_code: item.order_item_code || "",
+        cafe24_order_id: `C24-${orderId}`,
+        cafe24_order_item_code: itemCode,
         order_date: order.order_date || item.order_date,
         buyer_name: order.buyer_name || "",
         buyer_email: order.buyer_email || "",
