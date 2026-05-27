@@ -395,8 +395,6 @@ const OrderRow = memo(function OrderRow({
       <td className="px-2 py-1.5">
         <input type="checkbox" checked={isSelected} onChange={() => toggleSelect(o.id)} onClick={(e) => e.stopPropagation()} className="rounded w-3.5 h-3.5" />
       </td>
-      {/* 2. No */}
-      <td className="px-1.5 py-1.5 text-[11px] text-gray-400">{displayedCount - idx}</td>
       {/* 3. 주문번호 (inline editable) */}
       <td
         className="px-1.5 py-1.5 whitespace-nowrap cursor-pointer hover:bg-gray-100/60"
@@ -551,45 +549,15 @@ const OrderRow = memo(function OrderRow({
       </td>
       {/* 10. 수량 */}
       <td className="px-1.5 py-1.5 text-right text-xs text-gray-700">{o.quantity}</td>
-      {/* 11. 공급가 */}
-      <td className="px-1.5 py-1.5 text-right text-xs text-gray-700 whitespace-nowrap bg-blue-50/30">{(() => { const v = o.supply_price * o.quantity; return v === 0 ? <span className="text-gray-300">-</span> : v.toLocaleString(); })()}</td>
-      {/* 12. 공급배송비 */}
-      <td className="px-1.5 py-1.5 text-right text-xs text-gray-700 whitespace-nowrap bg-blue-50/30">{o.supply_shipping_fee === 0 ? <span className="text-gray-300">-</span> : o.supply_shipping_fee.toLocaleString()}</td>
-      {/* 13. 판매가 */}
-      <td className="px-1.5 py-1.5 text-right text-xs text-gray-700 whitespace-nowrap bg-green-50/30">{o.order_amount === 0 ? <span className="text-gray-300">-</span> : o.order_amount.toLocaleString()}</td>
-      {/* 14. 판매배송비 */}
-      <td className="px-1.5 py-1.5 text-right text-xs text-gray-700 whitespace-nowrap bg-green-50/30">{(o.shipping_fee || 0) === 0 ? <span className="text-gray-300">-</span> : (o.shipping_fee || 0).toLocaleString()}</td>
-      {/* 12. 입금 */}
-      <td className="px-1.5 py-1.5 text-center">
-        {(() => {
-          const isPaid = o.shipping_status !== "pending" && o.shipping_status !== "cancelled";
-          const isCancelled = o.shipping_status === "cancelled";
-          if (isCancelled) return <span className="text-[10px] text-gray-300">-</span>;
-          return (
-            <button
-              onClick={async (e) => {
-                e.stopPropagation();
-                const newStatus = isPaid ? "pending" : "ordered";
-                const label = isPaid ? "입금전으로 되돌림" : "입금확인 처리";
-                if (!confirm(`${label}하시겠습니까?`)) return;
-                await fetch("/admin/api/orders", {
-                  method: "PATCH",
-                  headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify({ ids: [o.id], updates: { shipping_status: newStatus } }),
-                });
-                fetchOrders();
-              }}
-              className={`text-[11px] font-medium px-2 py-0.5 rounded-full border cursor-pointer transition-colors ${
-                isPaid
-                  ? "bg-green-100 text-green-700 border-green-300 hover:bg-green-200"
-                  : "bg-red-50 text-red-600 border-red-300 hover:bg-red-100"
-              }`}
-              title={isPaid ? "클릭하면 입금전으로 되돌림" : "클릭하면 입금확인 처리"}
-            >
-              {isPaid ? "완료" : "입금전"}
-            </button>
-          );
-        })()}
+      {/* 11. 공급 (상품가 + 배송비) */}
+      <td className="px-1.5 py-1 text-right whitespace-nowrap bg-blue-50/30">
+        <div className="text-xs text-gray-700">{(() => { const v = o.supply_price * o.quantity; return v === 0 ? <span className="text-gray-300">-</span> : v.toLocaleString(); })()}</div>
+        <div className="text-[10px] text-blue-400">{o.supply_shipping_fee === 0 ? <span className="text-gray-200">-</span> : o.supply_shipping_fee.toLocaleString()}</div>
+      </td>
+      {/* 12. 판매 (상품가 + 배송비) */}
+      <td className="px-1.5 py-1 text-right whitespace-nowrap bg-green-50/30">
+        <div className="text-xs text-gray-700">{o.order_amount === 0 ? <span className="text-gray-300">-</span> : o.order_amount.toLocaleString()}</div>
+        <div className="text-[10px] text-green-500">{(o.shipping_fee || 0) === 0 ? <span className="text-gray-200">-</span> : (o.shipping_fee || 0).toLocaleString()}</div>
       </td>
       {/* 13. 송장 (inline editable) */}
       <td className="px-1.5 py-1.5 text-xs" onClick={(e) => e.stopPropagation()}>
@@ -683,8 +651,6 @@ const OrderRow = memo(function OrderRow({
           <span className="text-gray-300">-</span>
         )}
       </td>
-      {/* 17. 주문일 */}
-      <td className="px-2 py-1.5 text-[11px] text-gray-400 text-right whitespace-nowrap">{formatDate(o.order_date)}</td>
     </tr>
   );
 });
@@ -734,6 +700,7 @@ export default function UnifiedOrdersPage() {
   const [filterDomestic, setFilterDomestic] = useState(saved.current?.filterDomestic || false);
   const [colFilterOrderNo, setColFilterOrderNo] = useState(saved.current?.colFilterOrderNo || "");
   const [colFilterProduct, setColFilterProduct] = useState(saved.current?.colFilterProduct || "");
+  const [colFilterTpCode, setColFilterTpCode] = useState(saved.current?.colFilterTpCode || "");
   const [colFilterCustomer, setColFilterCustomer] = useState(saved.current?.colFilterCustomer || "");
   const [colFilterAddress, setColFilterAddress] = useState(saved.current?.colFilterAddress || "");
   const [colFilterAddrStatus, setColFilterAddrStatus] = useState(saved.current?.colFilterAddrStatus || "");
@@ -750,13 +717,13 @@ export default function UnifiedOrdersPage() {
   useEffect(() => {
     const data = {
       filterStatus, filterStore, filterSupplier, dateFrom, dateTo, searchKeyword,
-      filterNoTracking, filterNoSupplier, filterDomestic, colFilterOrderNo, colFilterProduct,
+      filterNoTracking, filterNoSupplier, filterDomestic, colFilterOrderNo, colFilterProduct, colFilterTpCode,
       colFilterCustomer, colFilterAddress, colFilterAddrStatus, colFilterChannel, colFilterPayment,
       colFilterPOType, colFilterPOStatus, colFilterQty, colFilterAmount, colFilterTracking, poTab,
     };
     localStorage.setItem(FILTER_STORAGE_KEY, JSON.stringify(data));
   }, [filterStatus, filterStore, filterSupplier, dateFrom, dateTo, searchKeyword,
-    filterNoTracking, filterNoSupplier, filterDomestic, colFilterOrderNo, colFilterProduct,
+    filterNoTracking, filterNoSupplier, filterDomestic, colFilterOrderNo, colFilterProduct, colFilterTpCode,
     colFilterCustomer, colFilterAddress, colFilterAddrStatus, colFilterChannel, colFilterPayment,
     colFilterPOType, colFilterPOStatus, colFilterQty, colFilterAmount, colFilterTracking, poTab]);
 
@@ -1102,6 +1069,7 @@ export default function UnifiedOrdersPage() {
       }
       if (kOrderNo && !o.cafe24_order_id?.toLowerCase().includes(kOrderNo)) return false;
       if (kProduct && !(o.product_name?.toLowerCase().includes(kProduct) || o.option_text?.toLowerCase().includes(kProduct))) return false;
+      if (colFilterTpCode && !(o.tp_code?.toLowerCase().includes(colFilterTpCode.toLowerCase()))) return false;
       if (kCustomer) {
         const phoneMatch = kCustomerPhone.length >= 4 && (
           normPhone(o.buyer_phone).includes(kCustomerPhone) ||
@@ -1132,7 +1100,7 @@ export default function UnifiedOrdersPage() {
       if (colFilterTracking === "missing" && (o.tracking_number || o.shipping_status === "cancelled" || o.shipping_status === "delivered")) return false;
       return true;
     });
-  }, [rawOrders, filterSupplier, filterNoTracking, filterNoSupplier, filterDomestic, poTab, searchKeyword, colFilterOrderNo, colFilterProduct, colFilterCustomer, colFilterAddress, colFilterAddrStatus, colFilterChannel, colFilterPayment, colFilterPOType, colFilterPOStatus, colFilterQty, colFilterAmount, colFilterTracking]);
+  }, [rawOrders, filterSupplier, filterNoTracking, filterNoSupplier, filterDomestic, poTab, searchKeyword, colFilterOrderNo, colFilterProduct, colFilterTpCode, colFilterCustomer, colFilterAddress, colFilterAddrStatus, colFilterChannel, colFilterPayment, colFilterPOType, colFilterPOStatus, colFilterQty, colFilterAmount, colFilterTracking]);
 
   const filteredStores = useMemo(() => stores.filter((s) => !PSEUDO_STORES.includes(s.name)), [stores]);
 
@@ -1770,42 +1738,36 @@ export default function UnifiedOrdersPage() {
           <table className="w-full text-sm table-fixed border-separate border-spacing-0">
             <colgroup>
               <col className="w-[36px]" />{/* checkbox */}
-              <col className="w-[36px]" />{/* No */}
               <col className="w-[120px]" />{/* 주문번호 */}
               <col className="w-[180px]" />{/* 상품/옵션 */}
               <col className="w-[56px]" />{/* 상품코드 */}
               <col className="w-[110px]" />{/* 주문자 */}
-              <col className="w-[160px]" />{/* 배송주소 */}
+              <col className="w-[80px]" />{/* 배송주소 */}
               <col className="w-[64px]" />{/* 판매방식 */}
               <col className="w-[80px]" />{/* 판매사 */}
               <col className="w-[100px]" />{/* 공급사/출고지 */}
               <col className="w-[36px]" />{/* 수량 */}
-              <col className="w-[72px]" />{/* 공급가 */}
-              <col className="w-[64px]" />{/* 공급배송비 */}
-              <col className="w-[72px]" />{/* 판매가 */}
-              <col className="w-[64px]" />{/* 판매배송비 */}
-              <col className="w-[56px]" />{/* 입금 */}
+              <col className="w-[80px]" />{/* 공급 (상품가+배송비) */}
+              <col className="w-[80px]" />{/* 판매 (상품가+배송비) */}
               <col className="w-[130px]" />{/* 송장 */}
               <col className="w-[64px]" />{/* 발주종류 */}
               <col className="w-[100px]" />{/* 발주상태 */}
               <col className="w-[72px]" />{/* 배송상태 */}
               <col className="w-[40px]" />{/* CS */}
-              <col className="w-[80px]" />{/* 주문일 */}
             </colgroup>
             <thead className="sticky top-0 z-10">
               {/* Parent header row for column groups */}
               <tr className="text-[10px] text-gray-400">
-                <th colSpan={11} className="py-0.5 bg-gray-50 border-b border-gray-100"></th>
-                <th colSpan={2} className="py-0.5 text-center font-semibold text-blue-500 bg-blue-50 border-b border-gray-100 border-x border-blue-100/50">공급</th>
-                <th colSpan={2} className="py-0.5 text-center font-semibold text-green-600 bg-green-50 border-b border-gray-100 border-x border-green-100/50">판매</th>
-                <th colSpan={7} className="py-0.5 bg-gray-50 border-b border-gray-100"></th>
+                <th colSpan={10} className="py-0.5 bg-gray-50 border-b border-gray-100"></th>
+                <th className="py-0.5 text-center font-semibold text-blue-500 bg-blue-50 border-b border-gray-100 border-x border-blue-100/50">공급</th>
+                <th className="py-0.5 text-center font-semibold text-green-600 bg-green-50 border-b border-gray-100 border-x border-green-100/50">판매</th>
+                <th colSpan={5} className="py-0.5 bg-gray-50 border-b border-gray-100"></th>
               </tr>
               <tr className="text-[11px] text-gray-500">
                 <th className="px-2 py-2 w-8 bg-gray-50 border-b border-gray-100">
                   <input type="checkbox" checked={orders.length > 0 && orders.every((o) => selected.has(o.id))} onChange={toggleAll} className="rounded w-3.5 h-3.5" />
                 </th>
-                <th className="text-left px-1.5 py-2 font-medium bg-gray-50 border-b border-gray-100">No</th>
-                <th className="text-left px-1.5 py-2 font-medium bg-gray-50 border-b border-gray-100">주문번호</th>
+                <th className="text-left px-1.5 py-2 font-medium bg-gray-50 border-b border-gray-100">주문번호(주문일자)</th>
                 <th className="text-left px-1.5 py-2 font-medium bg-gray-50 border-b border-gray-100">상품/옵션</th>
                 <th className="text-left px-1.5 py-2 font-medium bg-gray-50 border-b border-gray-100">TP코드</th>
                 <th className="text-left px-1.5 py-2 font-medium bg-gray-50 border-b border-gray-100">주문자/수취인</th>
@@ -1814,26 +1776,22 @@ export default function UnifiedOrdersPage() {
                 <th className="text-left px-1.5 py-2 font-medium bg-gray-50 border-b border-gray-100">판매사</th>
                 <th className="text-left px-1.5 py-2 font-medium bg-gray-50 border-b border-gray-100">공급사/출고지</th>
                 <th className="text-right px-1.5 py-2 font-medium bg-gray-50 border-b border-gray-100">수량</th>
-                <th className="text-right px-1.5 py-2 font-medium bg-blue-50 border-l border-blue-100/50 border-b border-gray-100">상품가</th>
-                <th className="text-right px-1.5 py-2 font-medium bg-blue-50 border-r border-blue-100/50 border-b border-gray-100">배송비</th>
-                <th className="text-right px-1.5 py-2 font-medium bg-green-50 border-l border-green-100/50 border-b border-gray-100">상품가</th>
-                <th className="text-right px-1.5 py-2 font-medium bg-green-50 border-r border-green-100/50 border-b border-gray-100">배송비</th>
-                <th className="text-center px-1.5 py-2 font-medium bg-gray-50 border-b border-gray-100">입금</th>
+                <th className="text-right px-1.5 py-2 font-medium bg-blue-50 border-x border-blue-100/50 border-b border-gray-100"><div>상품가</div><div className="text-[9px] text-blue-400 font-normal">배송비</div></th>
+                <th className="text-right px-1.5 py-2 font-medium bg-green-50 border-x border-green-100/50 border-b border-gray-100"><div>상품가</div><div className="text-[9px] text-green-500 font-normal">배송비</div></th>
                 <th className="text-left px-1.5 py-2 font-medium bg-gray-50 border-b border-gray-100">송장</th>
                 <th className="text-center px-1.5 py-2 font-medium bg-gray-50 border-b border-gray-100">발주종류</th>
                 <th className="text-center px-1.5 py-2 font-medium bg-gray-50 border-b border-gray-100">발주상태</th>
                 <th className="text-center px-1.5 py-2 font-medium bg-gray-50 border-b border-gray-100">배송</th>
                 <th className="text-center px-1.5 py-2 font-medium bg-gray-50 border-b border-gray-100">CS</th>
-                <th className="text-right px-2 py-2 font-medium bg-gray-50 border-b border-gray-100">주문일</th>
               </tr>
               {/* Column filters — compact */}
               <tr className="text-[10px] [&>th]:bg-gray-50 [&>th]:border-b [&>th]:border-gray-200" style={{ boxShadow: "0 2px 4px -1px rgba(0,0,0,0.1)" }}>
                 {/* 1. Reset button */}
                 <th className="px-1 py-0.5">
-                  {(colFilterOrderNo || colFilterProduct || colFilterCustomer || colFilterAddress || colFilterAddrStatus || colFilterChannel || colFilterPayment || colFilterPOType || colFilterPOStatus || colFilterQty || colFilterAmount || colFilterTracking || filterStore || filterSupplier || filterStatus) && (
+                  {(colFilterOrderNo || colFilterProduct || colFilterTpCode || colFilterCustomer || colFilterAddress || colFilterAddrStatus || colFilterChannel || colFilterPayment || colFilterPOType || colFilterPOStatus || colFilterQty || colFilterAmount || colFilterTracking || filterStore || filterSupplier || filterStatus) && (
                     <button
                       onClick={() => {
-                        setColFilterOrderNo(""); setColFilterProduct(""); setColFilterCustomer(""); setColFilterAddress(""); setColFilterAddrStatus("");
+                        setColFilterOrderNo(""); setColFilterProduct(""); setColFilterTpCode(""); setColFilterCustomer(""); setColFilterAddress(""); setColFilterAddrStatus("");
                         setColFilterChannel(""); setColFilterPayment(""); setColFilterPOType(""); setColFilterPOStatus("");
                         setColFilterQty(""); setColFilterAmount(""); setColFilterTracking("");
                         setFilterStore(""); setFilterSupplier(""); setFilterStatus("");
@@ -1843,8 +1801,6 @@ export default function UnifiedOrdersPage() {
                     >X</button>
                   )}
                 </th>
-                {/* 2. empty (No) */}
-                <th></th>
                 {/* 3. 주문번호 input */}
                 <th className="px-0.5 py-0.5">
                   <input type="text" value={colFilterOrderNo} onChange={(e) => setColFilterOrderNo(e.target.value)}
@@ -1855,8 +1811,11 @@ export default function UnifiedOrdersPage() {
                   <input type="text" value={colFilterProduct} onChange={(e) => setColFilterProduct(e.target.value)}
                     placeholder="상품/옵션" className="w-full text-[10px] border border-gray-200 rounded px-1 py-px bg-white" />
                 </th>
-                {/* 4.5. 상품코드 */}
-                <th></th>
+                {/* 4.5. TP코드 */}
+                <th className="px-0.5 py-0.5">
+                  <input type="text" value={colFilterTpCode} onChange={(e) => setColFilterTpCode(e.target.value)}
+                    placeholder="TP코드" className="w-full text-[10px] border border-gray-200 rounded px-1 py-px bg-white" />
+                </th>
                 {/* 5. 이름/연락처 input */}
                 <th className="px-0.5 py-0.5">
                   <input type="text" value={colFilterCustomer} onChange={(e) => setColFilterCustomer(e.target.value)}
@@ -1917,11 +1876,9 @@ export default function UnifiedOrdersPage() {
                     <option value="2+">2+</option>
                   </select>
                 </th>
-                {/* 11. 공급가 */}
+                {/* 11. 공급 */}
                 <th className="!bg-blue-50"></th>
-                {/* 12. 공급배송비 */}
-                <th className="!bg-blue-50"></th>
-                {/* 13. 판매가 select */}
+                {/* 12. 판매 */}
                 <th className="px-0.5 py-0.5 !bg-green-50">
                   <select value={colFilterAmount} onChange={(e) => setColFilterAmount(e.target.value)}
                     className="w-full text-[10px] border border-gray-200 rounded px-0.5 py-px bg-white">
@@ -1930,17 +1887,6 @@ export default function UnifiedOrdersPage() {
                     <option value="10k_50k">1~5만</option>
                     <option value="50k_100k">5~10만</option>
                     <option value="over100k">10만~</option>
-                  </select>
-                </th>
-                {/* 14. 판매배송비 */}
-                <th className="!bg-green-50"></th>
-                {/* 15. 입금 select */}
-                <th className="px-0.5 py-0.5 text-center">
-                  <select value={colFilterPayment} onChange={(e) => setColFilterPayment(e.target.value)}
-                    className="w-full text-[10px] border border-gray-200 rounded px-0.5 py-px bg-white">
-                    <option value="">-</option>
-                    <option value="paid">완료</option>
-                    <option value="unpaid">미입금</option>
                   </select>
                 </th>
                 {/* 16. 송장 tracking filter select */}
@@ -1985,13 +1931,11 @@ export default function UnifiedOrdersPage() {
                 </th>
                 {/* 19. empty (CS) */}
                 <th></th>
-                {/* 20. empty (주문일) */}
-                <th></th>
               </tr>
             </thead>
             <tbody>
               {orders.length === 0 ? (
-                <tr><td colSpan={21} className="p-12 text-center text-gray-400">조건에 맞는 주문이 없습니다.</td></tr>
+                <tr><td colSpan={17} className="p-12 text-center text-gray-400">조건에 맞는 주문이 없습니다.</td></tr>
               ) : orders.map((o, idx) => (
                 <OrderRow
                   key={o.id}
