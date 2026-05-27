@@ -3,6 +3,18 @@ import { getServiceClient } from "@/lib/supabase";
 import { autoAssignSuppliers } from "@/lib/autoAssignSuppliers";
 import { autoVerifyAddresses } from "@/lib/autoVerifyAddresses";
 
+/** 주문번호에서 YYYYMMDD 날짜를 파싱하여 ISO 문자열 반환 (없으면 null) */
+function parseDateFromOrderNo(orderNo: string): string | null {
+  const m = orderNo.match(/(\d{8})/);
+  if (!m) return null;
+  const ds = m[1];
+  const y = parseInt(ds.slice(0, 4), 10);
+  const mo = parseInt(ds.slice(4, 6), 10);
+  const d = parseInt(ds.slice(6, 8), 10);
+  if (y < 2020 || y > 2099 || mo < 1 || mo > 12 || d < 1 || d > 31) return null;
+  return new Date(`${ds.slice(0, 4)}-${ds.slice(4, 6)}-${ds.slice(6, 8)}T09:00:00+09:00`).toISOString();
+}
+
 /**
  * POST /api/phone-orders/transfer — 전화주문을 orders 테이블로 이관
  * body: { ids: string[] }
@@ -85,14 +97,19 @@ export async function POST(request: NextRequest) {
     }
   }
 
-  // 3. 이미 이관된 주문번호 체크
-  const orderNos = notTransferred.map((o) =>
+  // 3. 이미 이관된 주문번호 체크 (TEL- 형태 그대로 사용)
+  const orderNos = notTransferred.map((o) => {
+    const no = o.order_number.replace(/^PT-/, ""); // 기존 PT- 접두사 제거
+    return no.startsWith("TEL-") ? no : `TEL-${no}`;
+  });
+  // 기존 PT-TEL- 형태도 함께 체크 (하위호환)
+  const legacyNos = notTransferred.map((o) =>
     o.order_number.startsWith("PT-") ? o.order_number : `PT-${o.order_number}`
   );
   const { data: existing } = await sb
     .from("orders")
     .select("cafe24_order_id")
-    .in("cafe24_order_id", orderNos);
+    .in("cafe24_order_id", [...orderNos, ...legacyNos]);
   const existingSet = new Set((existing || []).map((e) => e.cafe24_order_id));
 
   // 4. 상품명 → 가격 매핑
@@ -116,9 +133,11 @@ export async function POST(request: NextRequest) {
   const details: Array<{ order_number: string; status: string; reason?: string }> = [];
 
   for (const po of notTransferred) {
-    const orderNo = po.order_number.startsWith("PT-") ? po.order_number : `PT-${po.order_number}`;
+    const stripped = po.order_number.replace(/^PT-/, "");
+    const orderNo = stripped.startsWith("TEL-") ? stripped : `TEL-${stripped}`;
+    const legacyNo = po.order_number.startsWith("PT-") ? po.order_number : `PT-${po.order_number}`;
 
-    if (existingSet.has(orderNo)) {
+    if (existingSet.has(orderNo) || existingSet.has(legacyNo)) {
       skipped++;
       transferredPhoneOrderIds.push(po.id);
       details.push({ order_number: po.order_number, status: "이미 이관됨" });
@@ -140,7 +159,7 @@ export async function POST(request: NextRequest) {
 
     const orderDateStr = po.order_date
       ? new Date(po.order_date + "T09:00:00+09:00").toISOString()
-      : new Date().toISOString();
+      : (parseDateFromOrderNo(po.order_number) || new Date().toISOString());
 
     const { data: inserted, error: insertErr } = await sb
       .from("orders")
