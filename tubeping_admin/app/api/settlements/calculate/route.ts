@@ -83,6 +83,20 @@ export async function POST(request: NextRequest) {
     .from("supplier_products")
     .select("supplier_id, product_id, supply_price, supply_shipping_fee, tax_type");
 
+  // product_options: product_id + option_text → 옵션별 공급가/판매가
+  const { data: prodOptions } = await sb
+    .from("product_options")
+    .select("product_id, option_text, supply_price, retail_price, supply_shipping_fee, tax_type");
+  const optMap: Record<string, { supply_price: number; retail_price: number; supply_shipping_fee: number; tax_type: string }> = {};
+  for (const po of (prodOptions || [])) {
+    optMap[`${po.product_id}|${po.option_text}`] = {
+      supply_price: po.supply_price || 0,
+      retail_price: po.retail_price || 0,
+      supply_shipping_fee: po.supply_shipping_fee || 0,
+      tax_type: po.tax_type || "과세",
+    };
+  }
+
   // product_id가 있는 주문의 products 조회
   const productIds = [...new Set(orders.map((o: Record<string, unknown>) => o.product_id).filter(Boolean))];
 
@@ -161,6 +175,15 @@ export async function POST(request: NextRequest) {
 
   function getSupplyInfo(order: Record<string, unknown>) {
     const pid = resolveProductId(order);
+    const optText = (order.option_text as string || "").trim();
+    // 0순위: product_options (옵션 매칭) — 옵션별 공급가 우선
+    if (pid && optText) {
+      const optKey = `${pid}|${optText}`;
+      if (optMap[optKey]) {
+        const o = optMap[optKey];
+        return { supply_price: o.supply_price, supply_shipping_fee: o.supply_shipping_fee, tax_type: o.tax_type };
+      }
+    }
     // 1순위: supplier_products (공급사+상품 조합)
     if (order.supplier_id && pid) {
       const key = `${order.supplier_id}|${pid}`;
@@ -171,6 +194,17 @@ export async function POST(request: NextRequest) {
       return prodMap[pid];
     }
     return { supply_price: 0, supply_shipping_fee: 0, tax_type: "과세" };
+  }
+
+  // 옵션별 판매가 조회 (orders.product_price가 0일 때 fallback용)
+  function getOptionRetailPrice(order: Record<string, unknown>): number {
+    const pid = resolveProductId(order);
+    const optText = (order.option_text as string || "").trim();
+    if (pid && optText) {
+      const o = optMap[`${pid}|${optText}`];
+      if (o && o.retail_price > 0) return o.retail_price;
+    }
+    return 0;
   }
 
   // ── 4. 주문별 정산 계산 ──
@@ -206,13 +240,17 @@ export async function POST(request: NextRequest) {
     const qty = order.quantity || 1;
     const isCancelled = order.shipping_status === "cancelled";
 
-    // 정산매출: payment_amount > order_amount > product_price * qty
+    // 정산매출: payment_amount > order_amount > product_price * qty > product_options.retail_price * qty
+    const optRetail = getOptionRetailPrice(order);
     let settledAmount: number;
     if (isCancelled) {
       settledAmount = -(order.payment_amount || order.order_amount || 0);
       refundTotal += settledAmount;
     } else {
-      settledAmount = order.payment_amount || order.order_amount || (order.product_price || 0) * qty;
+      settledAmount = order.payment_amount
+        || order.order_amount
+        || (order.product_price || 0) * qty
+        || optRetail * qty;
     }
 
     // 공급가 조회
