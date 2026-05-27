@@ -41,12 +41,12 @@ export async function GET(request: NextRequest) {
       .eq("name", client.name)
       .maybeSingle();
 
-    // 4. 주문 조회
+    // 4. 주문 조회 — 실제 거래 시점 가격 (order_amount, shipping_fee, product_price)을 orders 테이블에서 직접 가져옴
     let orders: Array<Record<string, unknown>> = [];
     if (store) {
       const { data } = await sb
         .from("orders")
-        .select("id, cafe24_order_id, order_date, product_name, option_text, quantity, product_price, order_amount, shipping_fee, receiver_name, shipping_status, shipping_company, tracking_number, sales_channel")
+        .select("id, cafe24_order_id, order_date, product_name, option_text, quantity, product_price, order_amount, shipping_fee, receiver_name, shipping_status, shipping_company, tracking_number, sales_channel, supplier_id, product_id, cafe24_product_no, store_id")
         .eq("store_id", store.id)
         .gte("order_date", monthStart)
         .lt("order_date", nextMonth)
@@ -55,62 +55,122 @@ export async function GET(request: NextRequest) {
       orders = data || [];
     }
 
-    // 5. 상품 정보 일괄 조회 (공급가 + 판매가 보정 통합)
-    const allProductNames = [...new Set(orders.map((o) => (o.product_name as string)?.trim()).filter(Boolean))];
-    const productInfo: Record<string, { supply_price: number; supply_shipping_fee: number; price: number }> = {};
+    // 5. 공급가 보강 — /api/orders/route.ts와 동일한 우선순위 체인
+    //    product_options(옵션 매칭) → supplier_products(공급사+상품) → products(기본)
+    //    ※ 판매금액(order_amount), 배송비(shipping_fee)는 orders 테이블 값을 그대로 사용
+    if (orders.length > 0) {
+      // product_name → product_id 매핑
+      const productNames = [...new Set(orders.map((o: any) => o.product_name?.trim()).filter(Boolean))];
+      const nameToProductId: Record<string, string> = {};
+      if (productNames.length > 0) {
+        const { data: byName } = await sb.from("products").select("id, product_name").in("product_name", productNames);
+        for (const p of byName || []) { if (p.product_name) nameToProductId[p.product_name.trim()] = p.id; }
+      }
 
-    if (allProductNames.length > 0) {
-      const { data: prods } = await sb
-        .from("products")
-        .select("product_name, supply_price, supply_shipping_fee, price")
-        .in("product_name", allProductNames);
-      for (const p of prods || []) {
-        if (p.product_name) {
-          productInfo[p.product_name.trim()] = {
-            supply_price: p.supply_price || 0,
-            supply_shipping_fee: p.supply_shipping_fee || 0,
-            price: p.price || 0,
+      // cafe24_product_no → product_id 매핑
+      const productNos = [...new Set(orders.map((o: any) => o.cafe24_product_no).filter((n: any) => n > 0))];
+      const storeProductToProductId: Record<string, string> = {};
+      if (productNos.length > 0) {
+        const { data: mappings } = await sb
+          .from("product_cafe24_mappings")
+          .select("store_id, cafe24_product_no, product_id")
+          .in("cafe24_product_no", productNos);
+        for (const m of mappings || []) {
+          storeProductToProductId[`${m.store_id}::${m.cafe24_product_no}`] = m.product_id;
+        }
+      }
+
+      // 직접 product_id가 있는 주문 포함
+      const directPids = [...new Set(orders.map((o: any) => o.product_id).filter(Boolean))];
+      const allPids = [...new Set([...directPids, ...Object.values(storeProductToProductId), ...Object.values(nameToProductId)])];
+
+      // products 테이블에서 공급가 기본값
+      const pidToSupplyPrice: Record<string, number> = {};
+      const pidToSupplyShipping: Record<string, number> = {};
+      const pidToSalePrice: Record<string, number> = {};
+      if (allPids.length > 0) {
+        for (let i = 0; i < allPids.length; i += 500) {
+          const batch = allPids.slice(i, i + 500);
+          const { data: products } = await sb.from("products").select("id, supply_price, supply_shipping_fee, price").in("id", batch);
+          for (const p of products || []) {
+            if (p.supply_price) pidToSupplyPrice[p.id] = p.supply_price;
+            if (p.supply_shipping_fee) pidToSupplyShipping[p.id] = p.supply_shipping_fee;
+            if (p.price) pidToSalePrice[p.id] = p.price;
+          }
+        }
+      }
+
+      // supplier_products — 공급사+상품 조합 (products보다 우선)
+      const supMap: Record<string, { supply_price: number; supply_shipping_fee: number }> = {};
+      const supplierIds = [...new Set(orders.map((o: any) => o.supplier_id).filter(Boolean))];
+      if (supplierIds.length > 0 && allPids.length > 0) {
+        const { data: supProducts } = await sb
+          .from("supplier_products")
+          .select("supplier_id, product_id, supply_price, supply_shipping_fee")
+          .in("supplier_id", supplierIds)
+          .in("product_id", allPids);
+        for (const sp of (supProducts || [])) {
+          supMap[`${sp.supplier_id}|${sp.product_id}`] = {
+            supply_price: sp.supply_price || 0,
+            supply_shipping_fee: sp.supply_shipping_fee || 0,
           };
         }
       }
 
-      // 매칭 안 된 상품명 유사 검색 (금액 0인 것만)
-      const unmatchedZero = allProductNames.filter((n) => {
-        const info = productInfo[n];
-        if (info) return false;
-        return orders.some((o) => (o.product_name as string)?.trim() === n && !(o.order_amount as number) && !(o.product_price as number));
-      });
-      for (const name of unmatchedZero) {
-        const keyword = name.replace(/\.{2,}$/, "").slice(0, 15);
-        if (keyword.length < 5) continue;
-        const { data: found } = await sb
-          .from("products")
-          .select("product_name, supply_price, supply_shipping_fee, price")
-          .ilike("product_name", `%${keyword}%`)
-          .limit(1);
-        if (found?.[0]) {
-          productInfo[name] = {
-            supply_price: found[0].supply_price || 0,
-            supply_shipping_fee: found[0].supply_shipping_fee || 0,
-            price: found[0].price || 0,
+      // product_options — 옵션별 공급가 (가장 구체적, 최우선)
+      const optKeyToPrice: Record<string, { supply_price: number; retail_price: number; supply_shipping_fee: number }> = {};
+      if (allPids.length > 0) {
+        const { data: prodOpts } = await sb
+          .from("product_options")
+          .select("product_id, option_text, supply_price, retail_price, supply_shipping_fee")
+          .in("product_id", allPids);
+        for (const o of prodOpts || []) {
+          optKeyToPrice[`${o.product_id}|${o.option_text}`] = {
+            supply_price: o.supply_price || 0,
+            retail_price: o.retail_price || 0,
+            supply_shipping_fee: o.supply_shipping_fee || 0,
           };
+        }
+      }
+
+      // 각 주문에 공급가 보강 + 판매가 fallback
+      for (const o of orders as any[]) {
+        // product_id 결정: DB 저장값 → cafe24 매핑 → 상품명 매칭
+        let pid = o.product_id || undefined;
+        if (!pid && o.store_id && o.cafe24_product_no > 0) pid = storeProductToProductId[`${o.store_id}::${o.cafe24_product_no}`];
+        if (!pid && o.product_name) pid = nameToProductId[o.product_name.trim()];
+
+        // 공급가 우선순위: product_options → supplier_products → products
+        const optKey = pid && o.option_text ? `${pid}|${(o.option_text as string).trim()}` : null;
+        const opt = optKey ? optKeyToPrice[optKey] : null;
+        const supKey = o.supplier_id && pid ? `${o.supplier_id}|${pid}` : null;
+        const supInfo = supKey ? supMap[supKey] : null;
+
+        if (opt) {
+          o.supply_price = opt.supply_price;
+          o.supply_shipping_fee = opt.supply_shipping_fee;
+        } else if (supInfo) {
+          o.supply_price = supInfo.supply_price;
+          o.supply_shipping_fee = supInfo.supply_shipping_fee;
+        } else {
+          o.supply_price = pid ? pidToSupplyPrice[pid] || 0 : 0;
+          o.supply_shipping_fee = pid ? pidToSupplyShipping[pid] || 0 : 0;
+        }
+
+        // 판매가 비어있을 때만 fallback (실제 거래가가 없는 경우에 한해)
+        if (!o.product_price && !o.order_amount) {
+          const fallbackPrice = (opt?.retail_price && opt.retail_price > 0)
+            ? opt.retail_price
+            : (pid ? pidToSalePrice[pid] || 0 : 0);
+          if (fallbackPrice > 0) {
+            o.product_price = fallbackPrice;
+            o.order_amount = fallbackPrice * (o.quantity || 1);
+          }
         }
       }
     }
 
-    // 6. 주문에 공급가 + 판매가 보정 적용
-    for (const o of orders) {
-      const info = productInfo[(o.product_name as string)?.trim()];
-      (o as any).supply_price = info?.supply_price || 0;
-      (o as any).supply_shipping_fee = info?.supply_shipping_fee || 0;
-
-      if (!(o.order_amount as number) && !(o.product_price as number) && info?.price) {
-        o.product_price = info.price;
-        o.order_amount = info.price * ((o.quantity as number) || 1);
-      }
-    }
-
-    // 7. 통계
+    // 6. 통계 — 판매금액은 orders 테이블의 실제 거래가 기준
     const stats = { total: 0, pending: 0, ordered: 0, shipping: 0, delivered: 0, cancelled: 0, totalAmount: 0 };
     for (const o of orders) {
       stats.total++;
