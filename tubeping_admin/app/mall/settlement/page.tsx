@@ -53,6 +53,9 @@ interface Settlement {
   total_items: number;
   memo: string | null;
   created_at: string;
+  share_token: string | null;
+  seller_confirmed: boolean;
+  seller_confirmed_at: string | null;
   stores?: Store;
 }
 interface SettlementItem {
@@ -554,11 +557,39 @@ export default function SettlementPage() {
               {s.settlement_no} · {s.period} · {sType} · {infPct}:{coPct} 분배
             </p>
           </div>
-          <div className="flex gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
+            {s.seller_confirmed ? (
+              <span className="px-2.5 py-1 text-xs font-medium rounded-full bg-green-100 text-green-700" title={s.seller_confirmed_at ? new Date(s.seller_confirmed_at).toLocaleString("ko-KR") : ""}>
+                판매자 확정 ✓
+              </span>
+            ) : (
+              <span className="px-2.5 py-1 text-xs font-medium rounded-full bg-yellow-100 text-yellow-700">
+                판매자 미확인
+              </span>
+            )}
+            {s.share_token && (
+              <button
+                onClick={() => {
+                  const url = `${window.location.origin}/admin/settlement/${s.share_token}`;
+                  navigator.clipboard.writeText(url);
+                  alert("공유 링크가 복사되었습니다");
+                }}
+                className="px-3 py-2 border border-gray-300 text-gray-600 text-sm rounded-lg hover:bg-gray-50 cursor-pointer"
+              >
+                공유 링크 복사
+              </button>
+            )}
             <button
-              onClick={() =>
-                downloadSellerExcel(s, detailItems, productSummary)
-              }
+              onClick={async () => {
+                const res = await fetch(`/admin/api/settlements/${s.id}/excel`);
+                const blob = await res.blob();
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement("a");
+                a.href = url;
+                a.download = `${storeName}_${s.period}_정산서.xlsx`;
+                a.click();
+                URL.revokeObjectURL(url);
+              }}
               className="px-3 py-2 bg-green-600 text-white text-sm rounded-lg hover:bg-green-700 cursor-pointer"
             >
               Excel 다운로드
