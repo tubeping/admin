@@ -179,6 +179,7 @@ async function saveOrdersToDb(
     quantity: number;
     product_price: number;
     order_amount: number;
+    discount_amount: number;
     memo: string;
     shipping_company: string;
     tracking_number: string;
@@ -190,6 +191,13 @@ async function saveOrdersToDb(
     const items = order.items || [order];
     const receiver = order.receivers?.[0] || {};
     for (const item of items) {
+      const qty = item.quantity || 1;
+      const unitPrice = parseInt(item.product_price || "0", 10);
+      const itemTotal = qty * unitPrice;
+      // 아이템별 할인: 쿠폰할인 + 추가할인(회원할인/앱할인 등)
+      const itemDiscount = Math.round(parseFloat(item.coupon_discount_price || "0"))
+        + Math.round(parseFloat(item.additional_discount_price || "0"))
+        + Math.round(parseFloat(item.app_item_discount_amount || "0"));
       rows.push({
         store_id: storeId,
         cafe24_order_id: order.order_id || item.order_id,
@@ -207,10 +215,10 @@ async function saveOrdersToDb(
         cafe24_product_no: item.product_no || 0,
         product_name: item.product_name || "",
         option_text: item.option_value || "",
-        quantity: item.quantity || 1,
-        product_price: parseInt(item.product_price || "0", 10),
-        order_amount:
-          (item.quantity || 1) * parseInt(item.product_price || "0", 10),
+        quantity: qty,
+        product_price: unitPrice,
+        order_amount: itemTotal - itemDiscount,
+        discount_amount: itemDiscount,
         memo: receiver.shipping_message || order.shipping_message || order.user_message || "",
         shipping_company: item.shipping_company_name || "",
         tracking_number: item.tracking_no || "",
