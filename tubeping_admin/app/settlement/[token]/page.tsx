@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { useParams } from "next/navigation";
 
 interface Settlement {
@@ -41,6 +41,7 @@ interface Settlement {
   total_items: number;
   seller_confirmed: boolean;
   seller_confirmed_at: string | null;
+  share_token: string;
   stores?: { name: string };
 }
 
@@ -52,6 +53,10 @@ interface SettlementItem {
   option_text: string;
   quantity: number;
   product_price: number;
+  shipping_fee: number;
+  coupon_discount: number;
+  app_discount: number;
+  additional_discount: number;
   settled_amount: number;
   supply_total: number;
   supply_shipping: number;
@@ -59,7 +64,6 @@ interface SettlementItem {
   sales_channel: string;
   tax_type: string;
   supplier_name: string;
-  shipping_fee: number;
 }
 
 interface ProductSummary {
@@ -75,11 +79,11 @@ interface ProductSummary {
 const W = (n: number) => `₩${n.toLocaleString()}`;
 const CH: Record<string, string> = { cafe24: "자사몰", phone: "전화", sms: "문자", sample: "샘플", group: "공구" };
 const CH_COLOR: Record<string, string> = {
-  cafe24: "bg-blue-50 text-blue-700",
-  phone: "bg-amber-50 text-amber-700",
+  cafe24: "bg-green-50 text-green-700",
+  phone: "bg-orange-50 text-orange-700",
   sms: "bg-purple-50 text-purple-700",
-  sample: "bg-gray-100 text-gray-600",
-  group: "bg-pink-50 text-pink-700",
+  sample: "bg-gray-100 text-gray-500",
+  group: "bg-blue-50 text-blue-700",
 };
 
 export default function SettlementPortalPage() {
@@ -95,6 +99,11 @@ export default function SettlementPortalPage() {
   const [confirming, setConfirming] = useState(false);
   const [confirmed, setConfirmed] = useState(false);
   const [confirmedAt, setConfirmedAt] = useState<string | null>(null);
+
+  // 필터
+  const [searchText, setSearchText] = useState("");
+  const [filterType, setFilterType] = useState<string>("all");
+  const [filterChannel, setFilterChannel] = useState<string>("all");
 
   const load = useCallback(async () => {
     try {
@@ -115,6 +124,41 @@ export default function SettlementPortalPage() {
 
   useEffect(() => { load(); }, [load]);
 
+  // 필터링된 아이템
+  const filteredItems = useMemo(() => {
+    return items.filter(item => {
+      if (filterType !== "all" && item.item_type !== filterType) return false;
+      if (filterChannel !== "all" && item.sales_channel !== filterChannel) return false;
+      if (searchText) {
+        const q = searchText.toLowerCase();
+        return (
+          item.product_name?.toLowerCase().includes(q) ||
+          item.cafe24_order_id?.toLowerCase().includes(q) ||
+          item.supplier_name?.toLowerCase().includes(q) ||
+          item.option_text?.toLowerCase().includes(q)
+        );
+      }
+      return true;
+    });
+  }, [items, filterType, filterChannel, searchText]);
+
+  // 합계
+  const totals = useMemo(() => {
+    return filteredItems.reduce((acc, item) => {
+      acc.settled += item.settled_amount || 0;
+      acc.supply += item.supply_total || 0;
+      acc.supplyShip += item.supply_shipping || 0;
+      acc.profit += (item.settled_amount || 0) - (item.supply_total || 0) - (item.supply_shipping || 0);
+      return acc;
+    }, { settled: 0, supply: 0, supplyShip: 0, profit: 0 });
+  }, [filteredItems]);
+
+  // 판매방식 목록
+  const channels = useMemo(() => {
+    const set = new Set(items.map(i => i.sales_channel).filter(Boolean));
+    return Array.from(set);
+  }, [items]);
+
   const handleConfirm = async () => {
     if (!confirm("정산 내용을 확인하고 확정합니다.\n확정 후에는 취소할 수 없습니다.\n\n계속하시겠습니까?")) return;
     setConfirming(true);
@@ -132,6 +176,19 @@ export default function SettlementPortalPage() {
     } finally {
       setConfirming(false);
     }
+  };
+
+  const handleExcelDownload = async () => {
+    if (!settlement) return;
+    const res = await fetch(`/admin/api/settlements/${settlement.id}/excel`);
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    const storeName = settlement.stores?.name || "정산서";
+    a.download = `${storeName}_${settlement.period}_정산서.xlsx`;
+    a.click();
+    URL.revokeObjectURL(url);
   };
 
   if (loading) return (
@@ -159,25 +216,13 @@ export default function SettlementPortalPage() {
   const infPct = s.snap_influencer_rate ?? 70;
   const coPct = s.snap_company_rate ?? 30;
   const sType = s.snap_settlement_type || "사업자";
-
-  const periodLabel = (() => {
-    const [y, m] = s.period.split("-");
-    return `${y}년 ${parseInt(m)}월`;
-  })();
-
-  // 주문 상세 합계
-  const orderTotals = items.reduce((acc, item) => {
-    acc.settled += item.settled_amount;
-    acc.supply += item.supply_total;
-    acc.profit += item.settled_amount - item.supply_total - item.supply_shipping;
-    return acc;
-  }, { settled: 0, supply: 0, profit: 0 });
+  const periodLabel = (() => { const [y, m] = s.period.split("-"); return `${y}년 ${parseInt(m)}월`; })();
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 to-gray-100">
-      {/* 헤더 */}
-      <header className="bg-white/80 backdrop-blur-md border-b border-gray-200/60 sticky top-0 z-20">
-        <div className="max-w-6xl mx-auto px-4 sm:px-6 py-3.5">
+      {/* ── 헤더 (sticky) ── */}
+      <header className="bg-white/80 backdrop-blur-md border-b border-gray-200/60 sticky top-0 z-30">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 py-3">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
               <div className="w-9 h-9 bg-gradient-to-br from-red-500 to-red-600 rounded-xl flex items-center justify-center shadow-sm shadow-red-200">
@@ -186,22 +231,31 @@ export default function SettlementPortalPage() {
               <div>
                 <h1 className="text-[15px] font-bold text-gray-900 leading-tight">{storeName} 정산서</h1>
                 <p className="text-[11px] text-gray-400 mt-0.5">
-                  {s.settlement_no} · {periodLabel} · {sType}
+                  {s.settlement_no} · {periodLabel} · {sType} · {infPct}:{coPct} 분배
                 </p>
               </div>
             </div>
-            {confirmed && (
-              <div className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-50 rounded-full">
-                <div className="w-1.5 h-1.5 bg-emerald-500 rounded-full" />
-                <span className="text-[11px] font-medium text-emerald-700">확정 완료</span>
-              </div>
-            )}
+            <div className="flex items-center gap-2">
+              {confirmed && (
+                <div className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-50 rounded-full">
+                  <div className="w-1.5 h-1.5 bg-emerald-500 rounded-full" />
+                  <span className="text-[11px] font-medium text-emerald-700">확정 완료</span>
+                </div>
+              )}
+              <button
+                onClick={handleExcelDownload}
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 text-white text-[12px] font-medium rounded-lg hover:bg-emerald-700 cursor-pointer transition-colors shadow-sm"
+              >
+                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
+                Excel
+              </button>
+            </div>
           </div>
         </div>
       </header>
 
-      <main className="max-w-6xl mx-auto px-4 sm:px-6 py-6">
-        {/* 상단 요약 카드 */}
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 py-6">
+        {/* ── 상단 요약 카드 ── */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
           {[
             { label: "순매출", value: s.total_sales, color: "from-blue-500 to-blue-600" },
@@ -218,7 +272,7 @@ export default function SettlementPortalPage() {
           ))}
         </div>
 
-        {/* 탭 */}
+        {/* ── 탭 ── */}
         <div className="flex gap-1 mb-5 bg-white rounded-xl p-1 border border-gray-100 shadow-sm w-fit">
           {(["summary", "orders", "products"] as const).map(t => (
             <button key={t} onClick={() => setTab(t)}
@@ -232,10 +286,9 @@ export default function SettlementPortalPage() {
           ))}
         </div>
 
-        {/* ── 정산요약 ── */}
+        {/* ══ 정산요약 ══ */}
         {tab === "summary" && (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {/* 매출 */}
             <section className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
               <div className="px-5 py-3.5 border-b border-gray-50 bg-gradient-to-r from-blue-50/50 to-transparent">
                 <h3 className="text-[13px] font-semibold text-blue-900">매출</h3>
@@ -250,7 +303,6 @@ export default function SettlementPortalPage() {
               </div>
             </section>
 
-            {/* 비용 */}
             <section className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
               <div className="px-5 py-3.5 border-b border-gray-50 bg-gradient-to-r from-slate-50/80 to-transparent">
                 <h3 className="text-[13px] font-semibold text-slate-800">비용</h3>
@@ -284,7 +336,6 @@ export default function SettlementPortalPage() {
               </div>
             </section>
 
-            {/* 순익 */}
             <section className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
               <div className="px-5 py-3.5 border-b border-gray-50 bg-gradient-to-r from-emerald-50/50 to-transparent">
                 <h3 className="text-[13px] font-semibold text-emerald-900">순익</h3>
@@ -302,7 +353,6 @@ export default function SettlementPortalPage() {
               </div>
             </section>
 
-            {/* 수익 분배 */}
             <section className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
               <div className="px-5 py-3.5 border-b border-gray-50 bg-gradient-to-r from-violet-50/50 to-transparent">
                 <h3 className="text-[13px] font-semibold text-violet-900">수익 분배 ({infPct}:{coPct})</h3>
@@ -323,84 +373,152 @@ export default function SettlementPortalPage() {
           </div>
         )}
 
-        {/* ── 주문상세 ── */}
+        {/* ══ 주문상세 ══ */}
         {tab === "orders" && (
-          <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-[1100px]">
-                <colgroup>
-                  <col className="w-[60px]" />
-                  <col className="w-[70px]" />
-                  <col className="w-[180px]" />
-                  <col className="w-[90px]" />
-                  <col />
-                  <col className="w-[50px]" />
-                  <col className="w-[90px]" />
-                  <col className="w-[100px]" />
-                  <col className="w-[90px]" />
-                  <col className="w-[90px]" />
-                  <col className="w-[50px]" />
-                  <col className="w-[100px]" />
-                </colgroup>
-                <thead>
-                  <tr className="bg-gray-50/80">
-                    {["구분", "판매방식", "주문번호", "주문일", "상품명", "수량", "단가", "정산매출", "공급가", "순익", "과세", "공급사"].map((h, i) => (
-                      <th key={h} className={`px-3 py-3 text-[11px] font-semibold text-gray-500 uppercase tracking-wider whitespace-nowrap border-b border-gray-100 ${i >= 5 && i <= 9 ? "text-right" : "text-left"}`}>{h}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {items.map((item, i) => {
-                    const profit = item.settled_amount - item.supply_total - item.supply_shipping;
-                    return (
-                      <tr key={item.id || i} className="border-b border-gray-50 hover:bg-blue-50/30 transition-colors">
-                        <td className="px-3 py-2.5 whitespace-nowrap">
-                          <span className={`inline-flex text-[11px] font-medium px-2 py-0.5 rounded-full ${
-                            item.item_type === "취소" ? "bg-red-50 text-red-600" : "bg-emerald-50 text-emerald-700"
-                          }`}>{item.item_type}</span>
-                        </td>
-                        <td className="px-3 py-2.5 whitespace-nowrap">
-                          <span className={`inline-flex text-[11px] font-medium px-2 py-0.5 rounded-full ${CH_COLOR[item.sales_channel] || "bg-gray-100 text-gray-600"}`}>
-                            {CH[item.sales_channel] || item.sales_channel || "기타"}
-                          </span>
-                        </td>
-                        <td className="px-3 py-2.5 text-[12px] font-mono text-gray-600 whitespace-nowrap">{item.cafe24_order_id}</td>
-                        <td className="px-3 py-2.5 text-[12px] text-gray-500 whitespace-nowrap">{(item.order_date || "").slice(0, 10)}</td>
-                        <td className="px-3 py-2.5 text-[12px] text-gray-700 truncate max-w-0" title={item.product_name}>{item.product_name}</td>
-                        <td className="px-3 py-2.5 text-[12px] text-gray-600 text-right tabular-nums">{item.quantity}</td>
-                        <td className="px-3 py-2.5 text-[12px] text-gray-600 text-right tabular-nums whitespace-nowrap">{W(item.product_price)}</td>
-                        <td className="px-3 py-2.5 text-[12px] font-semibold text-gray-900 text-right tabular-nums whitespace-nowrap">{W(item.settled_amount)}</td>
-                        <td className="px-3 py-2.5 text-[12px] text-gray-500 text-right tabular-nums whitespace-nowrap">{W(item.supply_total)}</td>
-                        <td className={`px-3 py-2.5 text-[12px] font-semibold text-right tabular-nums whitespace-nowrap ${profit >= 0 ? "text-emerald-600" : "text-red-500"}`}>{W(profit)}</td>
-                        <td className="px-3 py-2.5 text-[11px] text-gray-400 whitespace-nowrap">{item.tax_type}</td>
-                        <td className="px-3 py-2.5 text-[12px] text-gray-500 whitespace-nowrap">{item.supplier_name}</td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-                <tfoot>
-                  <tr className="bg-gray-50/80 border-t border-gray-200">
-                    <td colSpan={7} className="px-3 py-3 text-[12px] font-semibold text-gray-700">합계 ({items.length}건)</td>
-                    <td className="px-3 py-3 text-[12px] font-bold text-gray-900 text-right tabular-nums whitespace-nowrap">{W(orderTotals.settled)}</td>
-                    <td className="px-3 py-3 text-[12px] font-semibold text-gray-600 text-right tabular-nums whitespace-nowrap">{W(orderTotals.supply)}</td>
-                    <td className={`px-3 py-3 text-[12px] font-bold text-right tabular-nums whitespace-nowrap ${orderTotals.profit >= 0 ? "text-emerald-600" : "text-red-500"}`}>{W(orderTotals.profit)}</td>
-                    <td colSpan={2} />
-                  </tr>
-                </tfoot>
-              </table>
+          <>
+            {/* 필터 바 */}
+            <div className="flex flex-wrap items-center gap-2 mb-4">
+              <div className="relative flex-1 min-w-[200px] max-w-[360px]">
+                <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
+                <input
+                  type="text"
+                  placeholder="상품명, 주문번호, 공급사 검색..."
+                  value={searchText}
+                  onChange={e => setSearchText(e.target.value)}
+                  className="w-full pl-9 pr-3 py-2 text-[13px] bg-white border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-300"
+                />
+              </div>
+              <select
+                value={filterType}
+                onChange={e => setFilterType(e.target.value)}
+                className="px-3 py-2 text-[13px] bg-white border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 cursor-pointer"
+              >
+                <option value="all">전체 구분</option>
+                <option value="매출">매출</option>
+                <option value="취소">취소</option>
+              </select>
+              <select
+                value={filterChannel}
+                onChange={e => setFilterChannel(e.target.value)}
+                className="px-3 py-2 text-[13px] bg-white border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 cursor-pointer"
+              >
+                <option value="all">전체 판매방식</option>
+                {channels.map(ch => (
+                  <option key={ch} value={ch}>{CH[ch] || ch}</option>
+                ))}
+              </select>
+              {(searchText || filterType !== "all" || filterChannel !== "all") && (
+                <button
+                  onClick={() => { setSearchText(""); setFilterType("all"); setFilterChannel("all"); }}
+                  className="px-3 py-2 text-[12px] text-gray-500 hover:text-gray-700 border border-gray-200 rounded-lg hover:bg-gray-50 cursor-pointer"
+                >
+                  초기화
+                </button>
+              )}
+              <span className="text-[12px] text-gray-400 ml-auto">
+                {filteredItems.length !== items.length
+                  ? `${filteredItems.length}건 / 전체 ${items.length}건`
+                  : `${items.length}건`}
+              </span>
             </div>
-          </div>
+
+            {/* 테이블 */}
+            <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
+              <div className="overflow-x-auto max-h-[calc(100vh-280px)]">
+                <table className="w-full min-w-[1400px]">
+                  <thead className="sticky top-0 z-10 bg-gray-50">
+                    <tr>
+                      {[
+                        { label: "구분", align: "left" },
+                        { label: "판매방식", align: "left" },
+                        { label: "주문번호", align: "left" },
+                        { label: "주문일", align: "left" },
+                        { label: "상품명", align: "left" },
+                        { label: "옵션", align: "left" },
+                        { label: "수량", align: "right" },
+                        { label: "단가", align: "right" },
+                        { label: "상품금액", align: "right" },
+                        { label: "배송비", align: "right" },
+                        { label: "쿠폰할인", align: "right", color: "text-red-500" },
+                        { label: "앱할인", align: "right", color: "text-red-500" },
+                        { label: "추가할인", align: "right", color: "text-red-500" },
+                        { label: "정산매출", align: "right" },
+                        { label: "공급가", align: "right" },
+                        { label: "공급배송비", align: "right" },
+                        { label: "순익", align: "right", color: "text-blue-600" },
+                        { label: "과세", align: "left" },
+                        { label: "공급사", align: "left" },
+                      ].map(h => (
+                        <th key={h.label} className={`px-3 py-3 text-[11px] font-semibold ${h.color || "text-gray-500"} whitespace-nowrap border-b border-gray-200 ${h.align === "right" ? "text-right" : "text-left"}`}>{h.label}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filteredItems.map((item, i) => {
+                      const profit = (item.settled_amount || 0) - (item.supply_total || 0) - (item.supply_shipping || 0);
+                      const isCancelled = item.item_type !== "매출";
+                      return (
+                        <tr key={item.id || i} className={`border-b border-gray-50 hover:bg-blue-50/30 transition-colors ${isCancelled ? "bg-red-50/30" : ""}`}>
+                          <td className="px-3 py-2.5 whitespace-nowrap">
+                            <span className={`text-[11px] font-medium px-2 py-0.5 rounded ${
+                              isCancelled ? "bg-red-50 text-red-600" : "bg-blue-50 text-blue-600"
+                            }`}>{item.item_type}</span>
+                          </td>
+                          <td className="px-3 py-2.5 whitespace-nowrap">
+                            <span className={`text-[11px] font-medium px-1.5 py-0.5 rounded ${CH_COLOR[item.sales_channel] || "bg-gray-50 text-gray-500"}`}>
+                              {CH[item.sales_channel] || item.sales_channel || "기타"}
+                            </span>
+                          </td>
+                          <td className="px-3 py-2.5 text-[12px] font-mono text-gray-600 whitespace-nowrap">{item.cafe24_order_id}</td>
+                          <td className="px-3 py-2.5 text-[12px] text-gray-500 whitespace-nowrap">{(item.order_date || "").slice(0, 10)}</td>
+                          <td className="px-3 py-2.5 text-[12px] text-gray-900 max-w-[200px] truncate" title={item.product_name}>{item.product_name}</td>
+                          <td className="px-3 py-2.5 text-[12px] text-gray-500 max-w-[120px] truncate" title={item.option_text}>{item.option_text || "-"}</td>
+                          <td className="px-3 py-2.5 text-[12px] text-right tabular-nums">{item.quantity}</td>
+                          <td className="px-3 py-2.5 text-[12px] text-right tabular-nums">{W(item.product_price)}</td>
+                          <td className="px-3 py-2.5 text-[12px] text-right tabular-nums text-gray-500">{W(item.product_price * item.quantity)}</td>
+                          <td className="px-3 py-2.5 text-[12px] text-right tabular-nums text-gray-500">{item.shipping_fee ? W(item.shipping_fee) : "-"}</td>
+                          <td className="px-3 py-2.5 text-[12px] text-right tabular-nums text-red-500">{item.coupon_discount ? `-${W(item.coupon_discount)}` : "-"}</td>
+                          <td className="px-3 py-2.5 text-[12px] text-right tabular-nums text-red-500">{item.app_discount ? `-${W(item.app_discount)}` : "-"}</td>
+                          <td className="px-3 py-2.5 text-[12px] text-right tabular-nums text-red-500">{item.additional_discount ? `-${W(item.additional_discount)}` : "-"}</td>
+                          <td className="px-3 py-2.5 text-[12px] text-right tabular-nums font-semibold bg-yellow-50/60">{W(item.settled_amount)}</td>
+                          <td className="px-3 py-2.5 text-[12px] text-right tabular-nums">{W(item.supply_total)}</td>
+                          <td className="px-3 py-2.5 text-[12px] text-right tabular-nums">{W(item.supply_shipping)}</td>
+                          <td className={`px-3 py-2.5 text-[12px] text-right tabular-nums font-semibold ${profit >= 0 ? "text-blue-600" : "text-red-600"}`}>{W(profit)}</td>
+                          <td className="px-3 py-2.5 whitespace-nowrap">
+                            <span className={`text-[11px] ${item.tax_type === "면세" ? "text-pink-600" : "text-gray-400"}`}>{item.tax_type}</span>
+                          </td>
+                          <td className="px-3 py-2.5 text-[12px] text-gray-500 whitespace-nowrap">{item.supplier_name || "-"}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                  <tfoot className="sticky bottom-0 bg-gray-50">
+                    <tr className="border-t-2 border-gray-200">
+                      <td colSpan={13} className="px-3 py-3 text-[12px] font-semibold text-gray-700">
+                        합계 ({filteredItems.length}건)
+                      </td>
+                      <td className="px-3 py-3 text-[12px] font-bold text-gray-900 text-right tabular-nums bg-yellow-50/60">{W(totals.settled)}</td>
+                      <td className="px-3 py-3 text-[12px] font-semibold text-gray-600 text-right tabular-nums">{W(totals.supply)}</td>
+                      <td className="px-3 py-3 text-[12px] font-semibold text-gray-600 text-right tabular-nums">{W(totals.supplyShip)}</td>
+                      <td className={`px-3 py-3 text-[12px] font-bold text-right tabular-nums ${totals.profit >= 0 ? "text-blue-600" : "text-red-600"}`}>{W(totals.profit)}</td>
+                      <td colSpan={2} />
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+            </div>
+          </>
         )}
 
-        {/* ── 상품별 ── */}
+        {/* ══ 상품별 ══ */}
         {tab === "products" && (
           <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
             <div className="overflow-x-auto">
               <table className="w-full">
-                <thead>
-                  <tr className="bg-gray-50/80">
-                    {["상품명", "수량", "매출", "매입가", "배송비", "이익", "마진율"].map((h, i) => (
-                      <th key={h} className={`px-4 py-3 text-[11px] font-semibold text-gray-500 uppercase tracking-wider whitespace-nowrap border-b border-gray-100 ${i >= 1 ? "text-right" : "text-left"}`}>{h}</th>
+                <thead className="sticky top-0 z-10 bg-gray-50">
+                  <tr>
+                    {["상품명", "판매수량", "매출", "매입가합계", "배송비합계", "이익", "마진율"].map((h, i) => (
+                      <th key={h} className={`px-4 py-3 text-[11px] font-semibold text-gray-500 whitespace-nowrap border-b border-gray-200 ${i >= 1 ? "text-right" : "text-left"}`}>{h}</th>
                     ))}
                   </tr>
                 </thead>
@@ -462,7 +580,6 @@ export default function SettlementPortalPage() {
           )}
         </div>
 
-        {/* 푸터 */}
         <footer className="mt-10 pb-8 text-center">
           <div className="flex items-center justify-center gap-2 text-[11px] text-gray-300">
             <div className="w-5 h-5 bg-gray-200 rounded-md flex items-center justify-center">
@@ -476,7 +593,6 @@ export default function SettlementPortalPage() {
   );
 }
 
-/* ── 정산요약 행 컴포넌트 ── */
 function SRow({ label, value, bold, sub, negative, accent }: {
   label: string; value: number; bold?: boolean; sub?: boolean; negative?: boolean; accent?: boolean;
 }) {
