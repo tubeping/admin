@@ -262,14 +262,12 @@ export async function POST(request: NextRequest) {
       if (supplyShipping > 0) supplyShipping = Math.round(supplyShipping * 1.1);
     }
 
-    // 샘플: 공급가 = 정산매출 (순익 0)
     const channel = order.sales_channel || inferSalesChannel(order.cafe24_order_id || "");
-    if (channel === "sample" && !isCancelled) {
-      supplyPrice = settledAmount;
-    }
+    const isSample = channel === "sample";
 
-    const supplyTotal = isCancelled ? 0 : (channel === "sample" ? settledAmount : supplyPrice * qty);
-    const supShipFinal = isCancelled ? 0 : supplyShipping;
+    // 샘플: 공급가 = 정산매출, 공급배송비 = 0 (순익 0)
+    const supplyTotal = isCancelled ? 0 : isSample ? settledAmount : supplyPrice * qty;
+    const supShipFinal = isCancelled || isSample ? 0 : supplyShipping;
 
     const itemType = isCancelled ? "취소" : "매출";
     const supplierData = order.suppliers as { id: string; name: string } | null;
@@ -290,7 +288,7 @@ export async function POST(request: NextRequest) {
       app_discount: order.app_discount || 0,
       additional_discount: order.additional_discount || 0,
       settled_amount: settledAmount,
-      supply_price: supplyPrice,
+      supply_price: isSample && !isCancelled ? order.product_price || 0 : supplyPrice,
       supply_total: supplyTotal,
       supply_shipping: supShipFinal,
       tax_type: supInfo.tax_type,
