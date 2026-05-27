@@ -1,8 +1,7 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { useParams } from "next/navigation";
-import * as XLSX from "xlsx";
 
 interface MallOrder {
   id: string;
@@ -24,7 +23,7 @@ interface MallOrder {
 }
 
 interface Stats {
-  total: number; pending: number; shipping: number; delivered: number; cancelled: number; totalAmount: number;
+  total: number; pending: number; ordered: number; shipping: number; delivered: number; cancelled: number; totalAmount: number;
 }
 
 const MALL_STATUS: Record<string, { label: string; color: string; bg: string }> = {
@@ -35,50 +34,34 @@ const MALL_STATUS: Record<string, { label: string; color: string; bg: string }> 
   cancelled: { label: "취소", color: "text-red-700", bg: "bg-red-50 border border-red-200" },
 };
 
-// 택배사별 배송조회 URL
 function getTrackingUrl(company: string | null, trackingNumber: string): string | null {
   if (!company) return null;
   const c = company.trim();
-  // CJ대한통운
   if (/cj|대한통운/i.test(c)) return `https://trace.cjlogistics.com/next/tracking.html?wblNo=${trackingNumber}`;
-  // 한진택배
   if (/한진/i.test(c)) return `https://www.hanjin.com/kor/CMS/DeliveryMgr/WaybillResult.do?mession=&inv_no=${trackingNumber}`;
-  // 롯데택배
   if (/롯데/i.test(c)) return `https://www.lotteglogis.com/home/reservation/tracking/link498?InvNo=${trackingNumber}`;
-  // 우체국
   if (/우체국|우편/i.test(c)) return `https://service.epost.go.kr/trace.RetrieveDomRi498.postal?sid1=${trackingNumber}`;
-  // 로젠택배
   if (/로젠/i.test(c)) return `https://www.ilogen.com/web/personal/trace/${trackingNumber}`;
-  // 경동택배
   if (/경동/i.test(c)) return `https://kdexp.com/service/shipment/item.do?barcode=${trackingNumber}`;
-  // 대신택배
   if (/대신/i.test(c)) return `https://www.ds3211.co.kr/freight/internalFreightSearch.do?billno=${trackingNumber}`;
-  // 합동택배
   if (/합동/i.test(c)) return `https://www.hdexp.co.kr/shipment/delivery_search_direct.asp?invoice_no=${trackingNumber}`;
-  // 건영택배
   if (/건영/i.test(c)) return `https://www.kunyoung.com/goods/goods_search.php?search_type=1&search=${trackingNumber}`;
-  // 천일택배
   if (/천일/i.test(c)) return `https://www.chunil.co.kr/HTrace/HTrace.jsp?transNo=${trackingNumber}`;
-  // GS포스트박스 / CVSnet
   if (/gs|cvs|편의점/i.test(c)) return `https://www.cvsnet.co.kr/invoice/tracking.do?invoice_no=${trackingNumber}`;
-  // 기본: 스마트택배
   return `https://trace.cjlogistics.com/next/tracking.html?wblNo=${trackingNumber}`;
 }
 
 function detectChannel(salesChannel: string | null, orderId: string): string {
-  // sales_channel 우선 판단
   if (salesChannel === "phone") return "전화주문";
   if (salesChannel === "sms") return "문자주문";
   if (salesChannel === "sample") return "샘플";
   if (salesChannel === "group") return "공구주문";
   if (salesChannel === "etc") return "기타";
-  // 주문번호 접두사로 판단
   if (/^TEL-/.test(orderId)) return "전화주문";
   if (/^SMS-/.test(orderId)) return "문자주문";
   if (/^ETC-/.test(orderId)) return "기타";
   if (/^SPL-/.test(orderId)) return "샘플";
   if (/^JP-/.test(orderId)) return "공구주문";
-  // 자사몰 (카페24 주문번호 형태: YYYYMMDD-NNNNNNN)
   if (/^\d{8}-\d{5,}$/.test(orderId)) return "자사몰";
   return "기타";
 }
@@ -93,6 +76,8 @@ function formatAmount(amount: number) {
   if (!amount) return "-";
   return amount.toLocaleString();
 }
+
+const CHANNEL_KEYS = ["자사몰", "공구주문", "전화주문", "문자주문", "샘플", "기타"] as const;
 
 export default function SellerPortalPage() {
   const params = useParams();
@@ -109,10 +94,14 @@ export default function SellerPortalPage() {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [filters, setFilters] = useState<Record<string, string>>({});
 
-  // 월 선택 (기본: 당월)
-  const now = new Date();
-  const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+  const [currentMonth] = useState(() => {
+    const now = new Date();
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+  });
   const [selectedMonth, setSelectedMonth] = useState(currentMonth);
+
+  // 탭/월 변경 시 선택 초기화
+  useEffect(() => { setSelectedIds(new Set()); }, [tab, selectedMonth, filters]);
 
   const fetchData = useCallback(async () => {
     try {
@@ -142,6 +131,116 @@ export default function SellerPortalPage() {
     return () => clearInterval(interval);
   }, [fetchData]);
 
+  // 채널별 그룹핑 (memoized)
+  const channelGroups = useMemo(() => {
+    const groups: Record<string, MallOrder[]> = {};
+    for (const k of CHANNEL_KEYS) groups[k] = [];
+    for (const o of mallOrders) {
+      const ch = detectChannel(o.sales_channel, o.cafe24_order_id);
+      (groups[ch] || groups["기타"]).push(o);
+    }
+    return groups;
+  }, [mallOrders]);
+
+  const totalOrders = mallOrders.length;
+  const totalAmount = stats?.totalAmount || 0;
+  const shippingCount = stats?.shipping || 0;
+  const deliveredCount = stats?.delivered || 0;
+  const periodLabel = period ? `${period.slice(0, 4)}년 ${parseInt(period.slice(5, 7))}월` : "";
+
+  const tabs = useMemo(() => [
+    { key: "all", label: "전체", count: totalOrders },
+    ...CHANNEL_KEYS
+      .map((ch) => ({ key: ch, label: ch, count: channelGroups[ch]?.length || 0 }))
+      .filter((t) => t.count > 0),
+  ], [totalOrders, channelGroups]);
+
+  const tabOrders = useMemo(() =>
+    tab === "all" ? mallOrders : (channelGroups[tab] || mallOrders)
+  , [tab, mallOrders, channelGroups]);
+
+  const filteredMallOrders = useMemo(() => {
+    const hasAny = Object.values(filters).some((v) => v);
+    if (!hasAny) return tabOrders;
+    return tabOrders.filter((o) => {
+      const fOrderId = filters.orderId?.toLowerCase();
+      const fProduct = filters.product?.toLowerCase();
+      const fReceiver = filters.receiver?.toLowerCase();
+      if (fOrderId && !o.cafe24_order_id.toLowerCase().includes(fOrderId)) return false;
+      if (fProduct && !o.product_name.toLowerCase().includes(fProduct) && !(o.option_text || "").toLowerCase().includes(fProduct)) return false;
+      if (fReceiver && !o.receiver_name.toLowerCase().includes(fReceiver)) return false;
+      if (filters.status) {
+        const st = MALL_STATUS[o.shipping_status]?.label || "";
+        if (st !== filters.status) return false;
+      }
+      if (filters.channel) {
+        const ch = detectChannel(o.sales_channel, o.cafe24_order_id);
+        if (ch !== filters.channel) return false;
+      }
+      return true;
+    });
+  }, [tabOrders, filters]);
+
+  const hasFilters = Object.values(filters).some((v) => v);
+
+  const toggleSelect = useCallback((id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }, []);
+
+  const filteredIds = useMemo(() => new Set(filteredMallOrders.map((o) => o.id)), [filteredMallOrders]);
+  const isAllSelected = filteredMallOrders.length > 0 && filteredMallOrders.every((o) => selectedIds.has(o.id));
+
+  const toggleSelectAll = useCallback(() => {
+    setSelectedIds((prev) => {
+      if (filteredIds.size > 0 && filteredIds.size === prev.size && [...filteredIds].every((id) => prev.has(id))) {
+        return new Set();
+      }
+      return new Set(filteredIds);
+    });
+  }, [filteredIds]);
+
+  const handleExcelDownload = useCallback(async () => {
+    const XLSX = await import("xlsx");
+    const target = selectedIds.size > 0
+      ? filteredMallOrders.filter((o) => selectedIds.has(o.id))
+      : filteredMallOrders;
+    const rows = target.map((o) => {
+      const channel = detectChannel(o.sales_channel, o.cafe24_order_id);
+      const st = MALL_STATUS[o.shipping_status] || MALL_STATUS.pending;
+      return {
+        "주문번호": o.cafe24_order_id,
+        "날짜": o.order_date ? new Date(o.order_date).toLocaleDateString("ko-KR") : "",
+        "상품명": o.product_name,
+        "옵션": o.option_text || "",
+        "수량": o.quantity,
+        "판매금액": o.order_amount || (o.product_price || 0) * o.quantity || 0,
+        "공급액": (o.supply_price || 0) * o.quantity,
+        "배송비": o.shipping_fee || 0,
+        "공급배송비": o.supply_shipping_fee || 0,
+        "수령인": o.receiver_name,
+        "구분": channel,
+        "상태": st.label,
+        "택배사": o.shipping_company || "",
+        "운송장번호": o.tracking_number || "",
+      };
+    });
+    const ws = XLSX.utils.json_to_sheet(rows);
+    ws["!cols"] = [
+      { wch: 20 }, { wch: 12 }, { wch: 30 }, { wch: 20 }, { wch: 6 },
+      { wch: 12 }, { wch: 10 }, { wch: 10 }, { wch: 10 }, { wch: 10 },
+      { wch: 10 }, { wch: 10 }, { wch: 10 }, { wch: 18 },
+    ];
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "주문현황");
+    const tabLabel = tabs.find((t) => t.key === tab)?.label || "전체";
+    XLSX.writeFile(wb, `${clientName}_${selectedMonth}_${tabLabel}_주문현황.xlsx`);
+  }, [selectedIds, filteredMallOrders, tabs, tab, clientName, selectedMonth]);
+
   if (loading) {
     return (
       <div className="min-h-screen bg-gradient-to-b from-gray-50 to-gray-100 flex items-center justify-center">
@@ -169,109 +268,8 @@ export default function SellerPortalPage() {
     );
   }
 
-  const channelGroups = { 자사몰: [] as MallOrder[], 전화주문: [] as MallOrder[], 문자주문: [] as MallOrder[], 샘플: [] as MallOrder[], 기타: [] as MallOrder[] };
-  for (const o of mallOrders) {
-    const ch = detectChannel(o.sales_channel, o.cafe24_order_id);
-    if (ch in channelGroups) (channelGroups as Record<string, MallOrder[]>)[ch].push(o);
-    else channelGroups.기타.push(o);
-  }
-  const totalOrders = mallOrders.length;
-  const totalAmount = stats?.totalAmount || 0;
-  const shippingCount = stats?.shipping || 0;
-  const deliveredCount = stats?.delivered || 0;
-  const periodLabel = period ? `${period.slice(0, 4)}년 ${parseInt(period.slice(5, 7))}월` : "";
-
-  const tabs = [
-    { key: "all", label: "전체", count: totalOrders },
-    { key: "mall", label: "자사몰", count: channelGroups.자사몰.length },
-    { key: "phone", label: "전화주문", count: channelGroups.전화주문.length },
-    { key: "sms", label: "문자주문", count: channelGroups.문자주문.length },
-    { key: "sample", label: "샘플", count: channelGroups.샘플.length },
-    { key: "etc", label: "기타", count: channelGroups.기타.length },
-  ].filter((t) => t.key === "all" || t.count > 0);
-
-  const tabOrders = tab === "all" ? mallOrders
-    : tab === "mall" ? channelGroups.자사몰
-    : tab === "phone" ? channelGroups.전화주문
-    : tab === "sms" ? channelGroups.문자주문
-    : tab === "sample" ? channelGroups.샘플
-    : tab === "etc" ? channelGroups.기타
-    : mallOrders;
-
-  const filteredMallOrders = tabOrders.filter((o) => {
-    const q = (key: string) => filters[key]?.toLowerCase();
-    if (q("orderId") && !o.cafe24_order_id.toLowerCase().includes(q("orderId")!)) return false;
-    if (q("product") && !o.product_name.toLowerCase().includes(q("product")!) && !(o.option_text || "").toLowerCase().includes(q("product")!)) return false;
-    if (q("receiver") && !o.receiver_name.toLowerCase().includes(q("receiver")!)) return false;
-    if (q("status")) {
-      const st = MALL_STATUS[o.shipping_status]?.label || "";
-      if (!st.includes(filters.status)) return false;
-    }
-    if (q("channel")) {
-      const ch = detectChannel(o.sales_channel, o.cafe24_order_id);
-      if (!ch.includes(filters.channel)) return false;
-    }
-    return true;
-  });
-
-  const hasFilters = Object.values(filters).some((v) => v);
-
-  const toggleSelect = (id: string) => {
-    setSelectedIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  };
-  const toggleSelectAll = () => {
-    if (selectedIds.size === filteredMallOrders.length) {
-      setSelectedIds(new Set());
-    } else {
-      setSelectedIds(new Set(filteredMallOrders.map((o) => o.id)));
-    }
-  };
-  const isAllSelected = filteredMallOrders.length > 0 && selectedIds.size === filteredMallOrders.length;
-
-  const handleExcelDownload = () => {
-    const target = selectedIds.size > 0
-      ? filteredMallOrders.filter((o) => selectedIds.has(o.id))
-      : filteredMallOrders;
-    const rows = target.map((o) => {
-      const channel = detectChannel(o.sales_channel, o.cafe24_order_id);
-      const st = MALL_STATUS[o.shipping_status] || MALL_STATUS.pending;
-      return {
-        "주문번호": o.cafe24_order_id,
-        "날짜": o.order_date ? new Date(o.order_date).toLocaleDateString("ko-KR") : "",
-        "상품명": o.product_name,
-        "옵션": o.option_text || "",
-        "수량": o.quantity,
-        "판매금액": o.order_amount || o.product_price * o.quantity || 0,
-        "공급액": o.supply_price * o.quantity || 0,
-        "배송비": o.shipping_fee || 0,
-        "공급배송비": o.supply_shipping_fee || 0,
-        "수령인": o.receiver_name,
-        "구분": channel,
-        "상태": st.label,
-        "택배사": o.shipping_company || "",
-        "운송장번호": o.tracking_number || "",
-      };
-    });
-    const ws = XLSX.utils.json_to_sheet(rows);
-    ws["!cols"] = [
-      { wch: 20 }, { wch: 12 }, { wch: 30 }, { wch: 20 }, { wch: 6 },
-      { wch: 12 }, { wch: 10 }, { wch: 10 }, { wch: 10 }, { wch: 10 },
-      { wch: 10 }, { wch: 10 }, { wch: 10 }, { wch: 18 },
-    ];
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, "주문현황");
-    const tabLabel = tabs.find((t) => t.key === tab)?.label || "전체";
-    XLSX.writeFile(wb, `${clientName}_${selectedMonth}_${tabLabel}_주문현황.xlsx`);
-  };
-
   return (
     <div className="min-h-screen bg-gradient-to-b from-[#f8f9fb] to-[#f0f2f5]">
-      {/* 헤더 */}
       <header className="bg-white/80 backdrop-blur-md border-b border-gray-200/60 sticky top-0 z-10">
         <div className="max-w-6xl mx-auto px-4 sm:px-6 py-3.5">
           <div className="flex items-center justify-between">
@@ -285,7 +283,6 @@ export default function SellerPortalPage() {
               </div>
             </div>
             <div className="flex items-center gap-2 shrink-0">
-              {/* 월 이동 */}
               <div className="flex items-center bg-gray-50 rounded-lg border border-gray-200">
                 <button
                   onClick={() => {
@@ -327,7 +324,6 @@ export default function SellerPortalPage() {
       </header>
 
       <main className="max-w-6xl mx-auto px-4 sm:px-6 py-6 space-y-5">
-        {/* 통계 카드 */}
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
           <StatCard label="전체 주문" value={totalOrders} suffix="건" icon="📦" color="gray" />
           <StatCard label="총 금액" value={totalAmount} suffix="원" icon="💰" format color="blue" />
@@ -335,7 +331,6 @@ export default function SellerPortalPage() {
           <StatCard label="배송완료" value={deliveredCount} suffix="건" icon="✅" color="green" />
         </div>
 
-        {/* 탭 */}
         <div className="flex gap-1 bg-gray-100/80 rounded-xl p-1 w-fit overflow-x-auto">
           {tabs.map((t) => (
             <button
@@ -357,13 +352,11 @@ export default function SellerPortalPage() {
           ))}
         </div>
 
-        {/* 주문 테이블 */}
         {tabOrders.length > 0 && (
           <section className="bg-white rounded-xl border border-gray-200/60 overflow-hidden shadow-sm">
-            {/* 테이블 상단 바 */}
             <div className="flex items-center justify-between px-4 py-2.5 border-b border-gray-100 bg-gray-50/40">
               <div className="flex items-center gap-2 text-[11px] text-gray-400">
-                <span>{filteredMallOrders.length}건{hasFilters ? ` (필터 적용)` : ""}</span>
+                <span>{filteredMallOrders.length}건{hasFilters ? " (필터 적용)" : ""}</span>
                 {hasFilters && (
                   <button onClick={() => setFilters({})} className="text-red-400 hover:text-red-600 underline">필터 초기화</button>
                 )}
@@ -373,7 +366,7 @@ export default function SellerPortalPage() {
               </div>
               <button
                 onClick={handleExcelDownload}
-                disabled={mallOrders.length === 0}
+                disabled={filteredMallOrders.length === 0}
                 className="px-3 py-1.5 text-[11px] font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg hover:bg-emerald-100 transition-all shadow-sm active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed"
               >
                 {selectedIds.size > 0 ? `선택 ${selectedIds.size}건 다운로드` : "엑셀 다운로드"}
@@ -403,68 +396,32 @@ export default function SellerPortalPage() {
                     <th className="px-3 py-3 text-center text-[11px] font-semibold text-gray-500 uppercase tracking-wider whitespace-nowrap">상태</th>
                     <th className="px-5 py-3 text-left text-[11px] font-semibold text-gray-500 uppercase tracking-wider whitespace-nowrap min-w-[220px]">운송장</th>
                   </tr>
-                  {/* 필터 행 */}
                   <tr className="bg-white border-b border-gray-100">
                     <td className="px-2 py-1.5" />
                     <td className="px-4 py-1.5">
-                      <input
-                        type="text"
-                        placeholder="검색"
-                        value={filters.orderId || ""}
-                        onChange={(e) => setFilters((f) => ({ ...f, orderId: e.target.value }))}
-                        className="w-full px-2 py-1 text-[11px] border border-gray-200 rounded-md focus:outline-none focus:border-blue-300 bg-gray-50/50"
-                      />
+                      <input type="text" placeholder="검색" value={filters.orderId || ""} onChange={(e) => setFilters((f) => ({ ...f, orderId: e.target.value }))} className="w-full px-2 py-1 text-[11px] border border-gray-200 rounded-md focus:outline-none focus:border-blue-300 bg-gray-50/50" />
                     </td>
                     <td className="px-3 py-1.5" />
                     <td className="px-3 py-1.5">
-                      <input
-                        type="text"
-                        placeholder="검색"
-                        value={filters.product || ""}
-                        onChange={(e) => setFilters((f) => ({ ...f, product: e.target.value }))}
-                        className="w-full px-2 py-1 text-[11px] border border-gray-200 rounded-md focus:outline-none focus:border-blue-300 bg-gray-50/50"
-                      />
+                      <input type="text" placeholder="검색" value={filters.product || ""} onChange={(e) => setFilters((f) => ({ ...f, product: e.target.value }))} className="w-full px-2 py-1 text-[11px] border border-gray-200 rounded-md focus:outline-none focus:border-blue-300 bg-gray-50/50" />
                     </td>
                     <td className="px-3 py-1.5" />
                     <td className="px-3 py-1.5" />
                     <td className="px-3 py-1.5" />
                     <td className="px-3 py-1.5" />
                     <td className="px-3 py-1.5">
-                      <input
-                        type="text"
-                        placeholder="검색"
-                        value={filters.receiver || ""}
-                        onChange={(e) => setFilters((f) => ({ ...f, receiver: e.target.value }))}
-                        className="w-full px-2 py-1 text-[11px] border border-gray-200 rounded-md focus:outline-none focus:border-blue-300 bg-gray-50/50"
-                      />
+                      <input type="text" placeholder="검색" value={filters.receiver || ""} onChange={(e) => setFilters((f) => ({ ...f, receiver: e.target.value }))} className="w-full px-2 py-1 text-[11px] border border-gray-200 rounded-md focus:outline-none focus:border-blue-300 bg-gray-50/50" />
                     </td>
                     <td className="px-3 py-1.5">
-                      <select
-                        value={filters.channel || ""}
-                        onChange={(e) => setFilters((f) => ({ ...f, channel: e.target.value }))}
-                        className="w-full px-1 py-1 text-[11px] border border-gray-200 rounded-md focus:outline-none focus:border-blue-300 bg-gray-50/50"
-                      >
+                      <select value={filters.channel || ""} onChange={(e) => setFilters((f) => ({ ...f, channel: e.target.value }))} className="w-full px-1 py-1 text-[11px] border border-gray-200 rounded-md focus:outline-none focus:border-blue-300 bg-gray-50/50">
                         <option value="">전체</option>
-                        <option value="자사몰">자사몰</option>
-                        <option value="공구주문">공구주문</option>
-                        <option value="전화주문">전화주문</option>
-                        <option value="문자주문">문자주문</option>
-                        <option value="샘플">샘플</option>
-                        <option value="기타">기타</option>
+                        {CHANNEL_KEYS.map((ch) => <option key={ch} value={ch}>{ch}</option>)}
                       </select>
                     </td>
                     <td className="px-3 py-1.5">
-                      <select
-                        value={filters.status || ""}
-                        onChange={(e) => setFilters((f) => ({ ...f, status: e.target.value }))}
-                        className="w-full px-1 py-1 text-[11px] border border-gray-200 rounded-md focus:outline-none focus:border-blue-300 bg-gray-50/50"
-                      >
+                      <select value={filters.status || ""} onChange={(e) => setFilters((f) => ({ ...f, status: e.target.value }))} className="w-full px-1 py-1 text-[11px] border border-gray-200 rounded-md focus:outline-none focus:border-blue-300 bg-gray-50/50">
                         <option value="">전체</option>
-                        <option value="대기">대기</option>
-                        <option value="발주완료">발주완료</option>
-                        <option value="배송중">배송중</option>
-                        <option value="배송완료">배송완료</option>
-                        <option value="취소">취소</option>
+                        {Object.values(MALL_STATUS).map((s) => <option key={s.label} value={s.label}>{s.label}</option>)}
                       </select>
                     </td>
                     <td className="px-5 py-1.5" />
@@ -473,7 +430,7 @@ export default function SellerPortalPage() {
                 <tbody className="divide-y divide-gray-50">
                   {filteredMallOrders.map((o) => {
                     const st = MALL_STATUS[o.shipping_status] || MALL_STATUS.pending;
-                    const saleAmount = o.order_amount || o.product_price * o.quantity || 0;
+                    const saleAmount = o.order_amount || (o.product_price || 0) * o.quantity || 0;
                     const supplyAmount = (o.supply_price || 0) * o.quantity;
                     const shippingFee = o.shipping_fee || 0;
                     const channel = detectChannel(o.sales_channel, o.cafe24_order_id);
@@ -481,12 +438,7 @@ export default function SellerPortalPage() {
                     return (
                       <tr key={o.id} className={`hover:bg-blue-50/30 transition-colors ${selectedIds.has(o.id) ? "bg-blue-50/40" : ""}`}>
                         <td className="px-2 py-3 text-center">
-                          <input
-                            type="checkbox"
-                            checked={selectedIds.has(o.id)}
-                            onChange={() => toggleSelect(o.id)}
-                            className="w-3.5 h-3.5 rounded border-gray-300 text-[#C41E1E] focus:ring-[#C41E1E] cursor-pointer"
-                          />
+                          <input type="checkbox" checked={selectedIds.has(o.id)} onChange={() => toggleSelect(o.id)} className="w-3.5 h-3.5 rounded border-gray-300 text-[#C41E1E] focus:ring-[#C41E1E] cursor-pointer" />
                         </td>
                         <td className="px-4 py-3 font-mono text-[11px] text-gray-400 whitespace-nowrap">{o.cafe24_order_id}</td>
                         <td className="px-3 py-3 text-[11px] text-gray-500 text-center whitespace-nowrap">{formatDate(o.order_date)}</td>
@@ -495,15 +447,9 @@ export default function SellerPortalPage() {
                           {o.option_text && <div className="truncate text-[11px] text-gray-400 mt-0.5">{o.option_text}</div>}
                         </td>
                         <td className="px-3 py-3 text-center text-xs text-gray-600 font-medium">{o.quantity}</td>
-                        <td className="px-3 py-3 text-right text-xs font-semibold text-gray-900 whitespace-nowrap tabular-nums">
-                          {formatAmount(saleAmount)}
-                        </td>
-                        <td className="px-3 py-3 text-right text-xs text-gray-600 whitespace-nowrap tabular-nums">
-                          {supplyAmount ? formatAmount(supplyAmount) : "-"}
-                        </td>
-                        <td className="px-3 py-3 text-right text-xs text-gray-600 whitespace-nowrap tabular-nums">
-                          {shippingFee ? formatAmount(shippingFee) : "-"}
-                        </td>
+                        <td className="px-3 py-3 text-right text-xs font-semibold text-gray-900 whitespace-nowrap tabular-nums">{formatAmount(saleAmount)}</td>
+                        <td className="px-3 py-3 text-right text-xs text-gray-600 whitespace-nowrap tabular-nums">{supplyAmount ? formatAmount(supplyAmount) : "-"}</td>
+                        <td className="px-3 py-3 text-right text-xs text-gray-600 whitespace-nowrap tabular-nums">{shippingFee ? formatAmount(shippingFee) : "-"}</td>
                         <td className="px-3 py-3 text-xs text-gray-700 whitespace-nowrap">{o.receiver_name}</td>
                         <td className="px-3 py-3 text-center">
                           <span className={`inline-block text-[10px] font-semibold px-2 py-0.5 rounded-full whitespace-nowrap ${
@@ -511,25 +457,17 @@ export default function SellerPortalPage() {
                             channel === "샘플" ? "text-orange-600 bg-orange-50" :
                             channel === "전화주문" ? "text-teal-600 bg-teal-50" :
                             channel === "문자주문" ? "text-cyan-600 bg-cyan-50" :
+                            channel === "공구주문" ? "text-pink-600 bg-pink-50" :
                             "text-gray-500 bg-gray-50"
-                          }`}>
-                            {channel}
-                          </span>
+                          }`}>{channel}</span>
                         </td>
                         <td className="px-3 py-3 text-center">
-                          <span className={`inline-block text-[10px] font-semibold px-2 py-0.5 rounded-full whitespace-nowrap ${st.color} ${st.bg}`}>
-                            {st.label}
-                          </span>
+                          <span className={`inline-block text-[10px] font-semibold px-2 py-0.5 rounded-full whitespace-nowrap ${st.color} ${st.bg}`}>{st.label}</span>
                         </td>
                         <td className="px-5 py-3 text-[11px] whitespace-nowrap min-w-[220px]">
                           {o.tracking_number ? (
                             trackingUrl ? (
-                              <a
-                                href={trackingUrl}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="inline-flex items-center gap-2 text-blue-600 hover:text-blue-800 transition-colors group"
-                              >
+                              <a href={trackingUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-2 text-blue-600 hover:text-blue-800 transition-colors group">
                                 <span className="font-medium">{o.shipping_company}</span>
                                 <span className="font-mono text-blue-500 group-hover:underline">{o.tracking_number}</span>
                                 <svg className="w-3 h-3 text-blue-400 group-hover:text-blue-600 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -552,7 +490,6 @@ export default function SellerPortalPage() {
           </section>
         )}
 
-        {/* 주문 없음 */}
         {totalOrders === 0 && (
           <div className="bg-white rounded-xl border border-gray-200/60 p-16 text-center shadow-sm">
             <div className="text-4xl mb-4">📭</div>
@@ -560,7 +497,6 @@ export default function SellerPortalPage() {
           </div>
         )}
 
-        {/* 푸터 */}
         <p className="text-center text-[11px] text-gray-300 py-4">30초마다 자동 새로고침</p>
       </main>
     </div>
