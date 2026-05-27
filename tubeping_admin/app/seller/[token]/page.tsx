@@ -22,8 +22,7 @@ interface MallOrder {
 }
 
 interface Stats {
-  phone: { total: number; pending: number; confirmed: number; shipping: number; delivered: number; unpaid: number; totalAmount: number };
-  mall: { total: number; pending: number; shipping: number; delivered: number; totalAmount: number };
+  total: number; pending: number; shipping: number; delivered: number; cancelled: number; totalAmount: number;
 }
 
 const MALL_STATUS: Record<string, { label: string; color: string; bg: string }> = {
@@ -65,14 +64,20 @@ function getTrackingUrl(company: string | null, trackingNumber: string): string 
 }
 
 function detectChannel(salesChannel: string | null, orderId: string): string {
+  // sales_channel 우선 판단
   if (salesChannel === "phone") return "전화주문";
   if (salesChannel === "sample") return "샘플";
-  if (/^PT-/.test(orderId)) return "전화주문";
-  if (/^MR-/.test(orderId)) return "수동";
-  if (/^EXCEL-/.test(orderId)) return "엑셀";
+  if (salesChannel === "group") return "공구주문";
+  if (salesChannel === "etc") return "기타";
+  // 주문번호 접두사로 판단
+  if (/^PT-TEL-|^TEL-/.test(orderId)) return "전화주문";
+  if (/^PT-SMS-|^SMS-/.test(orderId)) return "전화주문";
+  if (/^ETC-/.test(orderId)) return "기타";
+  if (/^SPL-/.test(orderId)) return "샘플";
+  if (/^JP-/.test(orderId)) return "공구주문";
+  // 자사몰 (카페24 주문번호 형태: YYYYMMDD-NNNNNNN)
   if (/^\d{8}-\d{5,}$/.test(orderId)) return "자사몰";
-  if (/^\d{8}/.test(orderId)) return "전화주문";
-  return salesChannel || "기타";
+  return "기타";
 }
 
 function formatDate(d: string) {
@@ -168,9 +173,9 @@ export default function SellerPortalPage() {
     else channelGroups.기타.push(o);
   }
   const totalOrders = mallOrders.length;
-  const totalAmount = stats?.mall.totalAmount || 0;
-  const shippingCount = stats?.mall.shipping || 0;
-  const deliveredCount = stats?.mall.delivered || 0;
+  const totalAmount = stats?.totalAmount || 0;
+  const shippingCount = stats?.shipping || 0;
+  const deliveredCount = stats?.delivered || 0;
   const periodLabel = period ? `${period.slice(0, 4)}년 ${parseInt(period.slice(5, 7))}월` : "";
 
   const tabs = [
