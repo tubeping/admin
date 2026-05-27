@@ -436,6 +436,7 @@ const OrderRow = memo(function OrderRow({
       </td>
       {/* 4. 상품/옵션 */}
       <td className="px-1.5 py-1.5 max-w-[200px]">
+        {o.cafe24_product_no > 0 && <div className="text-[9px] font-mono text-gray-300">{o.cafe24_product_no}</div>}
         <div className="text-xs text-gray-900 truncate">{o.product_name}</div>
         {o.option_text && <div className="text-[10px] text-gray-400 truncate">{o.option_text}</div>}
       </td>
