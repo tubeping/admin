@@ -108,18 +108,13 @@ export async function GET(request: NextRequest) {
     // 4) 모든 product_id에서 가격 정보 + 출고지 가져오기 (price 추가)
     const allPids = [...new Set([...directPids, ...Object.values(storeProductToProductId), ...Object.values(nameToProductId)])];
     const pidToWarehouse: Record<string, string> = {};
-    const pidToSupplyPrice: Record<string, number> = {};
-    const pidToSupplyShipping: Record<string, number> = {};
     const pidToSalePrice: Record<string, number> = {};
     if (allPids.length > 0) {
-      // batch in chunks of 500 to avoid URL length limits
       for (let i = 0; i < allPids.length; i += 500) {
         const batch = allPids.slice(i, i + 500);
-        const { data: products } = await sb.from("products").select("id, fulfillment_warehouse_supplier_id, supply_price, supply_shipping_fee, price").in("id", batch);
+        const { data: products } = await sb.from("products").select("id, fulfillment_warehouse_supplier_id, price").in("id", batch);
         for (const p of products || []) {
           if (p.fulfillment_warehouse_supplier_id) pidToWarehouse[p.id] = p.fulfillment_warehouse_supplier_id;
-          if (p.supply_price) pidToSupplyPrice[p.id] = p.supply_price;
-          if (p.supply_shipping_fee) pidToSupplyShipping[p.id] = p.supply_shipping_fee;
           if (p.price) pidToSalePrice[p.id] = p.price;
         }
       }
@@ -174,9 +169,9 @@ export async function GET(request: NextRequest) {
       o.warehouse_name = wId ? warehouseNames[wId] || null : null;
 
       // 공급가 결정 우선순위:
-      //   0순위: product_options (옵션 매칭) — 가장 구체적
-      //   1순위: supplier_products (공급사+상품 조합)
-      //   2순위: products.supply_price (상품 기본)
+      //   1순위: product_options (옵션 매칭) — 가장 구체적
+      //   2순위: supplier_products (공급사+상품 조합)
+      //   없으면: 0 (products 테이블 fallback 사용하지 않음)
       const optKey = pid && o.option_text ? `${pid}|${(o.option_text as string).trim()}` : null;
       const opt = optKey ? optKeyToPrice[optKey] : null;
       const supKey = o.supplier_id && pid ? `${o.supplier_id}|${pid}` : null;
@@ -189,8 +184,8 @@ export async function GET(request: NextRequest) {
         o.supply_price = supInfo.supply_price;
         o.supply_shipping_fee = supInfo.supply_shipping_fee;
       } else {
-        o.supply_price = pid ? pidToSupplyPrice[pid] || 0 : 0;
-        o.supply_shipping_fee = pid ? pidToSupplyShipping[pid] || 0 : 0;
+        o.supply_price = 0;
+        o.supply_shipping_fee = 0;
       }
 
       // 판매가 비어있을 때 fallback: 옵션 retail_price → products.price

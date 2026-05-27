@@ -105,6 +105,7 @@ const MENU_GROUPS: MenuGroup[] = [
         ),
         children: [
           { key: "products-list", label: "상품 목록", href: "/mall/products" },
+          { key: "supplier-prices", label: "공급사별 상품가격", href: "/mall/supplier-prices" },
           { key: "stock-alerts", label: "품절/재입고 알림", href: "/mall/stock-alerts" },
         ],
       },
