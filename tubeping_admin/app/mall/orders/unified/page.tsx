@@ -264,9 +264,10 @@ function AddressEditModal({ order, onClose, onSave }: {
   );
 }
 
+const PO_STATUS_EMPTY = { type: "", typeStyle: "", status: "", statusStyle: "" } as const;
+
 function derivePOStatus(o: Order): { type: string; typeStyle: string; status: string; statusStyle: string } {
-  const empty = { type: "", typeStyle: "", status: "", statusStyle: "" };
-  if (o.shipping_status === "cancelled") return empty;
+  if (o.shipping_status === "cancelled") return PO_STATUS_EMPTY;
 
   // 발주 종류: PO 있으면 자동, 없으면 수동
   let type: string;
@@ -367,7 +368,8 @@ const OrderRow = memo(function OrderRow({
 }) {
   const noTrack = !o.tracking_number && o.shipping_status !== "cancelled" && o.shipping_status !== "delivered";
   const noSup = !o.supplier_id;
-  const noPO = !o.purchase_order_id && o.shipping_status !== "cancelled" && o.shipping_status !== "delivered" && o.shipping_status !== "ordered";
+  const poStatus = derivePOStatus(o);
+  const noPO = poStatus.status === "미발주";
   const editing = !!trackingEdit;
   // 로컬 state로 입력 처리 — 키 입력마다 상위 리렌더 방지
   const [localTrackingCompany, setLocalTrackingCompany] = useState(trackingEdit?.company || "CJ대한통운");
@@ -1070,8 +1072,18 @@ export default function UnifiedOrdersPage() {
       if (filterNoTracking && (o.tracking_number || o.shipping_status === "cancelled" || o.shipping_status === "delivered")) return false;
       if ((filterNoSupplier || filterSupplier === "__none__") && o.supplier_id) return false;
       if (filterDomestic && (o.sales_channel || !o.stores?.name)) return false;
-      if (poTab === "no_po" && derivePOStatus(o).status !== "미발주") return false;
-      if (poTab === "has_po" && !o.purchase_order_id) return false;
+      // PO 관련 필터 — derivePOStatus를 한 번만 호출
+      if (poTab !== "all" || colFilterPOType || colFilterPOStatus) {
+        const ps = derivePOStatus(o);
+        if (poTab === "no_po" && ps.status !== "미발주") return false;
+        if (poTab === "has_po" && !o.purchase_order_id) return false;
+        if (colFilterPOType === "type_auto" && ps.type !== "자동발주") return false;
+        if (colFilterPOType === "type_manual" && ps.type !== "수동발주") return false;
+        if (colFilterPOStatus === "no_po" && ps.status !== "미발주") return false;
+        if (colFilterPOStatus === "mail_sent" && ps.status !== "발주서 이메일 발송") return false;
+        if (colFilterPOStatus === "mail_read" && ps.status !== "발주서 이메일 열람") return false;
+        if (colFilterPOStatus === "tracking" && ps.status !== "공급사 송장번호 등록") return false;
+      }
       if (kw) {
         const phoneMatch = kwDigits.length >= 4 && (
           normPhone(o.buyer_phone).includes(kwDigits) ||
@@ -1109,20 +1121,9 @@ export default function UnifiedOrdersPage() {
       if (colFilterAmount === "50k_100k" && (o.order_amount < 50000 || o.order_amount >= 100000)) return false;
       if (colFilterAmount === "over100k" && o.order_amount < 100000) return false;
       if (colFilterTracking === "missing" && (o.tracking_number || o.shipping_status === "cancelled" || o.shipping_status === "delivered")) return false;
-      if (colFilterPOType || colFilterPOStatus) {
-        const ps = derivePOStatus(o);
-        if (colFilterPOType === "type_auto" && ps.type !== "자동발주") return false;
-        if (colFilterPOType === "type_manual" && ps.type !== "수동발주") return false;
-        if (colFilterPOStatus === "no_po" && ps.status !== "미발주") return false;
-        if (colFilterPOStatus === "mail_sent" && ps.status !== "발주서 이메일 발송") return false;
-        if (colFilterPOStatus === "mail_read" && ps.status !== "발주서 이메일 열람") return false;
-        if (colFilterPOStatus === "tracking" && ps.status !== "공급사 송장번호 등록") return false;
-      }
       return true;
     });
   }, [rawOrders, filterSupplier, filterNoTracking, filterNoSupplier, filterDomestic, poTab, searchKeyword, colFilterOrderNo, colFilterProduct, colFilterCustomer, colFilterAddress, colFilterAddrStatus, colFilterChannel, colFilterPayment, colFilterPOType, colFilterPOStatus, colFilterQty, colFilterAmount, colFilterTracking]);
-
-  const pagedOrders = orders;
 
   const filteredStores = useMemo(() => stores.filter((s) => !PSEUDO_STORES.includes(s.name)), [stores]);
 
@@ -1235,7 +1236,7 @@ export default function UnifiedOrdersPage() {
 
   const toggleSelect = useCallback((id: string) => { setSelected((prev) => { const next = new Set(prev); if (next.has(id)) next.delete(id); else next.add(id); return next; }); }, []);
   const toggleAll = () => {
-    const pageIds = pagedOrders.map((o) => o.id);
+    const pageIds = orders.map((o) => o.id);
     const allPageSelected = pageIds.every((id) => selected.has(id));
     if (allPageSelected) {
       setSelected((prev) => { const next = new Set(prev); pageIds.forEach((id) => next.delete(id)); return next; });
@@ -1364,8 +1365,8 @@ export default function UnifiedOrdersPage() {
     setFilterStatus(""); setFilterStore(""); setFilterSupplier(""); setFilterNoTracking(false); setFilterNoSupplier(false); setFilterDomestic(false);
     setDateFrom(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-01`); setDateTo(today());
     setSearchKeyword(""); setPoTab("all");
-    setColFilterOrderNo(""); setColFilterProduct(""); setColFilterCustomer(""); setColFilterAddress("");
-    setColFilterChannel(""); setColFilterPayment(""); setColFilterPOStatus("");
+    setColFilterOrderNo(""); setColFilterProduct(""); setColFilterCustomer(""); setColFilterAddress(""); setColFilterAddrStatus("");
+    setColFilterChannel(""); setColFilterPayment(""); setColFilterPOType(""); setColFilterPOStatus("");
     setColFilterQty(""); setColFilterAmount(""); setColFilterTracking("");
     localStorage.removeItem(FILTER_STORAGE_KEY);
   };
@@ -1790,7 +1791,7 @@ export default function UnifiedOrdersPage() {
               </tr>
               <tr className="text-[11px] text-gray-500">
                 <th className="px-2 py-2 w-8 bg-gray-50 border-b border-gray-100">
-                  <input type="checkbox" checked={pagedOrders.length > 0 && pagedOrders.every((o) => selected.has(o.id))} onChange={toggleAll} className="rounded w-3.5 h-3.5" />
+                  <input type="checkbox" checked={orders.length > 0 && orders.every((o) => selected.has(o.id))} onChange={toggleAll} className="rounded w-3.5 h-3.5" />
                 </th>
                 <th className="text-left px-1.5 py-2 font-medium bg-gray-50 border-b border-gray-100">No</th>
                 <th className="text-left px-1.5 py-2 font-medium bg-gray-50 border-b border-gray-100">주문번호</th>
@@ -1977,7 +1978,7 @@ export default function UnifiedOrdersPage() {
             <tbody>
               {orders.length === 0 ? (
                 <tr><td colSpan={20} className="p-12 text-center text-gray-400">조건에 맞는 주문이 없습니다.</td></tr>
-              ) : pagedOrders.map((o, idx) => (
+              ) : orders.map((o, idx) => (
                 <OrderRow
                   key={o.id}
                   o={o}
