@@ -184,6 +184,7 @@ async function saveOrdersToDb(
     coupon_discount: number;
     app_discount: number;
     additional_discount: number;
+    sales_channel: string;
     memo: string;
     shipping_company: string;
     tracking_number: string;
@@ -233,6 +234,7 @@ async function saveOrdersToDb(
         shipping_company: item.shipping_company_name || "",
         tracking_number: item.tracking_no || "",
         shipped_at: item.tracking_no ? (item.shipped_date || new Date().toISOString()) : null,
+        sales_channel: "cafe24",
         // cancel_date가 있으면 order_status와 무관하게 cancelled 강제 (C* 외 코드 커버)
         shipping_status: (item.cancel_date || order.cancel_date)
           ? "cancelled"

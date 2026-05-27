@@ -77,6 +77,7 @@ interface SettlementItem {
   supply_shipping: number;
   tax_type: string;
   item_type: string;
+  sales_channel: string;
   supplier_name: string;
   store_name: string;
 }
@@ -195,13 +196,15 @@ function downloadSellerExcel(
   ws1["!cols"] = [{ wch: 30 }, { wch: 18 }];
   XLSX.utils.book_append_sheet(wb, ws1, "정산요약");
 
+  const chLabel: Record<string, string> = { cafe24: "자사몰", phone: "전화", sms: "문자", sample: "샘플", group: "공구", etc: "기타" };
   const orderHeaders = [
-    "구분", "주문번호", "주문일", "상품명", "옵션", "수량",
+    "구분", "판매방식", "주문번호", "주문일", "상품명", "옵션", "수량",
     "단가", "상품금액", "배송비", "쿠폰할인", "앱할인", "추가할인", "정산매출",
     "공급가", "공급배송비", "순익", "과세구분", "공급사",
   ];
   const orderRows = items.map((i) => [
-    i.item_type, i.cafe24_order_id, (i.order_date || "").slice(0, 10),
+    i.item_type, chLabel[i.sales_channel] || i.sales_channel || "기타",
+    i.cafe24_order_id, (i.order_date || "").slice(0, 10),
     i.product_name, i.option_text || "", i.quantity, i.product_price,
     i.product_price * i.quantity, i.shipping_fee || 0,
     i.coupon_discount || 0, i.app_discount || 0, i.additional_discount || 0,
@@ -211,7 +214,7 @@ function downloadSellerExcel(
   ]);
   const ws2 = XLSX.utils.aoa_to_sheet([orderHeaders, ...orderRows]);
   ws2["!cols"] = [
-    { wch: 8 }, { wch: 22 }, { wch: 12 }, { wch: 40 }, { wch: 20 },
+    { wch: 6 }, { wch: 8 }, { wch: 22 }, { wch: 12 }, { wch: 40 }, { wch: 20 },
     { wch: 6 }, { wch: 10 }, { wch: 12 }, { wch: 10 }, { wch: 10 },
     { wch: 10 }, { wch: 10 }, { wch: 12 }, { wch: 10 }, { wch: 10 },
     { wch: 10 }, { wch: 8 }, { wch: 14 },
@@ -700,7 +703,7 @@ export default function SettlementPage() {
               <thead>
                 <tr className="text-xs text-gray-500 border-b border-gray-100">
                   {[
-                    "구분", "주문번호", "주문일", "상품명", "옵션", "수량",
+                    "구분", "판매방식", "주문번호", "주문일", "상품명", "옵션", "수량",
                     "단가", "상품금액", "배송비", "쿠폰할인", "앱할인", "추가할인", "정산매출",
                     "공급가", "공급배송비", "순익", "과세", "공급사",
                   ].map((h) => (
@@ -727,6 +730,16 @@ export default function SettlementPage() {
                         className={`text-xs font-medium px-1.5 py-0.5 rounded ${item.item_type === "매출" ? "bg-blue-50 text-blue-600" : "bg-red-50 text-red-600"}`}
                       >
                         {item.item_type}
+                      </span>
+                    </td>
+                    <td className="px-3 py-2.5">
+                      <span className={`text-xs font-medium px-1.5 py-0.5 rounded ${
+                        { cafe24: "bg-green-50 text-green-700", phone: "bg-orange-50 text-orange-700",
+                          sms: "bg-purple-50 text-purple-700", sample: "bg-gray-100 text-gray-500",
+                          etc: "bg-gray-50 text-gray-500" }[item.sales_channel] || "bg-gray-50 text-gray-500"
+                      }`}>
+                        {{ cafe24: "자사몰", phone: "전화", sms: "문자", sample: "샘플",
+                           group: "공구", etc: "기타" }[item.sales_channel] || item.sales_channel || "기타"}
                       </span>
                     </td>
                     <td className="px-3 py-2.5 text-xs font-mono text-gray-600 whitespace-nowrap">

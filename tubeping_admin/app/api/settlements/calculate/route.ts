@@ -195,7 +195,15 @@ export async function POST(request: NextRequest) {
     return { supply_price: 0, supply_shipping_fee: 0, tax_type: "과세" };
   }
 
-  // 옵션별 판매가 조회 (orders.product_price가 0일 때 fallback용)
+  // 주문번호 패턴으로 판매방식 추론 (sales_channel이 없는 기존 데이터용)
+  function inferSalesChannel(orderId: string): string {
+    if (orderId.startsWith("TEL")) return "phone";
+    if (orderId.startsWith("SMS")) return "sms";
+    if (orderId.startsWith("SMP")) return "sample";
+    if (/^\d{8}-\d{7}$/.test(orderId)) return "cafe24";
+    return "etc";
+  }
+
   // ── 4. 주문별 정산 계산 ──
   interface SettlementItem {
     order_id: string;
@@ -218,6 +226,7 @@ export async function POST(request: NextRequest) {
     supply_shipping: number;
     tax_type: string;
     item_type: string;
+    sales_channel: string;
     supplier_id: string | null;
     supplier_name: string;
     store_name: string;
@@ -279,6 +288,7 @@ export async function POST(request: NextRequest) {
       supply_shipping: supShipFinal,
       tax_type: supInfo.tax_type,
       item_type: itemType,
+      sales_channel: order.sales_channel || inferSalesChannel(order.cafe24_order_id || ""),
       supplier_id: order.supplier_id || null,
       supplier_name: supplierData?.name || "",
       store_name: store.name || "",
