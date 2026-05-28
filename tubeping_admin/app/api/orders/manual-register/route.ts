@@ -96,7 +96,7 @@ export async function POST(request: NextRequest) {
         receiver_address: o.receiver_address || "",
         receiver_zipcode: o.receiver_zipcode || "",
         memo: o.memo || "OCR 자동등록",
-        shipping_status: "pending",
+        shipping_status: "ordered",
         sales_channel: sales_channel || null,
       })
       .select("id")

@@ -268,8 +268,8 @@ export async function POST(request: NextRequest) {
         if (rawStatus.includes("배송중") || rawStatus.includes("출고완료")) return "shipping";
         if (rawStatus.includes("결제완료") || rawStatus.includes("출고") || rawStatus.includes("주문") || rawStatus.includes("준비")) return "ordered";
         if (rawStatus.includes("입금") || rawStatus.includes("대기")) return "pending";
-        // 상태 컬럼 없으면: 수동 업로드 주문은 미발주 상태로 시작
-        return "pending";
+        // 상태 컬럼 없으면: 수기/전화/ACTs 등 외부 플랫폼은 이미 결제완료 상태로 오므로 ordered
+        return "ordered";
       })(),
       is_sample: salesChannel === "sample",
       sales_channel: salesChannel,

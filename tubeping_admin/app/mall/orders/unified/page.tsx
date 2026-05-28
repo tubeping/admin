@@ -302,9 +302,6 @@ function derivePOStatus(o: Order): { type: string; typeStyle: string; status: st
       status = "미발주";
       statusStyle = "text-orange-500";
     }
-  } else if (o.shipping_status === "ordered") {
-    status = "수동발주완료";
-    statusStyle = "text-teal-600";
   } else {
     status = "미발주";
     statusStyle = "text-orange-500";
@@ -1718,26 +1715,6 @@ export default function UnifiedOrdersPage() {
             <option value="">공급사 변경</option>
             {suppliers.map((s) => (<option key={s.id} value={s.id}>{s.name}</option>))}
           </select>
-          <button
-            onClick={async () => {
-              if (selected.size === 0) return;
-              if (!confirm(`선택한 ${selected.size}건을 수동 발주완료 처리합니다.\n\n진행하시겠습니까?`)) return;
-              const res = await fetch("/admin/api/orders", {
-                method: "PATCH",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ ids: Array.from(selected), updates: { shipping_status: "ordered" } }),
-              });
-              const data = await res.json();
-              if (res.ok) {
-                alert(`${data.updated}건 발주완료 처리됨`);
-                setSelected(new Set());
-                fetchOrders();
-              } else alert(`오류: ${data.error}`);
-            }}
-            className="px-2.5 py-1 bg-amber-500 text-white text-[11px] font-medium rounded hover:bg-amber-600 cursor-pointer"
-          >
-            수동 발주완료 ({selected.size})
-          </button>
           <button
             onClick={async () => {
               const selectedOrders = orders.filter(o => selected.has(o.id));
