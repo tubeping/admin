@@ -388,7 +388,7 @@ const OrderRow = memo(function OrderRow({
   return (
     <tr
       className={`hover:bg-gray-50/50 cursor-pointer [&>td]:border-b [&>td]:border-gray-100 ${
-        isHighlighted ? "bg-yellow-100/80 animate-pulse" : isSelected ? "bg-blue-50/60" : noPO && noSup ? "bg-red-50/20" : noPO ? "bg-amber-50/20" : ""
+        isHighlighted ? "bg-yellow-100/80" : isSelected ? "bg-blue-50/60" : noPO && noSup ? "bg-red-50/20" : noPO ? "bg-amber-50/20" : ""
       }`}
       onClick={() => toggleSelect(o.id)}
     >
@@ -694,6 +694,8 @@ export default function UnifiedOrdersPage() {
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-01`;
   });
   const [dateTo, setDateTo] = useState(today());
+  const dateToRef = useRef(dateTo);
+  dateToRef.current = dateTo;
   const [searchKeyword, setSearchKeyword] = useState(saved.current?.searchKeyword || "");
 
   const [filterNoTracking, setFilterNoTracking] = useState(saved.current?.filterNoTracking || false);
@@ -746,13 +748,19 @@ export default function UnifiedOrdersPage() {
   const [importBanner, setImportBanner] = useState<{ type: "success" | "warning" | "error"; message: string; details?: string; importedIds?: string[] } | null>(null);
   const [highlightIds, setHighlightIds] = useState<Set<string>>(new Set());
   const bannerTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const highlightTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => {
+    if (bannerTimerRef.current) clearTimeout(bannerTimerRef.current);
+    if (highlightTimerRef.current) clearTimeout(highlightTimerRef.current);
+  }, []);
   const showImportBanner = useCallback((banner: typeof importBanner, autoHideMs = 15000) => {
     setImportBanner(banner);
     if (bannerTimerRef.current) clearTimeout(bannerTimerRef.current);
+    if (highlightTimerRef.current) clearTimeout(highlightTimerRef.current);
     bannerTimerRef.current = setTimeout(() => setImportBanner(null), autoHideMs);
     if (banner?.importedIds?.length) {
       setHighlightIds(new Set(banner.importedIds));
-      setTimeout(() => setHighlightIds(new Set()), autoHideMs);
+      highlightTimerRef.current = setTimeout(() => setHighlightIds(new Set()), autoHideMs);
     }
   }, []);
 
@@ -922,7 +930,8 @@ export default function UnifiedOrdersPage() {
     const data = await res.json();
     if (res.ok) {
       const parts = [`${data.imported}건 신규등록`];
-      if (data.overwritten) parts.push(`${data.overwritten}건 덮어쓰기 갱신`);
+      if (data.overwritten) parts.push(`${data.overwritten}건 덮어쓰기`);
+      if (data.skipped_cafe24) parts.push(`${data.skipped_cafe24}건 기존건 스킵`);
       const msg = parts.join(" · ");
       const mc = data.matched_columns || {};
       const critical = ["receiver_name", "receiver_phone", "receiver_address"];
@@ -939,7 +948,7 @@ export default function UnifiedOrdersPage() {
       });
       // 날짜 필터에 오늘이 포함되도록 자동 조정
       const todayStr = new Date(Date.now() + 9 * 3600000).toISOString().slice(0, 10);
-      if (dateTo < todayStr) setDateTo(todayStr);
+      if (dateToRef.current < todayStr) setDateTo(todayStr);
       await fetchOrders();
       if (groupEl) groupEl.checked = false;
       if (sampleEl) sampleEl.checked = false;
@@ -949,7 +958,7 @@ export default function UnifiedOrdersPage() {
     } else {
       showImportBanner({ type: "error", message: `업로드 오류: ${data.error}` });
     }
-  }, [fetchOrders, showImportBanner, dateTo, setDateTo]);
+  }, [fetchOrders, showImportBanner]);
 
   // Image OCR → 검증 후 바로 등록
   const handleImageOCR = useCallback(async (file: File) => {
@@ -1023,7 +1032,7 @@ export default function UnifiedOrdersPage() {
       });
       // 날짜 필터에 오늘이 포함되도록 자동 조정
       const todayStr = new Date(Date.now() + 9 * 3600000).toISOString().slice(0, 10);
-      if (dateTo < todayStr) setDateTo(todayStr);
+      if (dateToRef.current < todayStr) setDateTo(todayStr);
       await fetchOrders();
 
       // 6. 주소 자동 검증
@@ -1056,7 +1065,7 @@ export default function UnifiedOrdersPage() {
     } finally {
       setOcrProcessing(false);
     }
-  }, [fetchOrders, addrResults, showImportBanner, dateTo, setDateTo]);
+  }, [fetchOrders, addrResults, showImportBanner]);
 
   const handleFileDrop = useCallback(async (file: File) => {
     const ext = file.name?.split(".").pop()?.toLowerCase() || "";
