@@ -11,15 +11,7 @@
     },
     {
       "path": "/admin/api/cron/sync-shipments",
-      "schedule": "0 1 * * *"
-    },
-    {
-      "path": "/admin/api/cron/sync-shipments",
-      "schedule": "0 6 * * *"
-    },
-    {
-      "path": "/admin/api/cron/sync-shipments",
-      "schedule": "0 10 * * *"
+      "schedule": "0 * * * *"
     },
     {
       "path": "/admin/api/cron/update-delivery-status",
