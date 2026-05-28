@@ -302,9 +302,6 @@ function derivePOStatus(o: Order): { type: string; typeStyle: string; status: st
       status = "미발주";
       statusStyle = "text-orange-500";
     }
-  } else if (o.shipping_status === "ordered") {
-    status = "수동발주완료";
-    statusStyle = "text-teal-600";
   } else {
     status = "미발주";
     statusStyle = "text-orange-500";
@@ -388,7 +385,7 @@ const OrderRow = memo(function OrderRow({
   return (
     <tr
       className={`hover:bg-gray-50/50 cursor-pointer [&>td]:border-b [&>td]:border-gray-100 ${
-        isHighlighted ? "bg-yellow-100/80 animate-pulse" : isSelected ? "bg-blue-50/60" : noPO && noSup ? "bg-red-50/20" : noPO ? "bg-amber-50/20" : ""
+        isHighlighted ? "bg-yellow-100/80" : isSelected ? "bg-blue-50/60" : noPO && noSup ? "bg-red-50/20" : noPO ? "bg-amber-50/20" : ""
       }`}
       onClick={() => toggleSelect(o.id)}
     >
@@ -694,6 +691,8 @@ export default function UnifiedOrdersPage() {
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-01`;
   });
   const [dateTo, setDateTo] = useState(today());
+  const dateToRef = useRef(dateTo);
+  dateToRef.current = dateTo;
   const [searchKeyword, setSearchKeyword] = useState(saved.current?.searchKeyword || "");
 
   const [filterNoTracking, setFilterNoTracking] = useState(saved.current?.filterNoTracking || false);
@@ -746,13 +745,19 @@ export default function UnifiedOrdersPage() {
   const [importBanner, setImportBanner] = useState<{ type: "success" | "warning" | "error"; message: string; details?: string; importedIds?: string[] } | null>(null);
   const [highlightIds, setHighlightIds] = useState<Set<string>>(new Set());
   const bannerTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const highlightTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => {
+    if (bannerTimerRef.current) clearTimeout(bannerTimerRef.current);
+    if (highlightTimerRef.current) clearTimeout(highlightTimerRef.current);
+  }, []);
   const showImportBanner = useCallback((banner: typeof importBanner, autoHideMs = 15000) => {
     setImportBanner(banner);
     if (bannerTimerRef.current) clearTimeout(bannerTimerRef.current);
+    if (highlightTimerRef.current) clearTimeout(highlightTimerRef.current);
     bannerTimerRef.current = setTimeout(() => setImportBanner(null), autoHideMs);
     if (banner?.importedIds?.length) {
       setHighlightIds(new Set(banner.importedIds));
-      setTimeout(() => setHighlightIds(new Set()), autoHideMs);
+      highlightTimerRef.current = setTimeout(() => setHighlightIds(new Set()), autoHideMs);
     }
   }, []);
 
@@ -922,7 +927,8 @@ export default function UnifiedOrdersPage() {
     const data = await res.json();
     if (res.ok) {
       const parts = [`${data.imported}건 신규등록`];
-      if (data.overwritten) parts.push(`${data.overwritten}건 덮어쓰기 갱신`);
+      if (data.overwritten) parts.push(`${data.overwritten}건 덮어쓰기`);
+      if (data.skipped_cafe24) parts.push(`${data.skipped_cafe24}건 기존건 스킵`);
       const msg = parts.join(" · ");
       const mc = data.matched_columns || {};
       const critical = ["receiver_name", "receiver_phone", "receiver_address"];
@@ -939,7 +945,7 @@ export default function UnifiedOrdersPage() {
       });
       // 날짜 필터에 오늘이 포함되도록 자동 조정
       const todayStr = new Date(Date.now() + 9 * 3600000).toISOString().slice(0, 10);
-      if (dateTo < todayStr) setDateTo(todayStr);
+      if (dateToRef.current < todayStr) setDateTo(todayStr);
       await fetchOrders();
       if (groupEl) groupEl.checked = false;
       if (sampleEl) sampleEl.checked = false;
@@ -949,7 +955,7 @@ export default function UnifiedOrdersPage() {
     } else {
       showImportBanner({ type: "error", message: `업로드 오류: ${data.error}` });
     }
-  }, [fetchOrders, showImportBanner, dateTo, setDateTo]);
+  }, [fetchOrders, showImportBanner]);
 
   // Image OCR → 검증 후 바로 등록
   const handleImageOCR = useCallback(async (file: File) => {
@@ -1023,7 +1029,7 @@ export default function UnifiedOrdersPage() {
       });
       // 날짜 필터에 오늘이 포함되도록 자동 조정
       const todayStr = new Date(Date.now() + 9 * 3600000).toISOString().slice(0, 10);
-      if (dateTo < todayStr) setDateTo(todayStr);
+      if (dateToRef.current < todayStr) setDateTo(todayStr);
       await fetchOrders();
 
       // 6. 주소 자동 검증
@@ -1056,7 +1062,7 @@ export default function UnifiedOrdersPage() {
     } finally {
       setOcrProcessing(false);
     }
-  }, [fetchOrders, addrResults, showImportBanner, dateTo, setDateTo]);
+  }, [fetchOrders, addrResults, showImportBanner]);
 
   const handleFileDrop = useCallback(async (file: File) => {
     const ext = file.name?.split(".").pop()?.toLowerCase() || "";
@@ -1709,26 +1715,6 @@ export default function UnifiedOrdersPage() {
             <option value="">공급사 변경</option>
             {suppliers.map((s) => (<option key={s.id} value={s.id}>{s.name}</option>))}
           </select>
-          <button
-            onClick={async () => {
-              if (selected.size === 0) return;
-              if (!confirm(`선택한 ${selected.size}건을 수동 발주완료 처리합니다.\n\n진행하시겠습니까?`)) return;
-              const res = await fetch("/admin/api/orders", {
-                method: "PATCH",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ ids: Array.from(selected), updates: { shipping_status: "ordered" } }),
-              });
-              const data = await res.json();
-              if (res.ok) {
-                alert(`${data.updated}건 발주완료 처리됨`);
-                setSelected(new Set());
-                fetchOrders();
-              } else alert(`오류: ${data.error}`);
-            }}
-            className="px-2.5 py-1 bg-amber-500 text-white text-[11px] font-medium rounded hover:bg-amber-600 cursor-pointer"
-          >
-            수동 발주완료 ({selected.size})
-          </button>
           <button
             onClick={async () => {
               const selectedOrders = orders.filter(o => selected.has(o.id));

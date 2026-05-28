@@ -187,13 +187,17 @@ export async function POST(request: NextRequest) {
     (existing || []).map((e) => `${e.cafe24_order_id}::${e.cafe24_order_item_code}`)
   );
   // C24- 접두사 제거한 키도 만들어서 Cafe24 자동수집 건과 중복 방지
+  // (YYYYMMDD-NNNNNNN 패턴만 대상 — TEL/JP/SPL 등 채널 접두사 주문은 제외)
   const existingKeysNormalized = new Set(
-    (existing || []).map((e) => `${(e.cafe24_order_id || "").replace(/^C24-/, "")}::${e.cafe24_order_item_code}`)
+    (existing || [])
+      .filter((e) => (e.cafe24_order_id || "").startsWith("C24-"))
+      .map((e) => `${(e.cafe24_order_id || "").replace(/^C24-/, "")}::${e.cafe24_order_item_code}`)
   );
 
   // 데이터 파싱 + 저장
   let imported = 0;
   let overwritten = 0;
+  let skippedCafe24 = 0;
   const importedIds: string[] = [];
   const errors: { row: number; error: string }[] = [];
 
@@ -219,13 +223,14 @@ export async function POST(request: NextRequest) {
     const orderId = parentOrderId || itemOrderId || fallbackId;
 
     // 같은 스토어 내 중복 시 덮어쓰기 (운영 상태는 보존)
-    // C24- 접두사 없는 주문번호가 이미 C24- 버전으로 존재하면 스킵 (Cafe24 자동수집 건 우선)
-    const normalizedKey = `${orderId}::${lineKey}`;
-    if (!existingKeys.has(normalizedKey) && existingKeysNormalized.has(normalizedKey)) {
-      // Cafe24 자동수집으로 이미 등록된 건 → 스킵
+    // YYYYMMDD-NNNNNNN 패턴 주문번호가 이미 C24- 버전으로 존재하면 스킵 (Cafe24 자동수집 건 우선)
+    const fullKey = `${orderId}::${lineKey}`;
+    const isCafe24Pattern = /^\d{8}-\d+$/.test(orderId);
+    if (isCafe24Pattern && !existingKeys.has(fullKey) && existingKeysNormalized.has(fullKey)) {
+      skippedCafe24++;
       continue;
     }
-    const isExisting = existingKeys.has(`${orderId}::${lineKey}`);
+    const isExisting = existingKeys.has(fullKey);
     const quantity = parseInt(cols[col.quantity] || "1", 10) || 1;
     // 엑셀에 가격이 없거나 0이면 products.price로 fallback
     let price = parseInt((cols[col.price] || "0").replace(/,/g, ""), 10) || 0;
@@ -356,6 +361,7 @@ export async function POST(request: NextRequest) {
     total: rows.length - 1,
     imported,
     overwritten,
+    skipped_cafe24: skippedCafe24,
     matched_columns: matchedColumns,
     unmatched_headers: unmatchedHeaders,
     imported_ids: importedIds,
