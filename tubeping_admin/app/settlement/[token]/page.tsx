@@ -159,7 +159,7 @@ export default function SettlementPortalPage() {
     return Array.from(set);
   }, [items]);
 
-  const handleConfirm = async () => {
+  const handleConfirm = useCallback(async () => {
     if (!confirm("정산 내용을 확인하고 확정합니다.\n확정 후에는 취소할 수 없습니다.\n\n계속하시겠습니까?")) return;
     setConfirming(true);
     try {
@@ -172,24 +172,32 @@ export default function SettlementPortalPage() {
       if (res.ok) {
         setConfirmed(true);
         setConfirmedAt(data.confirmed_at);
+      } else {
+        alert(data.error || "확정 처리 중 오류가 발생했습니다");
       }
+    } catch {
+      alert("네트워크 오류가 발생했습니다");
     } finally {
       setConfirming(false);
     }
-  };
+  }, [token]);
 
-  const handleExcelDownload = async () => {
+  const handleExcelDownload = useCallback(async () => {
     if (!settlement) return;
-    const res = await fetch(`/admin/api/settlements/${settlement.id}/excel`);
-    const blob = await res.blob();
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    const storeName = settlement.stores?.name || "정산서";
-    a.download = `${storeName}_${settlement.period}_정산서.xlsx`;
-    a.click();
-    URL.revokeObjectURL(url);
-  };
+    try {
+      const res = await fetch(`/admin/api/settlements/${settlement.id}/excel`);
+      if (!res.ok) { alert("Excel 다운로드에 실패했습니다"); return; }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${settlement.stores?.name || "정산서"}_${settlement.period}_정산서.xlsx`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch {
+      alert("Excel 다운로드 중 오류가 발생했습니다");
+    }
+  }, [settlement]);
 
   if (loading) return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 to-gray-100 flex items-center justify-center">

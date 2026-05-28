@@ -23,12 +23,13 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "정산서를 찾을 수 없습니다" }, { status: 404 });
   }
 
-  // 상세 아이템
+  // 상세 아이템 (최대 5000건)
   const { data: items } = await sb
     .from("settlement_items")
     .select("*")
     .eq("settlement_id", settlement.id)
-    .order("order_date", { ascending: true });
+    .order("order_date", { ascending: true })
+    .limit(5000);
 
   // 상품별 요약
   const productMap: Record<string, {
