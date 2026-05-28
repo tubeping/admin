@@ -263,20 +263,47 @@ async function saveOrdersToDb(
   // 기존 row 조회 — 덮어쓰기 방지용
   // 이미 supplier/admin이 입력한 송장·배송상태는 카페24가 빈 값을 돌려줄 때 보존
   const cafeOrderIds = [...new Set(validRows.map((r) => r.cafe24_order_id))];
+  // C24- 접두사 없는 버전도 조회 (엑셀 수동등록과의 중복 방지)
+  const rawOrderIds = cafeOrderIds.map((id) => id.replace(/^C24-/, ""));
   const { data: existingRows } = await sb
     .from("orders")
     .select("id, cafe24_order_id, cafe24_order_item_code, tracking_number, shipping_company, shipped_at, shipping_status")
     .eq("store_id", storeId)
-    .in("cafe24_order_id", cafeOrderIds);
+    .or(`cafe24_order_id.in.(${cafeOrderIds.map(s => `"${s}"`).join(",")}),cafe24_order_id.in.(${rawOrderIds.map(s => `"${s}"`).join(",")})`);
 
-  const existingMap = new Map<string, { tracking_number: string | null; shipping_company: string | null; shipped_at: string | null; shipping_status: string | null }>();
+  const existingMap = new Map<string, { id?: string; tracking_number: string | null; shipping_company: string | null; shipped_at: string | null; shipping_status: string | null }>();
   for (const e of existingRows || []) {
     existingMap.set(`${e.cafe24_order_id}::${e.cafe24_order_item_code || ""}`, {
+      id: e.id as string,
       tracking_number: e.tracking_number as string | null,
       shipping_company: e.shipping_company as string | null,
       shipped_at: e.shipped_at as string | null,
       shipping_status: e.shipping_status as string | null,
     });
+  }
+
+  // 엑셀로 먼저 등록된 C24- 없는 버전을 C24- 버전으로 업데이트 (중복 방지)
+  const nonC24Dupes: { id: string; cafe24_order_id: string }[] = [];
+  for (const e of existingRows || []) {
+    const oid = e.cafe24_order_id as string;
+    if (!oid.startsWith("C24-") && cafeOrderIds.includes(`C24-${oid}`)) {
+      nonC24Dupes.push({ id: e.id as string, cafe24_order_id: `C24-${oid}` });
+    }
+  }
+  if (nonC24Dupes.length > 0) {
+    for (const d of nonC24Dupes) {
+      await sb.from("orders").update({ cafe24_order_id: d.cafe24_order_id, sales_channel: "cafe24" }).eq("id", d.id);
+      // existingMap에 C24- 버전으로 재등록하여 아래 upsert에서 정상 처리
+      for (const [key, val] of existingMap) {
+        if (val.id === d.id) {
+          const newKey = key.replace(d.cafe24_order_id.replace(/^C24-/, ""), d.cafe24_order_id);
+          existingMap.set(newKey, val);
+          existingMap.delete(key);
+          break;
+        }
+      }
+    }
+    console.log(`[cafe24/orders] ${nonC24Dupes.length}건 엑셀 등록분 → C24- 접두사 업데이트`);
   }
 
   // 보호 로직:

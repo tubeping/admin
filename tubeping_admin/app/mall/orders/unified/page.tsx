@@ -353,7 +353,7 @@ function normPhone(s: string) { return (s || "").replace(/[^0-9]/g, ""); }
 /* ── OrderRow (memo-ized) ── */
 const OrderRow = memo(function OrderRow({
   o, idx, displayedCount, isSelected, toggleSelect, editingField, onStartEdit, saveCellEdit, stores, fetchOrders,
-  trackingEdit, onTrackingEdit, onSaveTracking, saving, onOpenCs, addrStatus, onEditAddress,
+  trackingEdit, onTrackingEdit, onSaveTracking, saving, onOpenCs, addrStatus, onEditAddress, isHighlighted,
 }: {
   o: Order; idx: number; displayedCount: number; isSelected: boolean;
   toggleSelect: (id: string) => void;
@@ -369,6 +369,7 @@ const OrderRow = memo(function OrderRow({
   onOpenCs: (order: Order) => void;
   addrStatus?: AddrVerifyResult;
   onEditAddress: (order: Order) => void;
+  isHighlighted?: boolean;
 }) {
   const noTrack = !o.tracking_number && o.shipping_status !== "cancelled" && o.shipping_status !== "delivered";
   const noSup = !o.supplier_id;
@@ -387,7 +388,7 @@ const OrderRow = memo(function OrderRow({
   return (
     <tr
       className={`hover:bg-gray-50/50 cursor-pointer [&>td]:border-b [&>td]:border-gray-100 ${
-        isSelected ? "bg-blue-50/60" : noPO && noSup ? "bg-red-50/20" : noPO ? "bg-amber-50/20" : ""
+        isHighlighted ? "bg-yellow-100/80 animate-pulse" : isSelected ? "bg-blue-50/60" : noPO && noSup ? "bg-red-50/20" : noPO ? "bg-amber-50/20" : ""
       }`}
       onClick={() => toggleSelect(o.id)}
     >
@@ -741,6 +742,20 @@ export default function UnifiedOrdersPage() {
   const [csAction, setCsAction] = useState<"refunded" | "returned" | "exchanged">("refunded");
   const [csNote, setCsNote] = useState("");
 
+  // Import result banner
+  const [importBanner, setImportBanner] = useState<{ type: "success" | "warning" | "error"; message: string; details?: string; importedIds?: string[] } | null>(null);
+  const [highlightIds, setHighlightIds] = useState<Set<string>>(new Set());
+  const bannerTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const showImportBanner = useCallback((banner: typeof importBanner, autoHideMs = 15000) => {
+    setImportBanner(banner);
+    if (bannerTimerRef.current) clearTimeout(bannerTimerRef.current);
+    bannerTimerRef.current = setTimeout(() => setImportBanner(null), autoHideMs);
+    if (banner?.importedIds?.length) {
+      setHighlightIds(new Set(banner.importedIds));
+      setTimeout(() => setHighlightIds(new Set()), autoHideMs);
+    }
+  }, []);
+
   // Drag & drop
   const [isDragging, setIsDragging] = useState(false);
   const dragCounterRef = useRef(0);
@@ -908,23 +923,33 @@ export default function UnifiedOrdersPage() {
     if (res.ok) {
       const parts = [`${data.imported}건 신규등록`];
       if (data.overwritten) parts.push(`${data.overwritten}건 덮어쓰기 갱신`);
-      let msg = parts.join(" · ");
+      const msg = parts.join(" · ");
       const mc = data.matched_columns || {};
       const critical = ["receiver_name", "receiver_phone", "receiver_address"];
       const missing = critical.filter((k) => !mc[k]);
+      let details: string | undefined;
       if (missing.length > 0) {
-        msg += `\n\n주의: 수령인 정보 일부가 매칭 안됨: ${missing.join(", ")}\n헤더명을 확인해주세요.\n(인식 못한 헤더: ${(data.unmatched_headers || []).join(", ") || "없음"})`;
+        details = `주의: 수령인 정보 일부 미매칭 (${missing.join(", ")}) — 인식 못한 헤더: ${(data.unmatched_headers || []).join(", ") || "없음"}`;
       }
-      msg += "\n\n공급사 매칭은 '매핑 검증' 페이지에서 진행하세요.";
-      alert(msg);
-      fetchOrders();
+      showImportBanner({
+        type: missing.length > 0 ? "warning" : "success",
+        message: msg,
+        details,
+        importedIds: data.imported_ids || [],
+      });
+      // 날짜 필터에 오늘이 포함되도록 자동 조정
+      const todayStr = new Date(Date.now() + 9 * 3600000).toISOString().slice(0, 10);
+      if (dateTo < todayStr) setDateTo(todayStr);
+      await fetchOrders();
       if (groupEl) groupEl.checked = false;
       if (sampleEl) sampleEl.checked = false;
       if (domesticEl) domesticEl.checked = false;
       if (etcEl) etcEl.checked = false;
       sel.value = "";
-    } else alert(`오류: ${data.error}`);
-  }, [fetchOrders]);
+    } else {
+      showImportBanner({ type: "error", message: `업로드 오류: ${data.error}` });
+    }
+  }, [fetchOrders, showImportBanner, dateTo, setDateTo]);
 
   // Image OCR → 검증 후 바로 등록
   const handleImageOCR = useCallback(async (file: File) => {
@@ -990,7 +1015,15 @@ export default function UnifiedOrdersPage() {
       const regData = await regRes.json();
       if (!regRes.ok) { alert(`등록 실패: ${regData.error}`); return; }
 
-      alert(`OCR 인식 ${data.orders.length}건 → ${regData.success}건 등록 완료${regData.errors?.length ? `\n\n실패:\n${regData.errors.slice(0, 5).join("\n")}` : ""}`);
+      showImportBanner({
+        type: regData.errors?.length ? "warning" : "success",
+        message: `OCR 인식 ${data.orders.length}건 → ${regData.success}건 등록 완료`,
+        details: regData.errors?.length ? `실패: ${regData.errors.slice(0, 3).join(", ")}` : undefined,
+        importedIds: regData.insertedIds || [],
+      });
+      // 날짜 필터에 오늘이 포함되도록 자동 조정
+      const todayStr = new Date(Date.now() + 9 * 3600000).toISOString().slice(0, 10);
+      if (dateTo < todayStr) setDateTo(todayStr);
       await fetchOrders();
 
       // 6. 주소 자동 검증
@@ -1023,7 +1056,7 @@ export default function UnifiedOrdersPage() {
     } finally {
       setOcrProcessing(false);
     }
-  }, [fetchOrders, addrResults]);
+  }, [fetchOrders, addrResults, showImportBanner, dateTo, setDateTo]);
 
   const handleFileDrop = useCallback(async (file: File) => {
     const ext = file.name?.split(".").pop()?.toLowerCase() || "";
@@ -1441,6 +1474,27 @@ export default function UnifiedOrdersPage() {
           {stats.displayed !== stats.total && <> / 필터 <span className="font-bold text-blue-600">{stats.displayed}</span>건</>}
         </div>
       </div>
+
+      {/* Import Result Banner */}
+      {importBanner && (
+        <div className={`rounded-lg border px-4 py-2.5 mb-3 flex items-center justify-between transition-all ${
+          importBanner.type === "success" ? "bg-green-50 border-green-300 text-green-800" :
+          importBanner.type === "warning" ? "bg-amber-50 border-amber-300 text-amber-800" :
+          "bg-red-50 border-red-300 text-red-800"
+        }`}>
+          <div className="flex items-center gap-2">
+            <span className="text-lg">{importBanner.type === "success" ? "\u2705" : importBanner.type === "warning" ? "\u26A0\uFE0F" : "\u274C"}</span>
+            <div>
+              <p className="text-sm font-semibold">{importBanner.message}</p>
+              {importBanner.details && <p className="text-xs mt-0.5 opacity-80">{importBanner.details}</p>}
+              {importBanner.importedIds && importBanner.importedIds.length > 0 && (
+                <p className="text-xs mt-0.5 opacity-70">{importBanner.importedIds.length}건이 아래 목록에 노란색으로 표시됩니다</p>
+              )}
+            </div>
+          </div>
+          <button onClick={() => { setImportBanner(null); setHighlightIds(new Set()); }} className="text-sm opacity-60 hover:opacity-100 cursor-pointer px-1">&times;</button>
+        </div>
+      )}
 
       {/* Filter Area */}
       <div className="bg-white rounded-lg border border-gray-200 px-3 py-2.5 mb-3">
@@ -1965,6 +2019,7 @@ export default function UnifiedOrdersPage() {
                   onOpenCs={openCs}
                   addrStatus={addrResults[o.id]}
                   onEditAddress={handleEditAddress}
+                  isHighlighted={highlightIds.has(o.id)}
                 />
               ))}
             </tbody>

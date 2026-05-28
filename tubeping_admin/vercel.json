@@ -11,15 +11,7 @@
     },
     {
       "path": "/admin/api/cron/sync-shipments",
-      "schedule": "0 1 * * *"
-    },
-    {
-      "path": "/admin/api/cron/sync-shipments",
-      "schedule": "0 6 * * *"
-    },
-    {
-      "path": "/admin/api/cron/sync-shipments",
-      "schedule": "0 10 * * *"
+      "schedule": "0 * * * *"
     },
     {
       "path": "/admin/api/cron/update-delivery-status",
@@ -65,6 +57,9 @@
       "maxDuration": 300
     },
     "app/api/cron/verify-addresses/route.ts": {
+      "maxDuration": 300
+    },
+    "app/api/cron/sync-shipments/route.ts": {
       "maxDuration": 300
     }
   }

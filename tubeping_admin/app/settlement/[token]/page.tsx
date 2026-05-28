@@ -42,6 +42,8 @@ interface Settlement {
   seller_confirmed: boolean;
   seller_confirmed_at: string | null;
   share_token: string;
+  memo: string | null;
+  seller_memo: string | null;
   stores?: { name: string };
 }
 
@@ -64,6 +66,8 @@ interface SettlementItem {
   sales_channel: string;
   tax_type: string;
   supplier_name: string;
+  admin_note: string;
+  seller_note: string;
 }
 
 interface ProductSummary {
@@ -100,6 +104,12 @@ export default function SettlementPortalPage() {
   const [confirmed, setConfirmed] = useState(false);
   const [confirmedAt, setConfirmedAt] = useState<string | null>(null);
 
+  // 메모
+  const [sellerMemo, setSellerMemo] = useState("");
+  const [sellerNotes, setSellerNotes] = useState<Record<string, string>>({});
+  const [savingMemo, setSavingMemo] = useState(false);
+  const [editingNoteId, setEditingNoteId] = useState<string | null>(null);
+
   // 필터
   const [searchText, setSearchText] = useState("");
   const [filterType, setFilterType] = useState<string>("all");
@@ -115,6 +125,13 @@ export default function SettlementPortalPage() {
       setProducts(data.productSummary);
       setConfirmed(data.settlement.seller_confirmed || false);
       setConfirmedAt(data.settlement.seller_confirmed_at || null);
+      setSellerMemo(data.settlement.seller_memo || "");
+      // 판매사 비고 초기화
+      const noteMap: Record<string, string> = {};
+      for (const item of data.items) {
+        if (item.seller_note) noteMap[item.id] = item.seller_note;
+      }
+      setSellerNotes(noteMap);
     } catch {
       setError("데이터를 불러올 수 없습니다");
     } finally {
@@ -198,6 +215,31 @@ export default function SettlementPortalPage() {
       alert("Excel 다운로드 중 오류가 발생했습니다");
     }
   }, [settlement]);
+
+  // 판매사 메모 저장
+  const saveSellerMemo = useCallback(async () => {
+    setSavingMemo(true);
+    try {
+      await fetch("/admin/api/settlement-portal/notes", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ token, seller_memo: sellerMemo }),
+      });
+    } finally {
+      setSavingMemo(false);
+    }
+  }, [token, sellerMemo]);
+
+  // 주문건별 판매사 비고 저장
+  const saveSellerNote = useCallback(async (itemId: string) => {
+    const note = sellerNotes[itemId] || "";
+    await fetch("/admin/api/settlement-portal/notes", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ token, items: [{ id: itemId, seller_note: note }] }),
+    });
+    setEditingNoteId(null);
+  }, [token, sellerNotes]);
 
   if (loading) return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 to-gray-100 flex items-center justify-center">
@@ -433,7 +475,7 @@ export default function SettlementPortalPage() {
             {/* 테이블 */}
             <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
               <div className="overflow-x-auto max-h-[calc(100vh-280px)]">
-                <table className="w-full min-w-[1400px]">
+                <table className="w-full min-w-[1700px]">
                   <thead className="sticky top-0 z-10 bg-gray-50">
                     <tr>
                       {[
@@ -456,6 +498,8 @@ export default function SettlementPortalPage() {
                         { label: "순익", align: "right", color: "text-blue-600" },
                         { label: "과세", align: "left" },
                         { label: "공급사", align: "left" },
+                        { label: "담당자 비고", align: "left" },
+                        { label: "판매사 비고", align: "left" },
                       ].map(h => (
                         <th key={h.label} className={`px-3 py-3 text-[11px] font-semibold ${h.color || "text-gray-500"} whitespace-nowrap border-b border-gray-200 ${h.align === "right" ? "text-right" : "text-left"}`}>{h.label}</th>
                       ))}
@@ -496,6 +540,33 @@ export default function SettlementPortalPage() {
                             <span className={`text-[11px] ${item.tax_type === "면세" ? "text-pink-600" : "text-gray-400"}`}>{item.tax_type}</span>
                           </td>
                           <td className="px-3 py-2.5 text-[12px] text-gray-500 whitespace-nowrap">{item.supplier_name || "-"}</td>
+                          {/* 담당자 비고 (읽기전용) */}
+                          <td className="px-3 py-2.5 text-[12px] text-gray-500 min-w-[120px]">
+                            {item.admin_note || <span className="text-gray-300">-</span>}
+                          </td>
+                          {/* 판매사 비고 (편집가능) */}
+                          <td className="px-3 py-2.5 min-w-[150px]">
+                            {editingNoteId === item.id ? (
+                              <div className="flex items-center gap-1">
+                                <input
+                                  type="text"
+                                  value={sellerNotes[item.id] || ""}
+                                  onChange={e => setSellerNotes(prev => ({ ...prev, [item.id]: e.target.value }))}
+                                  onKeyDown={e => { if (e.key === "Enter") saveSellerNote(item.id); if (e.key === "Escape") setEditingNoteId(null); }}
+                                  className="flex-1 px-2 py-1 text-[12px] border border-blue-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-400"
+                                  autoFocus
+                                />
+                                <button onClick={() => saveSellerNote(item.id)} className="text-[10px] text-blue-600 hover:text-blue-800 cursor-pointer whitespace-nowrap">저장</button>
+                              </div>
+                            ) : (
+                              <span
+                                onClick={() => { setEditingNoteId(item.id); setSellerNotes(prev => ({ ...prev, [item.id]: prev[item.id] || item.seller_note || "" })); }}
+                                className={`text-[12px] cursor-pointer hover:bg-blue-50 px-1 py-0.5 rounded ${sellerNotes[item.id] || item.seller_note ? "text-gray-700" : "text-gray-300"}`}
+                              >
+                                {sellerNotes[item.id] || item.seller_note || "클릭하여 입력"}
+                              </span>
+                            )}
+                          </td>
                         </tr>
                       );
                     })}
@@ -509,7 +580,7 @@ export default function SettlementPortalPage() {
                       <td className="px-3 py-3 text-[12px] font-semibold text-gray-600 text-right tabular-nums">{W(totals.supply)}</td>
                       <td className="px-3 py-3 text-[12px] font-semibold text-gray-600 text-right tabular-nums">{W(totals.supplyShip)}</td>
                       <td className={`px-3 py-3 text-[12px] font-bold text-right tabular-nums ${totals.profit >= 0 ? "text-blue-600" : "text-red-600"}`}>{W(totals.profit)}</td>
-                      <td colSpan={2} />
+                      <td colSpan={4} />
                     </tr>
                   </tfoot>
                 </table>
@@ -553,6 +624,44 @@ export default function SettlementPortalPage() {
             </div>
           </div>
         )}
+
+        {/* ── 메모 영역 ── */}
+        <div className="mt-6 grid grid-cols-1 md:grid-cols-2 gap-4">
+          {/* 담당자 메모 (읽기전용) */}
+          {s.memo && (
+            <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-5">
+              <h3 className="text-[13px] font-semibold text-gray-700 mb-2 flex items-center gap-1.5">
+                <svg className="w-4 h-4 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 8h10M7 12h4m1 8l-4-4H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-3l-4 4z" /></svg>
+                담당자 메모
+              </h3>
+              <p className="text-[13px] text-gray-600 whitespace-pre-wrap bg-gray-50 rounded-lg p-3">{s.memo}</p>
+            </div>
+          )}
+
+          {/* 판매사 메모 (편집가능) */}
+          <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-5">
+            <h3 className="text-[13px] font-semibold text-gray-700 mb-2 flex items-center gap-1.5">
+              <svg className="w-4 h-4 text-blue-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>
+              판매사 메모
+            </h3>
+            <textarea
+              value={sellerMemo}
+              onChange={e => setSellerMemo(e.target.value)}
+              placeholder="특이사항이나 전달사항을 입력하세요..."
+              className="w-full text-[13px] border border-gray-200 rounded-lg p-3 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-300 resize-none"
+              rows={3}
+            />
+            <div className="flex justify-end mt-2">
+              <button
+                onClick={saveSellerMemo}
+                disabled={savingMemo}
+                className="px-4 py-1.5 text-[12px] bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 cursor-pointer transition-colors"
+              >
+                {savingMemo ? "저장 중..." : "메모 저장"}
+              </button>
+            </div>
+          </div>
+        </div>
 
         {/* ── 확정 영역 ── */}
         <div className="mt-8">

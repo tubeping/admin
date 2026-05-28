@@ -52,6 +52,7 @@ interface Settlement {
   total_orders: number;
   total_items: number;
   memo: string | null;
+  seller_memo: string | null;
   created_at: string;
   share_token: string | null;
   seller_confirmed: boolean;
@@ -83,6 +84,8 @@ interface SettlementItem {
   sales_channel: string;
   supplier_name: string;
   store_name: string;
+  admin_note: string;
+  seller_note: string;
 }
 interface ProductSummary {
   product_name: string;
@@ -294,6 +297,12 @@ export default function SettlementPage() {
     "summary" | "orders" | "products"
   >("summary");
 
+  // 메모/비고
+  const [adminMemo, setAdminMemo] = useState("");
+  const [adminNotes, setAdminNotes] = useState<Record<string, string>>({});
+  const [editingNoteId, setEditingNoteId] = useState<string | null>(null);
+  const [savingMemo, setSavingMemo] = useState(false);
+
   // 정산 생성
   const [creating, setCreating] = useState(false);
   const [createStore, setCreateStore] = useState("");
@@ -434,6 +443,35 @@ export default function SettlementPage() {
     setDetailItems(data.items || []);
     setProductSummary(data.productSummary || []);
     setDetailTab("summary");
+    setAdminMemo(data.settlement?.memo || "");
+    setEditingNoteId(null);
+    const noteMap: Record<string, string> = {};
+    for (const item of (data.items || [])) {
+      if (item.admin_note) noteMap[item.id] = item.admin_note;
+    }
+    setAdminNotes(noteMap);
+  };
+
+  const saveAdminMemo = async () => {
+    if (!detail) return;
+    setSavingMemo(true);
+    await fetch(`/admin/api/settlements/${detail.id}/notes`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ memo: adminMemo }),
+    });
+    setSavingMemo(false);
+  };
+
+  const saveAdminNote = async (itemId: string) => {
+    if (!detail) return;
+    const note = adminNotes[itemId] || "";
+    await fetch(`/admin/api/settlements/${detail.id}/notes`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ items: [{ id: itemId, admin_note: note }] }),
+    });
+    setEditingNoteId(null);
   };
 
   const changeStatus = async (id: string, status: string) => {
@@ -736,7 +774,7 @@ export default function SettlementPage() {
                   {[
                     "구분", "판매방식", "주문번호", "주문일", "상품명", "옵션", "수량",
                     "단가", "상품금액", "배송비", "쿠폰할인", "앱할인", "추가할인", "정산매출",
-                    "공급가", "공급배송비", "순익", "과세", "공급사",
+                    "공급가", "공급배송비", "순익", "과세", "공급사", "담당자 비고", "판매사 비고",
                   ].map((h) => (
                     <th
                       key={h}
@@ -838,6 +876,33 @@ export default function SettlementPage() {
                     <td className="px-3 py-2.5 text-gray-500">
                       {item.supplier_name || "-"}
                     </td>
+                    {/* 담당자 비고 (편집가능) */}
+                    <td className="px-3 py-2.5 min-w-[140px]">
+                      {editingNoteId === item.id ? (
+                        <div className="flex items-center gap-1">
+                          <input
+                            type="text"
+                            value={adminNotes[item.id] || ""}
+                            onChange={e => setAdminNotes(prev => ({ ...prev, [item.id]: e.target.value }))}
+                            onKeyDown={e => { if (e.key === "Enter") saveAdminNote(item.id); if (e.key === "Escape") setEditingNoteId(null); }}
+                            className="flex-1 px-2 py-1 text-xs border border-blue-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-400"
+                            autoFocus
+                          />
+                          <button onClick={() => saveAdminNote(item.id)} className="text-[10px] text-blue-600 hover:text-blue-800 cursor-pointer whitespace-nowrap">저장</button>
+                        </div>
+                      ) : (
+                        <span
+                          onClick={() => { setEditingNoteId(item.id); setAdminNotes(prev => ({ ...prev, [item.id]: prev[item.id] || item.admin_note || "" })); }}
+                          className={`text-xs cursor-pointer hover:bg-blue-50 px-1 py-0.5 rounded ${adminNotes[item.id] || item.admin_note ? "text-gray-700" : "text-gray-300"}`}
+                        >
+                          {adminNotes[item.id] || item.admin_note || "클릭하여 입력"}
+                        </span>
+                      )}
+                    </td>
+                    {/* 판매사 비고 (읽기전용) */}
+                    <td className="px-3 py-2.5 text-xs text-gray-500 min-w-[120px]">
+                      {item.seller_note || <span className="text-gray-300">-</span>}
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -897,6 +962,38 @@ export default function SettlementPage() {
             </table>
           </div>
         )}
+
+        {/* ── 메모 영역 ── */}
+        <div className="mt-6 grid grid-cols-1 md:grid-cols-2 gap-4">
+          {/* 담당자 메모 (편집가능) */}
+          <div className="bg-white rounded-xl border border-gray-200 p-5">
+            <h3 className="text-sm font-semibold text-gray-700 mb-2">담당자 메모</h3>
+            <textarea
+              value={adminMemo}
+              onChange={e => setAdminMemo(e.target.value)}
+              placeholder="내부 메모를 입력하세요..."
+              className="w-full text-sm border border-gray-200 rounded-lg p-3 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-300 resize-none"
+              rows={3}
+            />
+            <div className="flex justify-end mt-2">
+              <button
+                onClick={saveAdminMemo}
+                disabled={savingMemo}
+                className="px-4 py-1.5 text-xs bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 cursor-pointer"
+              >
+                {savingMemo ? "저장 중..." : "메모 저장"}
+              </button>
+            </div>
+          </div>
+
+          {/* 판매사 메모 (읽기전용) */}
+          {s.seller_memo && (
+            <div className="bg-white rounded-xl border border-gray-200 p-5">
+              <h3 className="text-sm font-semibold text-gray-700 mb-2">판매사 메모</h3>
+              <p className="text-sm text-gray-600 whitespace-pre-wrap bg-gray-50 rounded-lg p-3">{s.seller_memo}</p>
+            </div>
+          )}
+        </div>
       </div>
     );
   }
