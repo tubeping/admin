@@ -190,6 +190,7 @@ export async function POST(request: NextRequest) {
   // 데이터 파싱 + 저장
   let imported = 0;
   let overwritten = 0;
+  const importedIds: string[] = [];
   const errors: { row: number; error: string }[] = [];
 
   for (let i = 1; i < rows.length; i++) {
@@ -286,11 +287,11 @@ export async function POST(request: NextRequest) {
         .eq("cafe24_order_item_code", lineKey)
         .select("id, order_amount").maybeSingle();
       if (r.error) error = { message: r.error.message };
-      else if (r.data) { inserted = r.data; overwritten++; }
+      else if (r.data) { inserted = r.data; overwritten++; importedIds.push(r.data.id); }
     } else {
       const r = await sb.from("orders").insert(row).select("id, order_amount").single();
       if (r.error) error = { message: r.error.message };
-      else if (r.data) { inserted = r.data; imported++; existingKeys.add(`${orderId}::${lineKey}`); }
+      else if (r.data) { inserted = r.data; imported++; importedIds.push(r.data.id); existingKeys.add(`${orderId}::${lineKey}`); }
     }
 
     if (error) {
@@ -347,6 +348,7 @@ export async function POST(request: NextRequest) {
     overwritten,
     matched_columns: matchedColumns,
     unmatched_headers: unmatchedHeaders,
+    imported_ids: importedIds,
     errors: errors.length > 0 ? errors : undefined,
     auto_assign: assignResult,
   });
