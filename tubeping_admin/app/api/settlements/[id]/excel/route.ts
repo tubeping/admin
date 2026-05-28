@@ -25,14 +25,11 @@ function border(style: "thin" | "medium" = "thin"): Partial<ExcelJS.Borders> {
   return { top: s, bottom: s, left: s, right: s };
 }
 
-function krw(ws: ExcelJS.Worksheet, row: number, col: number) {
-  ws.getCell(row, col).numFmt = "#,##0";
-}
-
 export async function GET(
   _request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  try {
   const { id } = await params;
   const sb = getServiceClient();
 
@@ -285,7 +282,7 @@ export async function GET(
   products.forEach((p, idx) => {
     const profit = p.sales - p.cogs - p.ship;
     const margin = p.sales > 0 ? Math.round((profit / p.sales) * 1000) / 10 : 0;
-    const row = ws3.addRow([p.name, p.qty, p.sales, p.cogs, p.ship, profit, margin / 100]);
+    const row = ws3.addRow([p.name, p.qty, p.sales, p.cogs, p.ship, profit, margin / 100 /* 0.0% format needs 0-1 */]);
 
     const isOdd = idx % 2 === 1;
     row.eachCell((cell, colNumber) => {
@@ -316,4 +313,8 @@ export async function GET(
       "Content-Disposition": `attachment; filename="${filename}"`,
     },
   });
+  } catch (err) {
+    console.error("Excel generation error:", err);
+    return NextResponse.json({ error: "Excel 생성 실패" }, { status: 500 });
+  }
 }
