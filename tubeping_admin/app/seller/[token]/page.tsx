@@ -20,6 +20,8 @@ interface MallOrder {
   shipping_company: string | null;
   tracking_number: string | null;
   sales_channel: string | null;
+  admin_note: string;
+  seller_note: string;
 }
 
 interface Stats {
@@ -93,6 +95,8 @@ export default function SellerPortalPage() {
   const [lastRefresh, setLastRefresh] = useState<Date>(new Date());
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [filters, setFilters] = useState<Record<string, string>>({});
+  const [sellerNotes, setSellerNotes] = useState<Record<string, string>>({});
+  const [editingNoteId, setEditingNoteId] = useState<string | null>(null);
 
   const [currentMonth] = useState(() => {
     const now = new Date();
@@ -118,6 +122,12 @@ export default function SellerPortalPage() {
       setStats(data.stats);
       setPeriod(data.period || "");
       setError(null);
+      // 비고 초기화
+      const noteMap: Record<string, string> = {};
+      for (const o of (data.mallOrders || [])) {
+        if (o.seller_note) noteMap[o.id] = o.seller_note;
+      }
+      setSellerNotes(noteMap);
       setLastRefresh(new Date());
     } catch {
       setError("서버에 연결할 수 없습니다.");
@@ -203,6 +213,16 @@ export default function SellerPortalPage() {
       return new Set(filteredIds);
     });
   }, [filteredIds]);
+
+  const saveSellerNote = useCallback(async (orderId: string) => {
+    const note = sellerNotes[orderId] || "";
+    await fetch("/admin/api/seller-portal/notes", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ token, items: [{ id: orderId, seller_note: note }] }),
+    });
+    setEditingNoteId(null);
+  }, [token, sellerNotes]);
 
   const handleExcelDownload = useCallback(async () => {
     const XLSX = await import("xlsx");
@@ -395,6 +415,8 @@ export default function SellerPortalPage() {
                     <th className="px-3 py-3 text-center text-[11px] font-semibold text-gray-500 uppercase tracking-wider whitespace-nowrap">구분</th>
                     <th className="px-3 py-3 text-center text-[11px] font-semibold text-gray-500 uppercase tracking-wider whitespace-nowrap">상태</th>
                     <th className="px-5 py-3 text-left text-[11px] font-semibold text-gray-500 uppercase tracking-wider whitespace-nowrap min-w-[220px]">운송장</th>
+                    <th className="px-3 py-3 text-left text-[11px] font-semibold text-gray-500 uppercase tracking-wider whitespace-nowrap">담당자 비고</th>
+                    <th className="px-3 py-3 text-left text-[11px] font-semibold text-gray-500 uppercase tracking-wider whitespace-nowrap">판매사 비고</th>
                   </tr>
                   <tr className="bg-white border-b border-gray-100">
                     <td className="px-2 py-1.5" />
@@ -425,6 +447,8 @@ export default function SellerPortalPage() {
                       </select>
                     </td>
                     <td className="px-5 py-1.5" />
+                    <td className="px-3 py-1.5" />
+                    <td className="px-3 py-1.5" />
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-50">
@@ -479,6 +503,33 @@ export default function SellerPortalPage() {
                             )
                           ) : (
                             <span className="text-gray-200">—</span>
+                          )}
+                        </td>
+                        {/* 담당자 비고 (읽기전용) */}
+                        <td className="px-3 py-3 text-[11px] text-gray-500 min-w-[120px]">
+                          {o.admin_note || <span className="text-gray-200">-</span>}
+                        </td>
+                        {/* 판매사 비고 (편집가능) */}
+                        <td className="px-3 py-3 min-w-[150px]">
+                          {editingNoteId === o.id ? (
+                            <div className="flex items-center gap-1">
+                              <input
+                                type="text"
+                                value={sellerNotes[o.id] || ""}
+                                onChange={e => setSellerNotes(prev => ({ ...prev, [o.id]: e.target.value }))}
+                                onKeyDown={e => { if (e.key === "Enter") saveSellerNote(o.id); if (e.key === "Escape") setEditingNoteId(null); }}
+                                className="flex-1 px-2 py-1 text-[11px] border border-blue-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-400"
+                                autoFocus
+                              />
+                              <button onClick={() => saveSellerNote(o.id)} className="text-[10px] text-blue-600 hover:text-blue-800 cursor-pointer whitespace-nowrap">저장</button>
+                            </div>
+                          ) : (
+                            <span
+                              onClick={() => { setEditingNoteId(o.id); setSellerNotes(prev => ({ ...prev, [o.id]: prev[o.id] || o.seller_note || "" })); }}
+                              className={`text-[11px] cursor-pointer hover:bg-blue-50 px-1 py-0.5 rounded ${sellerNotes[o.id] || o.seller_note ? "text-gray-700" : "text-gray-300"}`}
+                            >
+                              {sellerNotes[o.id] || o.seller_note || "클릭하여 입력"}
+                            </span>
                           )}
                         </td>
                       </tr>
