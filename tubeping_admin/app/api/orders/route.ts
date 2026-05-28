@@ -274,15 +274,28 @@ export async function DELETE(request: NextRequest) {
 
   const sb = getServiceClient();
 
+  // 발주서/송장 연결된 주문은 삭제 보호
+  const { data: orders } = await sb
+    .from("orders")
+    .select("id, purchase_order_id, tracking_number")
+    .in("id", ids);
+
+  const safeIds = (orders || []).filter((o) => !o.purchase_order_id && !o.tracking_number).map((o) => o.id);
+  const blocked = (orders || []).filter((o) => o.purchase_order_id || o.tracking_number);
+
+  if (safeIds.length === 0) {
+    return NextResponse.json({ error: "삭제 가능한 주문이 없습니다 (발주서/송장 연결된 건은 삭제 불가)", blocked: blocked.length }, { status: 400 });
+  }
+
   // 자식 테이블(settlement_items) 먼저 삭제 — FK 위반 방지
-  const { error: siErr } = await sb.from("settlement_items").delete().in("order_id", ids);
+  const { error: siErr } = await sb.from("settlement_items").delete().in("order_id", safeIds);
   if (siErr) {
     return NextResponse.json({ error: `정산항목 삭제 실패: ${siErr.message}` }, { status: 500 });
   }
 
-  const { data, error } = await sb.from("orders").delete().in("id", ids).select("id");
+  const { data, error } = await sb.from("orders").delete().in("id", safeIds).select("id");
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
-  return NextResponse.json({ deleted: data?.length || 0 });
+  return NextResponse.json({ deleted: data?.length || 0, blocked: blocked.length });
 }

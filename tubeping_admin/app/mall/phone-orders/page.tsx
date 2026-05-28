@@ -459,6 +459,42 @@ export default function PhoneOrdersPage() {
     setTransferring(false);
   };
 
+  // === 이관 취소 ===
+  const cancelTransfer = async () => {
+    if (selected.size === 0) return;
+    const selectedOrders = orders.filter((o) => selected.has(o.id));
+    const transferredOnes = selectedOrders.filter((o) => o.status === "transferred");
+    if (transferredOnes.length === 0) {
+      alert("선택한 주문 중 이관된 건이 없습니다.");
+      return;
+    }
+    if (!confirm(`${transferredOnes.length}건의 이관을 취소합니다.\n(발주서/송장이 연결된 건은 취소 불가)\n\n진행하시겠습니까?`)) return;
+
+    setTransferring(true);
+    try {
+      const res = await fetch("/admin/api/phone-orders/cancel-transfer", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ids: transferredOnes.map((o) => o.id) }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        let msg = `${data.cancelled}건 이관 취소 완료`;
+        if (data.blocked?.length > 0) {
+          msg += `\n\n취소 불가 ${data.blocked.length}건:\n` + data.blocked.map((b: { order_id: string; reason: string }) => `${b.order_id}: ${b.reason}`).join("\n");
+        }
+        alert(msg);
+        setSelected(new Set());
+        fetchOrders();
+      } else {
+        alert(`이관 취소 실패: ${data.error}`);
+      }
+    } catch {
+      alert("이관 취소 중 오류가 발생했습니다.");
+    }
+    setTransferring(false);
+  };
+
   // 통계
   const totalCount = orders.length;
   const pendingCount = orders.filter((o) => o.status === "pending").length;
@@ -701,6 +737,12 @@ export default function PhoneOrdersPage() {
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7l5 5m0 0l-5 5m5-5H6" />
               </svg>
               {transferring ? "이관 중..." : "발주 이관"}
+            </button>
+            <button onClick={cancelTransfer} disabled={transferring} className="px-3.5 py-1.5 text-[11px] font-semibold bg-white text-[#C41E1E] border border-[#C41E1E]/30 rounded-lg hover:bg-red-50 disabled:opacity-50 transition-colors shadow-sm flex items-center gap-1">
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 17l-5-5m0 0l5-5m-5 5h12" />
+              </svg>
+              이관 취소
             </button>
             <div className="w-px h-6 bg-[#C41E1E]/20 mx-1" />
             <button onClick={bulkDelete} className="px-3 py-1.5 text-[11px] font-semibold bg-white text-red-600 border border-red-200 rounded-lg hover:bg-red-50 transition-colors">삭제</button>

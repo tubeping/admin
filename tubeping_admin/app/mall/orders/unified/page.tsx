@@ -1753,11 +1753,29 @@ export default function UnifiedOrdersPage() {
           </button>
           <button
             onClick={async () => {
-              if (!confirm(`선택한 ${selected.size}건을 삭제합니다.\n관련 정산 항목도 함께 삭제됩니다. 계속할까요?`)) return;
+              const selOrders = orders.filter((o) => selected.has(o.id));
+              const hasPO = selOrders.filter((o) => o.purchase_order_id);
+              const hasTracking = selOrders.filter((o) => o.tracking_number && !o.purchase_order_id);
+              const safeToDelete = selOrders.filter((o) => !o.purchase_order_id && !o.tracking_number);
+
+              if (safeToDelete.length === 0) {
+                alert(`삭제 가능한 주문이 없습니다.\n\n- 발주서 연결: ${hasPO.length}건\n- 송장번호 등록: ${hasTracking.length}건\n\n발주서/송장이 연결된 주문은 삭제할 수 없습니다.`);
+                return;
+              }
+
+              let msg = `${safeToDelete.length}건을 삭제합니다.`;
+              if (hasPO.length > 0 || hasTracking.length > 0) {
+                msg += `\n\n⚠ 삭제 제외 ${hasPO.length + hasTracking.length}건:`;
+                if (hasPO.length > 0) msg += `\n- 발주서 연결: ${hasPO.length}건`;
+                if (hasTracking.length > 0) msg += `\n- 송장번호 등록: ${hasTracking.length}건`;
+              }
+              msg += "\n\n계속할까요?";
+              if (!confirm(msg)) return;
+
               const res = await fetch("/admin/api/orders", {
                 method: "DELETE",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ ids: Array.from(selected) }),
+                body: JSON.stringify({ ids: safeToDelete.map((o) => o.id) }),
               });
               const data = await res.json();
               if (res.ok) {
