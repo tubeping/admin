@@ -331,7 +331,7 @@ export default function SupplierPortal() {
     <div className="min-h-screen bg-gray-50">
       {/* Header */}
       <div className="bg-white border-b border-gray-200">
-        <div className="max-w-6xl mx-auto px-6 py-4 flex items-center justify-between">
+        <div className="max-w-[1360px] mx-auto px-6 py-4 flex items-center justify-between">
           <h1 className="text-xl font-bold">
             <span className="text-[#C41E1E]">Tube</span>
             <span className="text-[#111]">Ping</span>
@@ -350,11 +350,11 @@ export default function SupplierPortal() {
         </div>
       </div>
 
-      <div className="max-w-6xl mx-auto px-6 py-6">
+      <div className="max-w-[1360px] mx-auto px-6 py-6">
         {/* 발주서 정보 */}
         {po && (
           <div className="bg-white rounded-xl border border-gray-200 p-6 mb-6">
-            <div className="grid grid-cols-5 gap-4 text-sm">
+            <div className="grid grid-cols-4 gap-4 text-sm">
               <div>
                 <span className="text-gray-500">발주번호</span>
                 <p className="font-semibold mt-1">{po.po_number}</p>
@@ -430,10 +430,10 @@ export default function SupplierPortal() {
         </div>
 
         {/* 주문 목록 + 송장 입력 */}
-        <div className="bg-white rounded-xl border border-gray-200">
-          <table className="w-full">
+        <div className="bg-white rounded-xl border border-gray-200 overflow-x-auto">
+          <table className="w-full min-w-[1080px]">
             <thead>
-              <tr className="text-xs text-gray-500 border-b border-gray-100">
+              <tr className="text-xs text-gray-500 border-b border-gray-100 whitespace-nowrap">
                 <th className="text-left px-6 py-3 font-medium">주문번호</th>
                 <th className="text-left px-3 py-3 font-medium">상품명</th>
                 <th className="text-left px-3 py-3 font-medium">옵션</th>
@@ -450,17 +450,17 @@ export default function SupplierPortal() {
             <tbody>
               {orders.map((o) => (
                 <tr key={o.id} className="border-b border-gray-50 last:border-0">
-                  <td className="px-6 py-3 text-sm font-medium text-gray-900">
+                  <td className="px-6 py-3 text-sm font-medium text-gray-900 whitespace-nowrap align-top">
                     {o.cafe24_order_id}
                   </td>
-                  <td className="px-3 py-3 text-sm text-gray-700">{o.product_name}</td>
-                  <td className="px-3 py-3 text-sm text-gray-500">{o.option_text || "-"}</td>
-                  <td className="px-3 py-3 text-sm text-gray-700 text-right">{o.quantity}</td>
-                  <td className="px-3 py-3 text-sm text-gray-700 text-right">{(o.supply_price || 0).toLocaleString()}</td>
-                  <td className="px-3 py-3 text-sm text-gray-700 text-right">{((o.supply_price || 0) * (o.quantity || 1)).toLocaleString()}</td>
-                  <td className="px-3 py-3 text-sm text-gray-700 text-right">{(o.supply_shipping_fee || 0).toLocaleString()}</td>
-                  <td className="px-3 py-3 text-sm text-gray-700">{o.receiver_name}</td>
-                  <td className="px-3 py-3">
+                  <td className="px-3 py-3 text-sm text-gray-700 align-top min-w-[220px] max-w-[300px]">{o.product_name}</td>
+                  <td className="px-3 py-3 text-sm text-gray-500 align-top min-w-[120px] max-w-[180px]">{o.option_text || "-"}</td>
+                  <td className="px-3 py-3 text-sm text-gray-700 text-right whitespace-nowrap align-top">{o.quantity}</td>
+                  <td className="px-3 py-3 text-sm text-gray-700 text-right whitespace-nowrap align-top">{(o.supply_price || 0).toLocaleString()}</td>
+                  <td className="px-3 py-3 text-sm text-gray-700 text-right whitespace-nowrap align-top">{((o.supply_price || 0) * (o.quantity || 1)).toLocaleString()}</td>
+                  <td className="px-3 py-3 text-sm text-gray-700 text-right whitespace-nowrap align-top">{(o.supply_shipping_fee || 0).toLocaleString()}</td>
+                  <td className="px-3 py-3 text-sm text-gray-700 whitespace-nowrap align-top">{o.receiver_name}</td>
+                  <td className="px-3 py-3 align-top">
                     <select
                       value={shipments[o.id]?.shipping_company || "CJ대한통운"}
                       onChange={(e) =>
@@ -477,7 +477,7 @@ export default function SupplierPortal() {
                       ))}
                     </select>
                   </td>
-                  <td className="px-3 py-3">
+                  <td className="px-3 py-3 align-top">
                     <input
                       value={shipments[o.id]?.tracking_number || ""}
                       onChange={(e) =>
@@ -491,7 +491,7 @@ export default function SupplierPortal() {
                       disabled={o.shipping_status === "delivered"}
                     />
                   </td>
-                  <td className="px-3 py-3 text-center">
+                  <td className="px-3 py-3 text-center whitespace-nowrap align-top">
                     {o.tracking_number ? (
                       <span className="text-xs text-green-600 font-medium">등록완료</span>
                     ) : (
