@@ -36,6 +36,23 @@ type DbInfo = {
   accounts: Account[];
 };
 
+type SentLog = {
+  channel: string;
+  status: string;
+  sent_at: string;
+  replied_at: string | null;
+  memo: string | null;
+};
+
+function fmtDate(iso: string): string {
+  if (!iso) return "";
+  const d = new Date(iso);
+  const yy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  return `${yy}.${mm}.${dd}`;
+}
+
 const PAGE_SIZE = 50;
 
 const GRADE_COLORS: Record<string, string> = {
@@ -65,8 +82,13 @@ export default function InstagramOutreachPage() {
   const [categoryFilter, setCategoryFilter] = useState<string>("");
   const [contactOnly, setContactOnly] = useState(false);
   const [emailOnly, setEmailOnly] = useState(false);
+  const [sentFilter, setSentFilter] = useState<"" | "sent" | "unsent">("");
   const [page, setPage] = useState(1);
   const [selected, setSelected] = useState<Set<string>>(new Set());
+
+  // 발송 기록 (username → SentLog)
+  const [sentLogs, setSentLogs] = useState<Record<string, SentLog>>({});
+  const [busyUser, setBusyUser] = useState<string>("");
 
   useEffect(() => {
     fetch("/admin/instagram-db.json")
@@ -80,6 +102,61 @@ export default function InstagramOutreachPage() {
         setLoading(false);
       });
   }, []);
+
+  // 발송 기록 로드
+  useEffect(() => {
+    fetch("/admin/api/outreach/instagram-log")
+      .then((r) => r.json())
+      .then((d: { logs?: Record<string, SentLog> }) => {
+        if (d.logs) setSentLogs(d.logs);
+      })
+      .catch(() => {});
+  }, []);
+
+  async function markSent(username: string, channel: string) {
+    setBusyUser(username);
+    try {
+      const r = await fetch("/admin/api/outreach/instagram-log", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ username, channel }),
+      });
+      if (r.ok) {
+        const { log } = await r.json();
+        setSentLogs((prev) => ({
+          ...prev,
+          [username]: {
+            channel: log.channel,
+            status: log.status,
+            sent_at: log.sent_at,
+            replied_at: log.replied_at,
+            memo: log.memo,
+          },
+        }));
+      }
+    } finally {
+      setBusyUser("");
+    }
+  }
+
+  async function unmarkSent(username: string) {
+    setBusyUser(username);
+    try {
+      const r = await fetch(
+        `/admin/api/outreach/instagram-log?username=${encodeURIComponent(username)}`,
+        { method: "DELETE" }
+      );
+      if (r.ok) {
+        setSentLogs((prev) => {
+          const next = { ...prev };
+          delete next[username];
+          return next;
+        });
+      }
+    } finally {
+      setBusyUser("");
+    }
+  }
 
   const categories = useMemo(() => {
     if (!data) return [];
@@ -110,8 +187,10 @@ export default function InstagramOutreachPage() {
     if (categoryFilter) rows = rows.filter((r) => (r.categories || "").includes(categoryFilter));
     if (contactOnly) rows = rows.filter((r) => r.has_contact);
     if (emailOnly) rows = rows.filter((r) => !!r.email);
+    if (sentFilter === "sent") rows = rows.filter((r) => !!sentLogs[r.username]);
+    if (sentFilter === "unsent") rows = rows.filter((r) => !sentLogs[r.username]);
     return rows;
-  }, [data, search, gradeFilter, categoryFilter, contactOnly, emailOnly]);
+  }, [data, search, gradeFilter, categoryFilter, contactOnly, emailOnly, sentFilter, sentLogs]);
 
   const paged = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
   const totalPages = Math.ceil(filtered.length / PAGE_SIZE);
@@ -214,9 +293,9 @@ export default function InstagramOutreachPage() {
         <StatCard label="전체 계정" value={data.total} />
         <StatCard label="S등급" value={data.stats.grades.S || 0} color="red" />
         <StatCard label="A등급" value={data.stats.grades.A || 0} color="blue" />
-        <StatCard label="B등급" value={data.stats.grades.B || 0} color="green" />
         <StatCard label="연락처 확보" value={data.stats.contact} color="purple" />
         <StatCard label="이메일 가능" value={data.stats.email} color="green" />
+        <StatCard label="발송 완료" value={Object.keys(sentLogs).length} color="red" />
       </div>
 
       {/* 필터 */}
@@ -283,6 +362,18 @@ export default function InstagramOutreachPage() {
           />
           이메일 있음만
         </label>
+        <select
+          className="px-3 py-2 border border-gray-300 rounded text-sm"
+          value={sentFilter}
+          onChange={(e) => {
+            setSentFilter(e.target.value as "" | "sent" | "unsent");
+            setPage(1);
+          }}
+        >
+          <option value="">발송 전체</option>
+          <option value="sent">발송완료만</option>
+          <option value="unsent">미발송만</option>
+        </select>
         <div className="flex-1" />
         <button
           onClick={() => exportCsv(filtered)}
@@ -329,6 +420,7 @@ export default function InstagramOutreachPage() {
               <th className="px-3 py-2 text-left">이메일</th>
               <th className="px-3 py-2 text-left">전화/카톡</th>
               <th className="px-3 py-2 text-left w-16">링크</th>
+              <th className="px-3 py-2 text-center w-32">발송</th>
             </tr>
           </thead>
           <tbody>
@@ -397,6 +489,30 @@ export default function InstagramOutreachPage() {
                       </a>
                     ) : (
                       <span className="text-gray-300">-</span>
+                    )}
+                  </td>
+                  <td className="px-3 py-2 text-center">
+                    {sentLogs[r.username] ? (
+                      <div className="flex flex-col items-center gap-0.5">
+                        <span className="inline-block px-2 py-0.5 rounded bg-green-100 text-green-700 text-xs font-semibold">
+                          ✓ {fmtDate(sentLogs[r.username].sent_at)}
+                        </span>
+                        <button
+                          onClick={() => unmarkSent(r.username)}
+                          disabled={busyUser === r.username}
+                          className="text-[11px] text-gray-400 hover:text-red-500 disabled:opacity-50"
+                        >
+                          취소
+                        </button>
+                      </div>
+                    ) : (
+                      <button
+                        onClick={() => markSent(r.username, "dm")}
+                        disabled={busyUser === r.username}
+                        className="px-2.5 py-1 text-xs bg-[#C41E1E] text-white rounded hover:bg-red-700 disabled:opacity-50"
+                      >
+                        {busyUser === r.username ? "..." : "발송함"}
+                      </button>
                     )}
                   </td>
                 </tr>
