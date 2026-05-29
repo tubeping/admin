@@ -70,17 +70,17 @@ export async function getStoreToken(store: StoreInfo): Promise<string> {
     return cached.access;
   }
 
-  // 캐시에 없거나 만료 임박 → 캐시 초기화
-  if (!cached) {
-    tokenCache[store.id] = {
-      access: store.access_token,
-      refresh: store.refresh_token,
-      expiresAt: store.token_expires_at
-        ? new Date(store.token_expires_at).getTime()
-        : Date.now() + 2 * 60 * 60 * 1000,
-      mallId: store.mall_id,
-    };
-  }
+  // 캐시가 없거나 만료됨 → 전달받은 store(=DB 최신값)로 캐시 재동기화.
+  // refresh-tokens 크론이 토큰을 out-of-band로 회전시키므로, 캐시에 남은
+  // 옛 refresh_token으로 갱신을 시도하면 400(invalid_grant)이 난다.
+  tokenCache[store.id] = {
+    access: store.access_token,
+    refresh: store.refresh_token,
+    expiresAt: store.token_expires_at
+      ? new Date(store.token_expires_at).getTime()
+      : Date.now() + 2 * 60 * 60 * 1000,
+    mallId: store.mall_id,
+  };
 
   const entry = tokenCache[store.id];
   if (entry.expiresAt > Date.now() + 60_000) {
