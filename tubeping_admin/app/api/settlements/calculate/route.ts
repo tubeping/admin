@@ -201,6 +201,7 @@ export async function POST(request: NextRequest) {
     if (orderId.startsWith("TEL")) return "phone";
     if (orderId.startsWith("SMS")) return "sms";
     if (orderId.startsWith("SPL")) return "sample";
+    if (orderId.startsWith("GFT")) return "gift";
     if (orderId.startsWith("JP")) return "group";
     return "phone";
   }
@@ -241,10 +242,14 @@ export async function POST(request: NextRequest) {
   for (const order of (orders || [])) {
     const qty = order.quantity || 1;
     const isCancelled = order.shipping_status === "cancelled";
+    const isGift = (order.sales_channel || inferSalesChannel(order.cafe24_order_id || "")) === "gift";
 
     // 정산매출: order_amount (실제 주문 금액) 기준
+    // 증정: 매출 0 (마케팅비용처럼 공급가만 비용 처리)
     let settledAmount: number;
-    if (isCancelled) {
+    if (isGift) {
+      settledAmount = 0;
+    } else if (isCancelled) {
       settledAmount = -(order.order_amount || 0);
       refundTotal += settledAmount;
     } else {

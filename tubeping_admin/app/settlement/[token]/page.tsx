@@ -81,13 +81,14 @@ interface ProductSummary {
 }
 
 const W = (n: number) => `₩${n.toLocaleString()}`;
-const CH: Record<string, string> = { cafe24: "자사몰", phone: "전화", sms: "문자", sample: "샘플", group: "공구" };
+const CH: Record<string, string> = { cafe24: "자사몰", phone: "전화", sms: "문자", sample: "샘플", group: "공구", gift: "증정" };
 const CH_COLOR: Record<string, string> = {
   cafe24: "bg-green-50 text-green-700",
   phone: "bg-orange-50 text-orange-700",
   sms: "bg-purple-50 text-purple-700",
   sample: "bg-gray-100 text-gray-500",
   group: "bg-blue-50 text-blue-700",
+  gift: "bg-violet-50 text-violet-700",
 };
 
 export default function SettlementPortalPage() {

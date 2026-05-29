@@ -3,7 +3,7 @@ import { getServiceClient } from "@/lib/supabase";
 import ExcelJS from "exceljs";
 
 const CH_LABEL: Record<string, string> = {
-  cafe24: "자사몰", phone: "전화", sms: "문자", sample: "샘플", group: "공구",
+  cafe24: "자사몰", phone: "전화", sms: "문자", sample: "샘플", group: "공구", gift: "증정",
 };
 
 // 색상 팔레트

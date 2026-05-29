@@ -58,12 +58,14 @@ function detectChannel(salesChannel: string | null, orderId: string): string {
   if (salesChannel === "sms") return "문자주문";
   if (salesChannel === "sample") return "샘플";
   if (salesChannel === "group") return "공구주문";
+  if (salesChannel === "gift") return "증정";
   if (salesChannel === "etc") return "기타";
   if (/^TEL-/.test(orderId)) return "전화주문";
   if (/^SMS-/.test(orderId)) return "문자주문";
   if (/^ETC-/.test(orderId)) return "기타";
   if (/^SPL-/.test(orderId)) return "샘플";
   if (/^JP-/.test(orderId)) return "공구주문";
+  if (/^GFT-/.test(orderId)) return "증정";
   if (/^\d{8}-\d{5,}$/.test(orderId)) return "자사몰";
   return "기타";
 }
@@ -79,7 +81,7 @@ function formatAmount(amount: number) {
   return amount.toLocaleString();
 }
 
-const CHANNEL_KEYS = ["자사몰", "공구주문", "전화주문", "문자주문", "샘플", "기타"] as const;
+const CHANNEL_KEYS = ["자사몰", "공구주문", "전화주문", "문자주문", "샘플", "증정", "기타"] as const;
 
 export default function SellerPortalPage() {
   const params = useParams();
@@ -482,6 +484,7 @@ export default function SellerPortalPage() {
                             channel === "전화주문" ? "text-teal-600 bg-teal-50" :
                             channel === "문자주문" ? "text-cyan-600 bg-cyan-50" :
                             channel === "공구주문" ? "text-pink-600 bg-pink-50" :
+                            channel === "증정" ? "text-purple-600 bg-purple-50" :
                             "text-gray-500 bg-gray-50"
                           }`}>{channel}</span>
                         </td>

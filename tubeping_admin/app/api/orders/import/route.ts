@@ -30,7 +30,7 @@ export async function POST(request: NextRequest) {
   const storeName = formData.get("store_name") as string | null;
   // 판매방식 (전화주문/공구주문/샘플) — store와 별개. 'phone' | 'group' | 'sample' | null
   const salesChannelRaw = (formData.get("sales_channel") as string | null) || null;
-  const salesChannel = ["phone", "group", "sample", "sms", "etc"].includes(salesChannelRaw || "") ? salesChannelRaw : null;
+  const salesChannel = ["phone", "group", "sample", "sms", "etc", "gift"].includes(salesChannelRaw || "") ? salesChannelRaw : null;
 
   if (!file) {
     return NextResponse.json({ error: "파일이 없습니다" }, { status: 400 });

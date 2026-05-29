@@ -492,12 +492,14 @@ const OrderRow = memo(function OrderRow({
             <option value="group">공구주문</option>
             <option value="phone">전화주문</option>
             <option value="sample">샘플</option>
+            <option value="gift">증정</option>
             <option value="etc">기타</option>
           </select>
         ) : (() => {
           if (o.sales_channel === "group") return <span className="px-1.5 py-0.5 rounded bg-pink-100 text-pink-700 font-medium">공구주문</span>;
           if (o.sales_channel === "phone") return <span className="px-1.5 py-0.5 rounded bg-teal-100 text-teal-700 font-medium">전화주문</span>;
           if (o.sales_channel === "sample") return <span className="px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 font-medium">샘플</span>;
+          if (o.sales_channel === "gift") return <span className="px-1.5 py-0.5 rounded bg-purple-100 text-purple-700 font-medium">증정</span>;
           if (o.sales_channel === "etc") return <span className="px-1.5 py-0.5 rounded bg-gray-200 text-gray-700 font-medium">기타</span>;
           if (!o.stores?.name) return <span className="text-gray-300">-</span>;
           return <span className="px-1.5 py-0.5 rounded bg-blue-100 text-blue-700 font-medium">자사몰</span>;
@@ -915,6 +917,7 @@ export default function UnifiedOrdersPage() {
     const groupEl = document.getElementById("import-is-group") as HTMLInputElement;
     const domesticEl = document.getElementById("import-is-domestic") as HTMLInputElement;
     const etcEl = document.getElementById("import-is-etc") as HTMLInputElement;
+    const giftEl = document.getElementById("import-is-gift") as HTMLInputElement;
     const fd = new FormData();
     fd.append("file", file);
     if (sel.value.startsWith("id:")) fd.append("store_id", sel.value.slice(3));
@@ -922,6 +925,7 @@ export default function UnifiedOrdersPage() {
     if (sampleEl?.checked) fd.append("sales_channel", "sample");
     else if (groupEl?.checked) fd.append("sales_channel", "group");
     else if (domesticEl?.checked) fd.append("sales_channel", "domestic");
+    else if (giftEl?.checked) fd.append("sales_channel", "gift");
     else if (etcEl?.checked) fd.append("sales_channel", "etc");
     const res = await fetch("/admin/api/orders/import", { method: "POST", body: fd });
     const data = await res.json();
@@ -950,6 +954,7 @@ export default function UnifiedOrdersPage() {
       if (groupEl) groupEl.checked = false;
       if (sampleEl) sampleEl.checked = false;
       if (domesticEl) domesticEl.checked = false;
+      if (giftEl) giftEl.checked = false;
       if (etcEl) etcEl.checked = false;
       sel.value = "";
     } else {
@@ -964,13 +969,15 @@ export default function UnifiedOrdersPage() {
     const groupEl = document.getElementById("import-is-group") as HTMLInputElement;
     const domesticEl = document.getElementById("import-is-domestic") as HTMLInputElement;
     const etcEl = document.getElementById("import-is-etc") as HTMLInputElement;
+    const giftEl = document.getElementById("import-is-gift") as HTMLInputElement;
     let salesChannel: string | null = null;
     if (sampleEl?.checked) salesChannel = "sample";
     else if (groupEl?.checked) salesChannel = "group";
     else if (domesticEl?.checked) salesChannel = "domestic";
+    else if (giftEl?.checked) salesChannel = "gift";
     else if (etcEl?.checked) salesChannel = "etc";
     if (!salesChannel) {
-      alert("판매방식(샘플/공구/자사몰/기타)을 먼저 선택해주세요.");
+      alert("판매방식(샘플/공구/자사몰/증정/기타)을 먼저 선택해주세요.");
       return;
     }
 
@@ -1129,6 +1136,7 @@ export default function UnifiedOrdersPage() {
       if (colFilterChannel === "group" && o.sales_channel !== "group") return false;
       if (colFilterChannel === "phone" && o.sales_channel !== "phone") return false;
       if (colFilterChannel === "sample" && o.sales_channel !== "sample") return false;
+      if (colFilterChannel === "gift" && o.sales_channel !== "gift") return false;
       if (colFilterChannel === "etc" && o.sales_channel !== "etc") return false;
       if (colFilterChannel === "domestic" && (o.sales_channel || !o.stores?.name)) return false;
       if (colFilterPayment === "paid" && (o.shipping_status === "pending" || o.shipping_status === "cancelled")) return false;
@@ -1292,7 +1300,7 @@ export default function UnifiedOrdersPage() {
 
   const bulkUpdateChannel = async (value: string) => {
     if (selected.size === 0) return;
-    const channelLabel = value === "" ? "자사몰" : value === "group" ? "공구주문" : value === "etc" ? "기타" : "샘플";
+    const channelLabel = value === "" ? "자사몰" : value === "group" ? "공구주문" : value === "etc" ? "기타" : value === "gift" ? "증정" : value === "phone" ? "전화주문" : "샘플";
     if (!confirm(`선택한 ${selected.size}건의 판매방식을 '${channelLabel}'(으)로 일괄 변경합니다. 계속할까요?`)) return;
     const res = await fetch("/admin/api/orders", {
       method: "PATCH",
@@ -1630,11 +1638,12 @@ export default function UnifiedOrdersPage() {
               { id: "import-is-group", label: "공구", bg: "bg-pink-100 text-pink-700" },
               { id: "import-is-domestic", label: "자사몰", bg: "bg-blue-100 text-blue-700" },
               { id: "import-is-etc", label: "기타", bg: "bg-gray-200 text-gray-700" },
+              { id: "import-is-gift", label: "증정", bg: "bg-purple-100 text-purple-700" },
             ].map((opt) => (
               <label key={opt.id} className="flex items-center gap-0.5 text-[11px] text-gray-600 cursor-pointer select-none">
                 <input id={opt.id} type="checkbox" className="w-3 h-3 cursor-pointer" onChange={(e) => {
                   if (e.target.checked) {
-                    ["import-is-sample", "import-is-group", "import-is-domestic", "import-is-etc"]
+                    ["import-is-sample", "import-is-group", "import-is-domestic", "import-is-etc", "import-is-gift"]
                       .filter((x) => x !== opt.id)
                       .forEach((x) => { const el = document.getElementById(x) as HTMLInputElement; if (el) el.checked = false; });
                   }
@@ -1700,6 +1709,7 @@ export default function UnifiedOrdersPage() {
             <option value="group">공구주문</option>
             <option value="phone">전화주문</option>
             <option value="sample">샘플</option>
+            <option value="gift">증정</option>
             <option value="etc">기타</option>
           </select>
           <select onChange={(e) => { const v = e.target.value; e.target.value = ""; if (v) bulkUpdateStore(v); }}
@@ -1911,6 +1921,7 @@ export default function UnifiedOrdersPage() {
                     <option value="group">공구</option>
                     <option value="phone">전화</option>
                     <option value="sample">샘플</option>
+                    <option value="gift">증정</option>
                     <option value="etc">기타</option>
                     <option value="domestic">자사몰</option>
                   </select>
