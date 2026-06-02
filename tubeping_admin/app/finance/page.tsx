@@ -1,5 +1,5 @@
-import ShinsanEmbed from "./_components/shinsan-embed";
+import ShinsanNative from "./_components/shinsan-native";
 
 export default function FinanceDashboardPage() {
-  return <ShinsanEmbed title="재무 대시보드" hash="dashboard" />;
+  return <ShinsanNative title="재무 대시보드" hash="dashboard" />;
 }

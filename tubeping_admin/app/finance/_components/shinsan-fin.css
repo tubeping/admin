@@ -1,0 +1,80 @@
+/* 신산 재무 허브(hub.eumlogics.kr/shinsan) 원본 style.css 의 스코프 이식.
+   tubeping admin 의 tailwind 와 충돌하지 않도록 모든 규칙을 .shinsan-fin 하위로 한정. */
+.shinsan-fin {
+  --card:#fff; --text:#1e293b; --text-sub:#64748b; --border:#e2e8f0;
+  --blue:#2563eb; --green:#16a34a; --red:#ef4444; --orange:#f59e0b;
+  --primary:#2563eb; --primary-bg:#eff6ff; --primary-dark:#1d4ed8;
+  --success:#22c55e; --success-bg:#f0fdf4; --warning-bg:#fffbeb; --danger:#ef4444; --danger-bg:#fef2f2;
+  --gray-50:#f8fafc; --gray-100:#f1f5f9; --gray-200:#e2e8f0; --gray-300:#cbd5e1;
+  --gray-400:#94a3b8; --gray-500:#64748b; --gray-600:#475569; --gray-700:#334155; --gray-800:#1e293b; --gray-900:#0f172a;
+  --white:#fff; --radius:12px; --radius-sm:8px; --radius-btn:8px; --radius-card:12px; --bg:#f5f7fa;
+  color:var(--text); font-size:13px; line-height:1.5; padding:20px;
+}
+.shinsan-fin .btn { padding:7px 14px; border-radius:var(--radius-sm); font-size:13px; font-weight:600; cursor:pointer; border:1px solid var(--border); transition:.15s; display:inline-flex; align-items:center; gap:4px; background:var(--card); color:var(--text); }
+.shinsan-fin .btn:hover { background:var(--gray-100); }
+.shinsan-fin .btn-primary { background:var(--blue); color:#fff; border-color:var(--blue); }
+.shinsan-fin .btn-primary:hover { background:var(--primary-dark); }
+.shinsan-fin .btn-secondary { background:var(--bg); color:var(--text); }
+.shinsan-fin .btn-success { background:var(--green); color:#fff; border-color:var(--green); }
+.shinsan-fin .btn-danger { background:var(--red); color:#fff; border-color:var(--red); }
+.shinsan-fin .btn-sm { padding:4px 10px; font-size:12px; }
+.shinsan-fin .btn i { font-size:11px; }
+.shinsan-fin table { width:100%; border-collapse:collapse; font-size:12px; }
+.shinsan-fin th { background:var(--gray-50); font-weight:700; color:var(--gray-700); padding:10px 12px; border-bottom:1px solid var(--border); text-align:left; white-space:nowrap; font-size:11px; }
+.shinsan-fin td { padding:9px 12px; border-bottom:1px solid var(--gray-100); color:var(--gray-700); vertical-align:middle; }
+.shinsan-fin tr:hover td { background:rgba(59,130,246,.04); }
+.shinsan-fin .tar, .shinsan-fin .right { text-align:right; }
+.shinsan-fin .tac, .shinsan-fin .center { text-align:center; }
+.shinsan-fin .bold { font-weight:700; }
+.shinsan-fin td.amount { font-weight:700; font-variant-numeric:tabular-nums; text-align:right; }
+.shinsan-fin td.amount.positive, .shinsan-fin .positive { color:var(--blue); }
+.shinsan-fin td.amount.negative, .shinsan-fin .negative { color:var(--red); }
+.shinsan-fin .tbl-wrap { background:var(--card); border-radius:var(--radius); border:1px solid var(--border); overflow:hidden; }
+.shinsan-fin .tbl-scroll { overflow-x:auto; }
+.shinsan-fin .tbl-scroll table { white-space:nowrap; }
+.shinsan-fin .badge { display:inline-flex; align-items:center; padding:2px 8px; border-radius:10px; font-size:11px; font-weight:700; }
+.shinsan-fin .badge-blue, .shinsan-fin .badge.blue { background:var(--primary-bg); color:var(--blue); }
+.shinsan-fin .badge-green, .shinsan-fin .badge.green { background:var(--success-bg); color:var(--green); }
+.shinsan-fin .badge-red, .shinsan-fin .badge.red { background:var(--danger-bg); color:var(--red); }
+.shinsan-fin .badge-yellow, .shinsan-fin .badge.yellow { background:var(--warning-bg); color:#b45309; }
+.shinsan-fin .badge-gray, .shinsan-fin .badge.gray { background:var(--gray-100); color:var(--gray-500); }
+.shinsan-fin .tab-group { display:flex; gap:0; border-bottom:2px solid var(--border); margin-bottom:16px; }
+.shinsan-fin .tab-item { padding:10px 18px; font-size:13px; font-weight:600; color:var(--text-sub); cursor:pointer; border-bottom:2px solid transparent; margin-bottom:-2px; transition:.15s; }
+.shinsan-fin .tab-item:hover { color:var(--text); }
+.shinsan-fin .tab-item.active { color:var(--blue); border-bottom-color:var(--blue); }
+.shinsan-fin .filter-group { display:flex; align-items:center; gap:6px; flex-wrap:wrap; }
+.shinsan-fin .search-input { padding:5px 10px; font-size:12px; border:1px solid var(--border); border-radius:6px; outline:none; background:#fff; color:var(--text); }
+.shinsan-fin .search-input:focus { border-color:var(--blue); box-shadow:0 0 0 2px rgba(37,99,235,.1); }
+.shinsan-fin .iss-issued-mark { font-size:10px; color:var(--green); margin-top:2px; font-weight:600; }
+.shinsan-fin .card { background:var(--card); border-radius:var(--radius); border:1px solid var(--border); padding:16px; margin-bottom:16px; }
+.shinsan-fin .card-title { font-size:14px; font-weight:700; color:var(--text); margin-bottom:12px; display:flex; align-items:center; gap:6px; }
+.shinsan-fin .card-title i { color:var(--blue); }
+.shinsan-fin .kpi-grid { display:grid; grid-template-columns:repeat(auto-fit, minmax(180px, 1fr)); gap:16px; margin-bottom:20px; }
+.shinsan-fin .kpi-card { background:var(--card); border-radius:var(--radius); border:1px solid var(--border); padding:16px; display:flex; flex-direction:column; gap:4px; }
+.shinsan-fin .kpi-icon { width:36px; height:36px; border-radius:8px; display:inline-flex; align-items:center; justify-content:center; font-size:16px; margin-bottom:4px; }
+.shinsan-fin .kpi-icon.blue { background:var(--primary-bg); color:var(--blue); }
+.shinsan-fin .kpi-icon.green { background:var(--success-bg); color:var(--green); }
+.shinsan-fin .kpi-icon.red { background:var(--danger-bg); color:var(--red); }
+.shinsan-fin .kpi-icon.orange { background:var(--warning-bg); color:#b45309; }
+.shinsan-fin .kpi-label { font-size:11px; color:var(--text-sub); font-weight:600; }
+.shinsan-fin .kpi-value { font-size:22px; font-weight:800; color:var(--gray-900); font-variant-numeric:tabular-nums; }
+.shinsan-fin .kpi-sub { font-size:11px; color:var(--gray-400); }
+.shinsan-fin .panel { background:var(--card); border-radius:var(--radius); border:1px solid var(--border); overflow:hidden; margin-bottom:16px; }
+.shinsan-fin .panel-header { display:flex; align-items:center; justify-content:space-between; padding:16px 20px 12px; font-weight:700; font-size:14px; }
+.shinsan-fin .panel-body { padding:0 20px 16px; }
+.shinsan-fin .panel-body table { margin:0; }
+.shinsan-fin .stat-grid { display:grid; grid-template-columns:repeat(auto-fit, minmax(200px, 1fr)); gap:16px; margin-bottom:20px; }
+.shinsan-fin .stat-card { background:var(--card); border-radius:var(--radius); border:1px solid var(--border); padding:16px; }
+.shinsan-fin .stat-label { font-size:12px; color:var(--text-sub); font-weight:500; }
+.shinsan-fin .stat-value { font-size:20px; font-weight:800; color:var(--gray-900); margin-top:4px; font-variant-numeric:tabular-nums; }
+.shinsan-fin .stat-sub { font-size:11px; color:var(--gray-400); margin-top:2px; }
+.shinsan-fin .dash-grid { display:grid; grid-template-columns:1fr 1fr; gap:16px; }
+.shinsan-fin .dash-row { display:flex; justify-content:space-between; padding:6px 0; border-bottom:1px solid var(--gray-100); font-size:12px; }
+.shinsan-fin .dash-row:last-child { border-bottom:none; }
+.shinsan-fin .filter-bar { display:flex; align-items:center; gap:8px; margin-bottom:12px; flex-wrap:wrap; }
+.shinsan-fin .filter-bar select, .shinsan-fin .filter-bar input { padding:6px 10px; border:1px solid var(--gray-300); border-radius:var(--radius-sm); font-size:12px; background:var(--white); color:var(--gray-700); outline:none; }
+.shinsan-fin .form-input { padding:8px 12px; border:1px solid var(--border); border-radius:var(--radius-sm); font-size:13px; }
+.shinsan-fin .empty-state { text-align:center; padding:40px 20px; color:var(--gray-400); }
+.shinsan-fin .empty-state i { font-size:32px; margin-bottom:10px; display:block; }
+.shinsan-fin .fin-note { background:var(--warning-bg); border:1px solid #fde68a; color:#92400e; padding:10px 14px; border-radius:var(--radius-sm); font-size:12px; margin-bottom:16px; }
+@media (max-width:768px){ .shinsan-fin .dash-grid{ grid-template-columns:1fr; } .shinsan-fin .kpi-grid{ grid-template-columns:repeat(2,1fr); } }

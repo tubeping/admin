@@ -1,5 +1,5 @@
-import ShinsanEmbed from "../_components/shinsan-embed";
+import ShinsanArAp from "../_components/shinsan-arap";
 
 export default function FinanceReceivablesPage() {
-  return <ShinsanEmbed title="미수/미지급" hash="ar_ap_2026" />;
+  return <ShinsanArAp />;
 }
