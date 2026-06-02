@@ -2,6 +2,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServiceClient } from "@/lib/supabase";
 import { loadSupplyContext, computeItem, periodToRange } from "@/lib/settlement-engine";
 
+// 정산 요약은 항상 최신 상품 공급가/주문을 읽어야 한다 (데이터 캐시로 stale 표시 방지)
+export const dynamic = "force-dynamic";
+export const fetchCache = "force-no-store";
+
 /**
  * GET /api/settlements/supplier-summary
  * 공급사별 정산 요약 (기간 내 주문 orders 를 supplier 기준으로 직접 집계)

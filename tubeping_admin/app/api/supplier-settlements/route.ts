@@ -2,6 +2,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServiceClient } from "@/lib/supabase";
 import { loadSupplyContext, computeItem, periodToRange } from "@/lib/settlement-engine";
 
+// 정산 집계는 항상 최신 상품 공급가/주문을 읽어야 한다 (데이터 캐시로 stale 저장 방지)
+export const dynamic = "force-dynamic";
+export const fetchCache = "force-no-store";
+
 /**
  * GET /api/supplier-settlements — 공급사 정산 목록
  * ?period=2026-04 &status=draft
