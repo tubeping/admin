@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServiceClient } from "@/lib/supabase";
+import { loadSupplyContext, computeItem, periodToRange } from "@/lib/settlement-engine";
 
 /**
  * GET /api/supplier-settlements — 공급사 정산 목록
@@ -28,8 +29,11 @@ export async function GET(request: NextRequest) {
 }
 
 /**
- * POST /api/supplier-settlements — 공급사 정산 일괄 생성 (settlement_items 기반)
+ * POST /api/supplier-settlements — 공급사 정산 일괄 생성 (주문 orders 직접 기반)
  * body: { period }
+ *
+ * 판매사 정산과 독립적으로, 주문수집(orders) 자료를 공급사 기준으로 집계한다.
+ * 공급가 산정은 settlement-engine 의 공용 로직을 써서 판매사 정산과 숫자가 일치한다.
  */
 export async function POST(request: NextRequest) {
   const { period } = await request.json();
@@ -37,34 +41,34 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "period 필수" }, { status: 400 });
   }
 
+  const range = periodToRange(period);
+  if (!range) {
+    return NextResponse.json({ error: "period 형식: YYYY-MM" }, { status: 400 });
+  }
+
   const sb = getServiceClient();
 
-  // 해당 기간의 모든 settlement_items 가져오기
-  const { data: settlements } = await sb
-    .from("settlements")
-    .select("id")
-    .eq("period", period);
+  // 해당 기간 전체 주문 (모든 판매사) — 주문일 기준
+  const { data: orders, error: ordError } = await sb
+    .from("orders")
+    .select("*, suppliers(id, name)")
+    .gte("order_date", range.startDate)
+    .lte("order_date", range.endDate + "T23:59:59");
 
-  if (!settlements || settlements.length === 0) {
+  if (ordError) {
+    return NextResponse.json({ error: ordError.message }, { status: 500 });
+  }
+
+  if (!orders || orders.length === 0) {
     return NextResponse.json(
-      { error: "해당 기간에 판매사 정산이 없습니다. 판매사 정산을 먼저 생성하세요." },
+      { error: "해당 기간에 주문이 없습니다." },
       { status: 400 }
     );
   }
 
-  const sIds = settlements.map((s) => s.id);
+  const supplyCtx = await loadSupplyContext(sb, orders);
 
-  const { data: items, error: itemsError } = await sb
-    .from("settlement_items")
-    .select("*")
-    .in("settlement_id", sIds)
-    .eq("item_type", "매출");
-
-  if (itemsError) {
-    return NextResponse.json({ error: itemsError.message }, { status: 500 });
-  }
-
-  // 공급사별 집계
+  // 공급사별 집계 (취소 제외 — 공급사에 지급할 매출분만)
   const map: Record<
     string,
     {
@@ -79,7 +83,9 @@ export async function POST(request: NextRequest) {
     }
   > = {};
 
-  for (const item of items || []) {
+  for (const order of orders) {
+    const item = computeItem(order, supplyCtx);
+    if (item.item_type !== "매출") continue;
     const sid = item.supplier_id || "unassigned";
     const sname = item.supplier_name || "미배정";
     if (!map[sid]) {

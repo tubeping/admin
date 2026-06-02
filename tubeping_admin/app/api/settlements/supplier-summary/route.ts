@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServiceClient } from "@/lib/supabase";
+import { loadSupplyContext, computeItem, periodToRange } from "@/lib/settlement-engine";
 
 /**
  * GET /api/settlements/supplier-summary
- * 공급사별 정산 요약 (기간 내 settlement_items를 supplier 기준으로 집계)
+ * 공급사별 정산 요약 (기간 내 주문 orders 를 supplier 기준으로 직접 집계)
  * ?period=2026-04
  */
 export async function GET(request: NextRequest) {
@@ -12,29 +13,29 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "period 필수" }, { status: 400 });
   }
 
-  const sb = getServiceClient();
-
-  // 해당 기간의 모든 settlement_items 가져오기
-  const { data: settlements } = await sb
-    .from("settlements")
-    .select("id")
-    .eq("period", period);
-
-  if (!settlements || settlements.length === 0) {
-    return NextResponse.json({ suppliers: [] });
+  const range = periodToRange(period);
+  if (!range) {
+    return NextResponse.json({ error: "period 형식: YYYY-MM" }, { status: 400 });
   }
 
-  const sIds = settlements.map((s) => s.id);
+  const sb = getServiceClient();
 
-  const { data: items, error } = await sb
-    .from("settlement_items")
-    .select("*")
-    .in("settlement_id", sIds)
-    .eq("item_type", "매출");
+  // 해당 기간 전체 주문 (모든 판매사) — 주문일 기준
+  const { data: orders, error } = await sb
+    .from("orders")
+    .select("*, suppliers(id, name)")
+    .gte("order_date", range.startDate)
+    .lte("order_date", range.endDate + "T23:59:59");
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
+
+  if (!orders || orders.length === 0) {
+    return NextResponse.json({ suppliers: [] });
+  }
+
+  const supplyCtx = await loadSupplyContext(sb, orders);
 
   // 공급사별 집계
   const map: Record<string, {
@@ -49,7 +50,9 @@ export async function GET(request: NextRequest) {
     products: Record<string, { name: string; qty: number; supply: number; shipping: number }>;
   }> = {};
 
-  for (const item of (items || [])) {
+  for (const order of orders) {
+    const item = computeItem(order, supplyCtx);
+    if (item.item_type !== "매출") continue;
     const sid = item.supplier_id || "unassigned";
     const sname = item.supplier_name || "미배정";
     if (!map[sid]) {

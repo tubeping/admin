@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServiceClient } from "@/lib/supabase";
+import { loadSupplyContext, computeItem, type ComputedItem } from "@/lib/settlement-engine";
 
 /**
  * POST /api/settlements/calculate
@@ -77,235 +78,25 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "해당 기간에 주문이 없습니다" }, { status: 400 });
   }
 
-  // ── 3. 공급가 테이블 구성 ──
-  // supplier_products: supplier_id + product_id → supply_price, supply_shipping_fee, tax_type
-  const { data: supProducts } = await sb
-    .from("supplier_products")
-    .select("supplier_id, product_id, supply_price, supply_shipping_fee, tax_type");
-
-  // product_options: product_id + option_text → 옵션별 공급가/판매가
-  const { data: prodOptions } = await sb
-    .from("product_options")
-    .select("product_id, option_text, supply_price, retail_price, supply_shipping_fee, tax_type");
-  const optMap: Record<string, { supply_price: number; retail_price: number; supply_shipping_fee: number; tax_type: string }> = {};
-  for (const po of (prodOptions || [])) {
-    optMap[`${po.product_id}|${po.option_text}`] = {
-      supply_price: po.supply_price || 0,
-      retail_price: po.retail_price || 0,
-      supply_shipping_fee: po.supply_shipping_fee || 0,
-      tax_type: po.tax_type || "과세",
-    };
-  }
-
-  // product_id가 있는 주문의 products 조회
-  const productIds = [...new Set(orders.map((o: Record<string, unknown>) => o.product_id).filter(Boolean))];
-
-  // cafe24_product_no → product_id 매핑 (product_id가 없는 주문용)
-  const cafe24ProductNos = [...new Set(
-    orders
-      .filter((o: Record<string, unknown>) => !o.product_id && o.cafe24_product_no)
-      .map((o: Record<string, unknown>) => o.cafe24_product_no)
-  )];
-  const cafe24ToProductId: Record<string, string> = {};
-  if (cafe24ProductNos.length > 0) {
-    const { data: mappings } = await sb
-      .from("product_cafe24_mappings")
-      .select("store_id, cafe24_product_no, product_id")
-      .eq("store_id", store_id)
-      .in("cafe24_product_no", cafe24ProductNos);
-    for (const m of (mappings || [])) {
-      cafe24ToProductId[m.cafe24_product_no] = m.product_id;
-      if (!productIds.includes(m.product_id)) productIds.push(m.product_id);
-    }
-  }
-
-  // 상품명 → product_id 매핑 (product_id, cafe24 매핑 모두 없는 주문용)
-  const unmatchedNames = [...new Set(
-    orders
-      .filter((o: Record<string, unknown>) => !o.product_id && !cafe24ToProductId[o.cafe24_product_no as string] && o.product_name)
-      .map((o: Record<string, unknown>) => (o.product_name as string).trim())
-  )];
-  const nameToProductId: Record<string, string> = {};
-  if (unmatchedNames.length > 0) {
-    const { data: byName } = await sb
-      .from("products")
-      .select("id, product_name")
-      .in("product_name", unmatchedNames);
-    for (const p of (byName || [])) {
-      if (p.product_name) {
-        nameToProductId[p.product_name.trim()] = p.id;
-        if (!productIds.includes(p.id)) productIds.push(p.id);
-      }
-    }
-  }
-
-  // 공급가 조회 맵
-  const supMap: Record<string, { supply_price: number; supply_shipping_fee: number; tax_type: string }> = {};
-  for (const sp of (supProducts || [])) {
-    supMap[`${sp.supplier_id}|${sp.product_id}`] = {
-      supply_price: sp.supply_price || 0,
-      supply_shipping_fee: sp.supply_shipping_fee || 0,
-      tax_type: sp.tax_type || "과세",
-    };
-  }
-
-  // 3순위: products 테이블 기본 공급가
-  const { data: prodList } = productIds.length > 0
-    ? await sb.from("products").select("id, supply_price, supply_shipping_fee, tax_type").in("id", productIds)
-    : { data: [] };
-  const prodMap: Record<string, { supply_price: number; supply_shipping_fee: number; tax_type: string }> = {};
-  for (const p of (prodList || [])) {
-    prodMap[p.id] = {
-      supply_price: p.supply_price || 0,
-      supply_shipping_fee: p.supply_shipping_fee || 0,
-      tax_type: p.tax_type || "과세",
-    };
-  }
-
-  // 주문의 product_id 결정 (직접 → cafe24 매핑 → 상품명 매칭)
-  function resolveProductId(order: Record<string, unknown>): string | null {
-    if (order.product_id) return order.product_id as string;
-    if (order.cafe24_product_no && cafe24ToProductId[order.cafe24_product_no as string]) {
-      return cafe24ToProductId[order.cafe24_product_no as string];
-    }
-    if (order.product_name) {
-      return nameToProductId[(order.product_name as string).trim()] || null;
-    }
-    return null;
-  }
-
-  function getSupplyInfo(order: Record<string, unknown>) {
-    const pid = resolveProductId(order);
-    const optText = (order.option_text as string || "").trim();
-    // 0순위: product_options (옵션 매칭) — 옵션별 공급가 우선
-    if (pid && optText) {
-      const optKey = `${pid}|${optText}`;
-      if (optMap[optKey]) {
-        const o = optMap[optKey];
-        return { supply_price: o.supply_price, supply_shipping_fee: o.supply_shipping_fee, tax_type: o.tax_type };
-      }
-    }
-    // 2순위: supplier_products (공급사+상품 조합)
-    if (order.supplier_id && pid) {
-      const key = `${order.supplier_id}|${pid}`;
-      if (supMap[key]) return supMap[key];
-    }
-    // 3순위: products (상품관리 기본 공급가)
-    if (pid && prodMap[pid]) return prodMap[pid];
-    return { supply_price: 0, supply_shipping_fee: 0, tax_type: "과세" };
-  }
-
-  // 주문번호 패턴으로 판매방식 추론 (sales_channel이 없는 기존 데이터용)
-  function inferSalesChannel(orderId: string): string {
-    if (orderId.startsWith("C24-")) return "cafe24";
-    if (orderId.startsWith("TEL")) return "phone";
-    if (orderId.startsWith("SMS")) return "sms";
-    if (orderId.startsWith("SPL")) return "sample";
-    if (orderId.startsWith("GFT")) return "gift";
-    if (orderId.startsWith("JP")) return "group";
-    return "phone";
-  }
+  // ── 3. 공급가 컨텍스트 (공용 엔진) ──
+  // 공급가 lookup·면세 VAT·샘플/취소/증정 처리는 settlement-engine 한 곳에서 관리.
+  const supplyCtx = await loadSupplyContext(sb, orders);
 
   // ── 4. 주문별 정산 계산 ──
-  interface SettlementItem {
-    order_id: string;
-    cafe24_order_id: string;
-    cafe24_order_item_code: string;
-    order_date: string;
-    product_name: string;
-    option_text: string;
-    quantity: number;
-    product_price: number;
-    order_amount: number;
-    shipping_fee: number;
-    discount_amount: number;
-    coupon_discount: number;
-    app_discount: number;
-    additional_discount: number;
-    settled_amount: number;
-    supply_price: number;
-    supply_total: number;
-    supply_shipping: number;
-    tax_type: string;
-    item_type: string;
-    sales_channel: string;
-    supplier_id: string | null;
-    supplier_name: string;
-    store_name: string;
-  }
-
-  const items: SettlementItem[] = [];
+  const items: ComputedItem[] = [];
   let cafe24Sales = 0;
-  let phoneSales = 0;
+  const phoneSales = 0;
   let refundTotal = 0;
 
-  for (const order of (orders || [])) {
-    const qty = order.quantity || 1;
-    const isCancelled = order.shipping_status === "cancelled";
-    const isGift = (order.sales_channel || inferSalesChannel(order.cafe24_order_id || "")) === "gift";
+  for (const order of orders) {
+    const item = computeItem(order, supplyCtx, store.name || "");
+    items.push(item);
 
-    // 정산매출: order_amount (실제 주문 금액) 기준
-    // 증정: 매출 0 (마케팅비용처럼 공급가만 비용 처리)
-    let settledAmount: number;
-    if (isGift) {
-      settledAmount = 0;
-    } else if (isCancelled) {
-      settledAmount = -(order.order_amount || 0);
-      refundTotal += settledAmount;
+    if (item.item_type === "취소") {
+      refundTotal += item.settled_amount;
     } else {
-      settledAmount = order.order_amount || 0;
-    }
-
-    // 공급가 조회
-    const supInfo = getSupplyInfo(order);
-    let supplyPrice = supInfo.supply_price;
-    let supplyShipping = supInfo.supply_shipping_fee;
-
-    // 면세 상품: 공급가+배송비에 10% VAT 추가
-    if (supInfo.tax_type === "면세") {
-      if (supplyPrice > 0) supplyPrice = Math.round(supplyPrice * 1.1);
-      if (supplyShipping > 0) supplyShipping = Math.round(supplyShipping * 1.1);
-    }
-
-    const channel = order.sales_channel || inferSalesChannel(order.cafe24_order_id || "");
-    const isSample = channel === "sample";
-
-    // 샘플: 공급가 = 정산매출, 공급배송비 = 0 (순익 0)
-    const supplyTotal = isCancelled ? 0 : isSample ? settledAmount : supplyPrice * qty;
-    const supShipFinal = isCancelled || isSample ? 0 : supplyShipping;
-
-    const itemType = isCancelled ? "취소" : "매출";
-    const supplierData = order.suppliers as { id: string; name: string } | null;
-
-    items.push({
-      order_id: order.id,
-      cafe24_order_id: order.cafe24_order_id || "",
-      cafe24_order_item_code: order.cafe24_order_item_code || "",
-      order_date: order.order_date || "",
-      product_name: order.product_name || "",
-      option_text: order.option_text || "",
-      quantity: qty,
-      product_price: order.product_price || 0,
-      order_amount: order.order_amount || 0,
-      shipping_fee: order.shipping_fee || 0,
-      discount_amount: order.discount_amount || 0,
-      coupon_discount: order.coupon_discount || 0,
-      app_discount: order.app_discount || 0,
-      additional_discount: order.additional_discount || 0,
-      settled_amount: settledAmount,
-      supply_price: isSample && !isCancelled ? order.product_price || 0 : supplyPrice,
-      supply_total: supplyTotal,
-      supply_shipping: supShipFinal,
-      tax_type: supInfo.tax_type,
-      item_type: itemType,
-      sales_channel: channel,
-      supplier_id: order.supplier_id || null,
-      supplier_name: supplierData?.name || "",
-      store_name: store.name || "",
-    });
-
-    if (!isCancelled) {
-      cafe24Sales += settledAmount;
+      // 증정은 settled_amount=0 이라 가산해도 영향 없음
+      cafe24Sales += item.settled_amount;
     }
   }
 
@@ -340,7 +131,7 @@ export async function POST(request: NextRequest) {
   const totalShipping = shipTaxable + shipExempt + shipExemptVat;
 
   // 총비용
-  let costBeforeVat = pgFee + totalCogs + totalShipping + tplCost + otherCost;
+  const costBeforeVat = pgFee + totalCogs + totalShipping + tplCost + otherCost;
   let vatAmount = 0;
 
   if (settlementType === "프리랜서") {
