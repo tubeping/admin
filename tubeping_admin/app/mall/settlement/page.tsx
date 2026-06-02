@@ -499,7 +499,7 @@ export default function SettlementPage() {
   const handleSupGenerate = async () => {
     if (
       !confirm(
-        `${period} 기간의 공급사 정산을 생성합니다. 판매사 정산 데이터를 기반으로 자동 집계합니다.`
+        `${period} 기간의 공급사 정산을 생성합니다. 출고일(shipped_at) 기준으로 해당 월에 출고된 주문을 공급사별로 자동 집계합니다.`
       )
     )
       return;
@@ -1718,6 +1718,16 @@ export default function SettlementPage() {
             )}
           </div>
 
+          {/* 출고일 기준 안내 */}
+          <div className="flex items-start gap-2 mb-5 px-4 py-3 bg-blue-50 border border-blue-200 rounded-lg text-sm text-blue-800">
+            <span className="text-blue-500 mt-0.5">ℹ️</span>
+            <span>
+              공급사 정산은 <strong>출고일(shipped_at) 기준</strong>으로 집계합니다.
+              공급사는 출고일로 청구하므로, 해당 월에 <strong>출고된 주문</strong>만 포함되며 미출고 주문은 제외됩니다.
+              (판매사 정산은 주문일·매출 기준으로 별도 산정)
+            </span>
+          </div>
+
           {/* 요약 카드 */}
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
             {[
@@ -1808,8 +1818,8 @@ export default function SettlementPage() {
                   해당 기간에 공급사 정산이 없습니다.
                 </p>
                 <p className="text-xs text-gray-400">
-                  판매사 정산을 먼저 생성한 후, &quot;공급사 정산 생성&quot;
-                  버튼을 클릭하세요.
+                  &quot;공급사 정산 생성&quot; 버튼을 클릭하면 해당 월 출고 주문을
+                  공급사별로 집계합니다.
                 </p>
               </div>
             ) : (

@@ -20,12 +20,13 @@ export async function GET(request: NextRequest) {
 
   const sb = getServiceClient();
 
-  // 해당 기간 전체 주문 (모든 판매사) — 주문일 기준
+  // 해당 기간 전체 출고 주문 (모든 판매사) — 출고일(shipped_at) 기준
+  // 공급사는 출고일로 청구하므로 공급사 정산도 출고일 기준으로 집계한다.
   const { data: orders, error } = await sb
     .from("orders")
     .select("*, suppliers(id, name)")
-    .gte("order_date", range.startDate)
-    .lte("order_date", range.endDate + "T23:59:59");
+    .gte("shipped_at", range.startDate)
+    .lte("shipped_at", range.endDate + "T23:59:59");
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
