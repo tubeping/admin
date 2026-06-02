@@ -20,7 +20,12 @@ type Variant = {
   variant_code: string | null;
   option_name: string | null;
   option_value: string | null;
+  option_text: string | null;
   price: number;
+  supply_price: number;
+  retail_price: number;
+  supply_shipping_fee: number;
+  tax_type: string;
   quantity: number;
   display: string;
   selling: string;
@@ -151,7 +156,10 @@ export default function ProductsPage() {
 
   const [selectedProducts, setSelectedProducts] = useState<Set<string>>(new Set());
   const [showAssignDropdown, setShowAssignDropdown] = useState(false);
+  const [showSendDropdown, setShowSendDropdown] = useState(false);
   const [showFulfillmentDropdown, setShowFulfillmentDropdown] = useState(false);
+  const [propagating, setPropagating] = useState(false);
+  const [linkOnConflict, setLinkOnConflict] = useState(true);
   const [warehouses, setWarehouses] = useState<SupplierOption[]>([]);
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
   const [showAddModal, setShowAddModal] = useState(false);
@@ -171,6 +179,7 @@ export default function ProductsPage() {
   const [bulkSyncing, setBulkSyncing] = useState(false);
 
   const assignDropdownRef = useRef<HTMLDivElement>(null);
+  const sendDropdownRef = useRef<HTMLDivElement>(null);
   const fulfillmentDropdownRef = useRef<HTMLDivElement>(null);
 
   /* ── 전체 통계 로드 ── */
@@ -299,6 +308,9 @@ export default function ProductsPage() {
       if (assignDropdownRef.current && !assignDropdownRef.current.contains(e.target as Node)) {
         setShowAssignDropdown(false);
       }
+      if (sendDropdownRef.current && !sendDropdownRef.current.contains(e.target as Node)) {
+        setShowSendDropdown(false);
+      }
       if (fulfillmentDropdownRef.current && !fulfillmentDropdownRef.current.contains(e.target as Node)) {
         setShowFulfillmentDropdown(false);
       }
@@ -402,6 +414,52 @@ export default function ProductsPage() {
     setSelectedProducts(new Set());
     setShowAssignDropdown(false);
     refreshAll();
+  };
+
+  /* ── 스토어로 보내기 (propagate: 매핑 + 즉시 동기화) ── */
+  const sendToStores = async (storeIds: string[]) => {
+    if (storeIds.length === 0) return;
+    const count = selectedProducts.size;
+    setPropagating(true);
+    try {
+      const res = await fetch("/admin/api/products/propagate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          product_ids: [...selectedProducts],
+          store_ids: storeIds,
+          on_conflict: linkOnConflict ? "link" : "report",
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        alert(data.error || "전송 실패");
+        return;
+      }
+      const parts: string[] = [`${count}개 상품 × ${storeIds.length}개 스토어 처리`];
+      if (data.ok_count > 0) parts.push(`${data.ok_count}개 성공`);
+      if (data.conflict_count > 0) parts.push(`${data.conflict_count}개 충돌`);
+      if (data.error_count > 0) parts.push(`${data.error_count}개 실패`);
+      let msg = parts.join(" / ");
+      if (data.conflict_count > 0 && !linkOnConflict) {
+        const sample = data.conflicts.slice(0, 5).map((c: { tp_code: string; mall_id: string }) => `· ${c.tp_code} (${c.mall_id})`).join("\n");
+        const more = data.conflicts.length > 5 ? `\n... 외 ${data.conflicts.length - 5}건` : "";
+        msg += `\n\n[충돌 상세]\n${sample}${more}\n\n"이미 있으면 자동 연결" 옵션을 켜고 다시 보내면 연결됩니다.`;
+      }
+      alert(msg);
+      setSelectedProducts(new Set());
+      setShowSendDropdown(false);
+      refreshAll();
+    } catch (e) {
+      alert(e instanceof Error ? e.message : "전송 실패");
+    } finally {
+      setPropagating(false);
+    }
+  };
+
+  const sendToAllStores = async () => {
+    const activeStoreIds = stores.filter((s) => s.status === "active" || s.status === "connected").map((s) => s.id);
+    await sendToStores(activeStoreIds);
   };
 
   const removeMapping = async (productId: string, storeId: string) => {
@@ -671,6 +729,66 @@ export default function ProductsPage() {
                   )}
                   {bulkSyncing ? "동기화 중..." : "카페24 동기화"}
                 </button>
+                <div className="relative" ref={sendDropdownRef}>
+                  <button
+                    onClick={() => setShowSendDropdown(!showSendDropdown)}
+                    disabled={propagating}
+                    className="px-4 py-2 bg-[#C41E1E] text-white text-xs font-medium rounded-lg hover:bg-[#A01818] disabled:opacity-50 cursor-pointer flex items-center gap-1"
+                  >
+                    {propagating ? (
+                      <svg className="w-3 h-3 animate-spin" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>
+                    ) : (
+                      <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" /></svg>
+                    )}
+                    {propagating ? "전송 중..." : "스토어로 보내기"}
+                  </button>
+                  {showSendDropdown && (
+                    <div className="absolute right-0 top-10 w-80 bg-white rounded-xl border border-gray-200 shadow-lg z-50 py-2 max-h-[500px] overflow-y-auto">
+                      <p className="px-4 py-2 text-xs text-gray-500 font-semibold border-b border-gray-100 mb-1">
+                        선택한 {selectedProducts.size}개 상품을 자식 카페24에 매핑 + 즉시 동기화
+                      </p>
+                      <label className="px-4 py-2 flex items-center gap-2 text-xs text-gray-700 cursor-pointer hover:bg-gray-50 border-b border-gray-100">
+                        <input
+                          type="checkbox"
+                          checked={linkOnConflict}
+                          onChange={(e) => setLinkOnConflict(e.target.checked)}
+                          className="rounded border-gray-300"
+                        />
+                        자식 mall에 같은 자체코드 상품 있으면 자동 연결
+                      </label>
+                      {activeStores.length === 0 ? (
+                        <p className="px-4 py-4 text-xs text-gray-400 text-center">활성 스토어가 없습니다</p>
+                      ) : (
+                        <>
+                          {activeStores.map((s) => (
+                            <button
+                              key={s.id}
+                              onClick={() => sendToStores([s.id])}
+                              disabled={propagating}
+                              className="w-full px-4 py-2.5 text-left hover:bg-[#FFF0F5] flex items-center justify-between cursor-pointer disabled:opacity-50"
+                            >
+                              <div>
+                                <p className="text-sm font-medium text-gray-900">{s.name}</p>
+                                <p className="text-[10px] text-gray-400">{s.mall_id}.cafe24.com</p>
+                              </div>
+                              <span className="text-xs text-[#C41E1E] font-bold">→</span>
+                            </button>
+                          ))}
+                          <div className="border-t border-gray-100 mt-1 pt-1">
+                            <button
+                              onClick={sendToAllStores}
+                              disabled={propagating}
+                              className="w-full px-4 py-2.5 text-left hover:bg-[#FFF0F5] cursor-pointer disabled:opacity-50"
+                            >
+                              <p className="text-sm font-bold text-[#C41E1E]">전체 활성 스토어로 보내기</p>
+                              <p className="text-[10px] text-gray-400">{activeStores.length}개 스토어 × {selectedProducts.size}개 상품</p>
+                            </button>
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  )}
+                </div>
                 <div className="relative" ref={assignDropdownRef}>
                   <button onClick={() => setShowAssignDropdown(!showAssignDropdown)} className="px-4 py-2 bg-[#111111] text-white text-xs font-medium rounded-lg hover:bg-gray-800 cursor-pointer">스토어 매핑</button>
                   {showAssignDropdown && (
@@ -1247,77 +1365,92 @@ function EditProductModal({
     })();
     return () => { cancelled = true; };
   }, [product.id]);
-  const [activeTab, setActiveTab] = useState<"basic" | "variants" | "options" | "mappings">("basic");
-  // 옵션 가격 (product_options)
-  interface PriceOption { id?: string; option_text: string; supply_price: number; retail_price: number; supply_shipping_fee: number; tax_type: string; variant_code?: string | null; }
-  const [priceOptions, setPriceOptions] = useState<PriceOption[]>([]);
+  const [activeTab, setActiveTab] = useState<"basic" | "options" | "mappings">("basic");
   const [optLoading, setOptLoading] = useState(false);
   const [optMsg, setOptMsg] = useState("");
 
-  const loadPriceOptions = async () => {
-    try {
-      const res = await fetch(`/admin/api/products/${product.id}/options`);
-      if (!res.ok) return;
-      const data = await res.json();
-      setPriceOptions(data.options || []);
-    } catch { /* ignore */ }
+  // option_text 계산 헬퍼 (옵션명=옵션값)
+  const optionTextOf = (v: Pick<Variant, "option_name" | "option_value" | "option_text">): string => {
+    if (v.option_text && v.option_text.trim()) return v.option_text.trim();
+    const name = (v.option_name || "").trim();
+    const value = (v.option_value || "").trim();
+    return `${name}=${value}`.replace(/^=+|=+$/g, "");
   };
-  useEffect(() => { loadPriceOptions(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [product.id]);
 
+  // 카페24/주문에서 옵션 불러오기 → variants에 머지
   const fetchOptionsFromCafe24 = async () => {
-    setOptLoading(true); setOptMsg("");
+    setOptLoading(true);
+    setOptMsg("");
     try {
       const res = await fetch(`/admin/api/products/${product.id}/fetch-options`, { method: "POST" });
-      if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(d.error || "불러오기 실패"); }
-      const data = await res.json();
-      const existingMap = new Map(priceOptions.map((o) => [o.option_text, o]));
-      const merged: PriceOption[] = [];
-      for (const f of (data.options || []) as Array<{ option_text: string; variant_code?: string | null; already_registered?: boolean }>) {
-        const ex = existingMap.get(f.option_text);
-        if (ex) merged.push(ex);
-        else merged.push({ option_text: f.option_text, supply_price: 0, retail_price: 0, supply_shipping_fee: 0, tax_type: "과세", variant_code: f.variant_code || null });
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}));
+        throw new Error(d.error || "불러오기 실패");
       }
-      for (const ex of priceOptions) if (!merged.find((m) => m.option_text === ex.option_text)) merged.push(ex);
-      setPriceOptions(merged);
-      setOptMsg(`불러오기 완료 — 카페24 ${data.cafe24_count}건, 주문 ${data.orders_count}건`);
-    } catch (e) { setOptMsg(e instanceof Error ? e.message : "실패"); }
-    finally { setOptLoading(false); }
-  };
-
-  const savePriceOptions = async () => {
-    setOptLoading(true); setOptMsg("");
-    try {
-      const rows = priceOptions.filter((o) => o.option_text && o.option_text.trim());
-      const res = await fetch(`/admin/api/products/${product.id}/options`, {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ options: rows }),
-      });
-      if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(d.error || "저장 실패"); }
       const data = await res.json();
-      setOptMsg(`저장 완료 — ${data.count}건`);
-      await loadPriceOptions();
-    } catch (e) { setOptMsg(e instanceof Error ? e.message : "실패"); }
-    finally { setOptLoading(false); }
-  };
-
-  const deletePriceOption = async (idx: number) => {
-    const target = priceOptions[idx];
-    if (target.id) {
-      if (!confirm(`'${target.option_text}' 옵션을 삭제할까요?`)) return;
-      try {
-        const res = await fetch(`/admin/api/products/${product.id}/options?option_id=${target.id}`, { method: "DELETE" });
-        if (!res.ok) throw new Error();
-      } catch { setOptMsg("삭제 실패"); return; }
+      const existingByText = new Map(variants.map((v) => [optionTextOf(v), v]));
+      const merged: Variant[] = [...variants];
+      let added = 0;
+      for (const f of (data.options || []) as Array<{ option_text: string; variant_code?: string | null }>) {
+        if (existingByText.has(f.option_text)) continue;
+        const eqIdx = f.option_text.indexOf("=");
+        const option_name = eqIdx > 0 ? f.option_text.slice(0, eqIdx).trim() : null;
+        const option_value = eqIdx > 0 ? f.option_text.slice(eqIdx + 1).trim() : f.option_text;
+        merged.push({
+          id: "",
+          variant_code: f.variant_code || null,
+          option_name,
+          option_value,
+          option_text: f.option_text,
+          price: Number(form.price) || 0,
+          supply_price: 0,
+          retail_price: Number(form.retail_price) || 0,
+          supply_shipping_fee: 0,
+          tax_type: "과세",
+          quantity: 0,
+          display: "T",
+          selling: "T",
+        });
+        added++;
+      }
+      setVariants(merged);
+      setOptMsg(`불러오기 완료 — 카페24 ${data.cafe24_count}건, 주문 ${data.orders_count}건${added > 0 ? `, 신규 ${added}건 추가` : ""}`);
+    } catch (e) {
+      setOptMsg(e instanceof Error ? e.message : "실패");
+    } finally {
+      setOptLoading(false);
     }
-    setPriceOptions(priceOptions.filter((_, i) => i !== idx));
   };
 
-  const updatePriceOption = (idx: number, patch: Partial<PriceOption>) => {
-    setPriceOptions(priceOptions.map((o, i) => (i === idx ? { ...o, ...patch } : o)));
+  const updateVariantField = (idx: number, patch: Partial<Variant>) => {
+    setVariants((prev) => prev.map((v, i) => (i === idx ? { ...v, ...patch } : v)));
   };
 
-  const addPriceOption = () => {
-    setPriceOptions([...priceOptions, { option_text: "", supply_price: 0, retail_price: 0, supply_shipping_fee: 0, tax_type: "과세" }]);
+  const addEmptyVariant = () => {
+    setVariants([
+      ...variants,
+      {
+        id: "",
+        variant_code: null,
+        option_name: "",
+        option_value: "",
+        option_text: null,
+        price: Number(form.price) || 0,
+        supply_price: 0,
+        retail_price: Number(form.retail_price) || 0,
+        supply_shipping_fee: 0,
+        tax_type: "과세",
+        quantity: 0,
+        display: "T",
+        selling: "T",
+      },
+    ]);
+  };
+
+  const removeVariant = (idx: number) => {
+    const target = variants[idx];
+    if (target.id) setDeleteVariantIds([...deleteVariantIds, target.id]);
+    setVariants(variants.filter((_, i) => i !== idx));
   };
   const [saving, setSaving] = useState(false);
   const [syncing, setSyncing] = useState(false);
@@ -1454,8 +1587,7 @@ function EditProductModal({
           <div className="flex gap-1 border-b border-gray-200">
             {([
               { key: "basic" as const, label: "기본 정보" },
-              { key: "variants" as const, label: `옵션/재고 (${variants.length})` },
-              { key: "options" as const, label: `옵션 가격 (${priceOptions.length})` },
+              { key: "options" as const, label: `옵션 (${variants.length})` },
               { key: "mappings" as const, label: `카페24 매핑 (${mappings.length})` },
             ]).map((t) => (
               <button key={t.key} onClick={() => setActiveTab(t.key)} className={`px-4 py-2.5 text-sm font-medium cursor-pointer rounded-t-lg transition-colors ${activeTab === t.key ? "text-[#C41E1E] bg-white border border-gray-200 border-b-white -mb-px" : "text-gray-500 hover:text-gray-900"}`}>
@@ -1551,65 +1683,154 @@ function EditProductModal({
             </div>
           )}
 
-          {/* ── 옵션/재고 탭 ── */}
-          {activeTab === "variants" && (
+          {/* ── 옵션 통합 탭 ── */}
+          {activeTab === "options" && (
             <div className="space-y-4">
-              <div className="flex items-center justify-between">
-                <p className="text-sm text-gray-500">옵션별 가격/재고를 관리합니다.</p>
-                <button
-                  onClick={() => setVariants([...variants, { id: "", variant_code: null, option_name: "", option_value: "", price: Number(form.price) || 0, quantity: 0, display: "T", selling: "T" } as Variant])}
-                  className="px-3 py-1.5 text-xs font-medium text-[#C41E1E] bg-[#FFF0F5] border border-[#C41E1E]/20 rounded-lg hover:bg-[#C41E1E]/10 cursor-pointer"
-                >
-                  + 옵션 추가
-                </button>
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="text-sm font-medium text-gray-900">옵션 통합 관리</p>
+                  <p className="text-[11px] text-gray-500 mt-0.5">
+                    판매가·공급가·재고·배송비·과세를 한 행에서 관리합니다. 저장 시 [저장+동기화]로 카페24에 반영됩니다.
+                    <br />공급가/공급배송비/과세는 admin 내부 정산용이며 카페24엔 전송되지 않습니다.
+                  </p>
+                </div>
+                <div className="flex items-center gap-2 flex-shrink-0">
+                  <button
+                    type="button"
+                    onClick={fetchOptionsFromCafe24}
+                    disabled={optLoading}
+                    className="px-3 py-1.5 text-xs font-medium text-blue-700 bg-blue-50 border border-blue-200 rounded-lg hover:bg-blue-100 disabled:opacity-50 cursor-pointer whitespace-nowrap"
+                  >
+                    {optLoading ? "불러오는 중..." : "카페24/주문에서 불러오기"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={addEmptyVariant}
+                    className="px-3 py-1.5 text-xs font-medium text-[#C41E1E] bg-[#FFF0F5] border border-[#C41E1E]/20 rounded-lg hover:bg-[#C41E1E]/10 cursor-pointer whitespace-nowrap"
+                  >+ 옵션 추가</button>
+                </div>
               </div>
 
+              {optMsg && (
+                <div className={`text-xs px-3 py-2 rounded-lg ${optMsg.includes("실패") || optMsg.includes("Failed") ? "text-red-600 bg-red-50" : "text-green-700 bg-green-50"}`}>{optMsg}</div>
+              )}
+
               {variants.length === 0 ? (
-                <div className="py-8 text-center text-sm text-gray-400">등록된 옵션이 없습니다.</div>
+                <div className="py-8 text-center text-sm text-gray-400">
+                  옵션이 없습니다. 위 &quot;카페24/주문에서 불러오기&quot;를 클릭하거나 &quot;옵션 추가&quot;로 직접 입력하세요.
+                </div>
               ) : (
-                <div className="bg-white rounded-xl border border-gray-200">
-                  <table className="w-full">
+                <div className="bg-white rounded-xl border border-gray-200 overflow-x-auto">
+                  <table className="w-full min-w-[920px]">
                     <thead>
                       <tr className="text-xs text-gray-500 border-b border-gray-100">
-                        <th className="text-left px-4 py-3 font-medium">옵션명</th>
+                        <th className="text-left px-3 py-3 font-medium">옵션명</th>
                         <th className="text-left px-3 py-3 font-medium">옵션값</th>
-                        <th className="text-right px-3 py-3 font-medium w-28">가격</th>
-                        <th className="text-right px-3 py-3 font-medium w-24">재고</th>
-                        <th className="text-center px-3 py-3 font-medium w-16">판매</th>
-                        <th className="text-center px-4 py-3 font-medium w-12">삭제</th>
+                        <th className="text-right px-3 py-3 font-medium w-24">판매가</th>
+                        <th className="text-right px-3 py-3 font-medium w-24">공급가</th>
+                        <th className="text-right px-3 py-3 font-medium w-24">공급배송비</th>
+                        <th className="text-right px-3 py-3 font-medium w-20">재고</th>
+                        <th className="text-left px-3 py-3 font-medium w-20">과세</th>
+                        <th className="text-center px-2 py-3 font-medium w-12">판매</th>
+                        <th className="text-center px-2 py-3 font-medium w-10"></th>
                       </tr>
                     </thead>
                     <tbody>
-                      {variants.map((v, idx) => (
-                        <tr key={v.id || `new-${idx}`} className="border-b border-gray-50 last:border-0">
-                          <td className="px-4 py-2.5">
-                            <input type="text" value={v.option_name || ""} onChange={(e) => { const next = [...variants]; next[idx] = { ...next[idx], option_name: e.target.value }; setVariants(next); }} placeholder="색상, 사이즈..." className="w-full px-2 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-[#C41E1E]/30" />
-                          </td>
-                          <td className="px-3 py-2.5">
-                            <input type="text" value={v.option_value || ""} onChange={(e) => { const next = [...variants]; next[idx] = { ...next[idx], option_value: e.target.value }; setVariants(next); }} placeholder="블랙, L..." className="w-full px-2 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-[#C41E1E]/30" />
-                          </td>
-                          <td className="px-3 py-2.5">
-                            <input type="number" value={v.price} onChange={(e) => { const next = [...variants]; next[idx] = { ...next[idx], price: Number(e.target.value) || 0 }; setVariants(next); }} className="w-full px-2 py-1.5 text-sm text-right border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-[#C41E1E]/30" />
-                          </td>
-                          <td className="px-3 py-2.5">
-                            <input type="number" value={v.quantity} onChange={(e) => { const next = [...variants]; next[idx] = { ...next[idx], quantity: Number(e.target.value) || 0 }; setVariants(next); }} className={`w-full px-2 py-1.5 text-sm text-right border rounded-lg focus:outline-none focus:ring-1 focus:ring-[#C41E1E]/30 ${v.quantity <= 0 ? "border-red-300 bg-red-50" : v.quantity < 10 ? "border-yellow-300 bg-yellow-50" : "border-gray-200"}`} />
-                          </td>
-                          <td className="px-3 py-2.5 text-center">
-                            <select value={v.selling} onChange={(e) => { const next = [...variants]; next[idx] = { ...next[idx], selling: e.target.value }; setVariants(next); }} className="text-xs border border-gray-200 rounded px-2 py-1.5 cursor-pointer focus:outline-none">
-                              <option value="T">판매</option>
-                              <option value="F">중지</option>
-                            </select>
-                          </td>
-                          <td className="px-4 py-2.5 text-center">
-                            <button onClick={() => {
-                              if (v.id) setDeleteVariantIds([...deleteVariantIds, v.id]);
-                              setVariants(variants.filter((_, i) => i !== idx));
-                            }} className="text-xs text-gray-400 hover:text-red-500 cursor-pointer">
-                              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
-                            </button>
-                          </td>
-                        </tr>
-                      ))}
+                      {variants.map((v, idx) => {
+                        const marginPct = v.price > 0 ? ((v.price - v.supply_price) / v.price) * 100 : 0;
+                        return (
+                          <tr key={v.id || `new-${idx}`} className="border-b border-gray-50 last:border-0">
+                            <td className="px-3 py-2">
+                              <input
+                                type="text"
+                                value={v.option_name || ""}
+                                onChange={(e) => updateVariantField(idx, { option_name: e.target.value, option_text: null })}
+                                placeholder="색상"
+                                className="w-full px-2 py-1.5 text-sm border border-gray-200 rounded focus:outline-none focus:ring-1 focus:ring-[#C41E1E]/30"
+                              />
+                              {v.variant_code && (
+                                <p className="text-[10px] text-gray-400 font-mono mt-0.5 truncate">{v.variant_code}</p>
+                              )}
+                            </td>
+                            <td className="px-3 py-2">
+                              <input
+                                type="text"
+                                value={v.option_value || ""}
+                                onChange={(e) => updateVariantField(idx, { option_value: e.target.value, option_text: null })}
+                                placeholder="블랙"
+                                className="w-full px-2 py-1.5 text-sm border border-gray-200 rounded focus:outline-none focus:ring-1 focus:ring-[#C41E1E]/30"
+                              />
+                            </td>
+                            <td className="px-3 py-2">
+                              <input
+                                type="number"
+                                value={v.price}
+                                onChange={(e) => updateVariantField(idx, { price: Number(e.target.value) || 0 })}
+                                className="w-full px-2 py-1.5 text-sm text-right border border-gray-200 rounded focus:outline-none focus:ring-1 focus:ring-[#C41E1E]/30"
+                              />
+                            </td>
+                            <td className="px-3 py-2">
+                              <input
+                                type="number"
+                                value={v.supply_price}
+                                onChange={(e) => updateVariantField(idx, { supply_price: Number(e.target.value) || 0 })}
+                                className="w-full px-2 py-1.5 text-sm text-right border border-gray-200 rounded focus:outline-none focus:ring-1 focus:ring-[#C41E1E]/30"
+                              />
+                              {v.supply_price > 0 && v.price > 0 && (
+                                <p className={`text-[10px] text-right mt-0.5 ${marginPct >= 30 ? "text-green-600" : marginPct >= 20 ? "text-blue-600" : "text-gray-400"}`}>
+                                  마진 {marginPct.toFixed(1)}%
+                                </p>
+                              )}
+                            </td>
+                            <td className="px-3 py-2">
+                              <input
+                                type="number"
+                                value={v.supply_shipping_fee}
+                                onChange={(e) => updateVariantField(idx, { supply_shipping_fee: Number(e.target.value) || 0 })}
+                                className="w-full px-2 py-1.5 text-sm text-right border border-gray-200 rounded focus:outline-none focus:ring-1 focus:ring-[#C41E1E]/30"
+                              />
+                            </td>
+                            <td className="px-3 py-2">
+                              <input
+                                type="number"
+                                value={v.quantity}
+                                onChange={(e) => updateVariantField(idx, { quantity: Number(e.target.value) || 0 })}
+                                className={`w-full px-2 py-1.5 text-sm text-right border rounded focus:outline-none focus:ring-1 focus:ring-[#C41E1E]/30 ${v.quantity <= 0 ? "border-red-300 bg-red-50" : v.quantity < 10 ? "border-yellow-300 bg-yellow-50" : "border-gray-200"}`}
+                              />
+                            </td>
+                            <td className="px-3 py-2">
+                              <select
+                                value={v.tax_type}
+                                onChange={(e) => updateVariantField(idx, { tax_type: e.target.value })}
+                                className="w-full px-2 py-1.5 text-xs border border-gray-200 rounded cursor-pointer focus:outline-none"
+                              >
+                                <option value="과세">과세</option>
+                                <option value="면세">면세</option>
+                              </select>
+                            </td>
+                            <td className="px-2 py-2 text-center">
+                              <select
+                                value={v.selling}
+                                onChange={(e) => updateVariantField(idx, { selling: e.target.value })}
+                                className="text-xs border border-gray-200 rounded px-1.5 py-1.5 cursor-pointer focus:outline-none"
+                              >
+                                <option value="T">판매</option>
+                                <option value="F">중지</option>
+                              </select>
+                            </td>
+                            <td className="px-2 py-2 text-center">
+                              <button
+                                type="button"
+                                onClick={() => removeVariant(idx)}
+                                className="text-xs text-gray-400 hover:text-red-500 cursor-pointer"
+                                title="삭제"
+                              >
+                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                              </button>
+                            </td>
+                          </tr>
+                        );
+                      })}
                     </tbody>
                   </table>
 
@@ -1620,127 +1841,13 @@ function EditProductModal({
                       {variants.some((v) => v.quantity <= 0) && (
                         <span className="text-red-500 font-medium">품절 {variants.filter((v) => v.quantity <= 0).length}개</span>
                       )}
+                      {variants.some((v) => v.supply_price === 0) && (
+                        <span className="text-orange-500 font-medium">공급가 미입력 {variants.filter((v) => v.supply_price === 0).length}개</span>
+                      )}
                     </div>
                   </div>
                 </div>
               )}
-            </div>
-          )}
-
-          {/* ── 옵션 가격 탭 ── */}
-          {activeTab === "options" && (
-            <div className="space-y-4">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm font-medium text-gray-900">옵션별 공급가 / 판매가</p>
-                  <p className="text-[11px] text-gray-500 mt-0.5">
-                    카페24가 옵션별 공급가를 API로 응답하지 않아 수동 입력이 필요합니다. 판매가도 옵션마다 다르면 채워두면 검증·전화주문 자동채움에 사용됩니다.
-                  </p>
-                </div>
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={fetchOptionsFromCafe24}
-                    disabled={optLoading}
-                    className="px-3 py-1.5 text-xs font-medium text-blue-700 bg-blue-50 border border-blue-200 rounded-lg hover:bg-blue-100 disabled:opacity-50 cursor-pointer"
-                  >
-                    {optLoading ? "불러오는 중..." : "카페24 / 주문에서 옵션 불러오기"}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={addPriceOption}
-                    className="px-3 py-1.5 text-xs font-medium text-gray-700 bg-gray-50 border border-gray-200 rounded-lg hover:bg-gray-100 cursor-pointer"
-                  >+ 행 추가</button>
-                </div>
-              </div>
-
-              {optMsg && (
-                <div className={`text-xs px-3 py-2 rounded-lg ${optMsg.includes("실패") || optMsg.includes("Failed") ? "text-red-600 bg-red-50" : "text-green-700 bg-green-50"}`}>{optMsg}</div>
-              )}
-
-              {priceOptions.length === 0 ? (
-                <div className="py-8 text-center text-sm text-gray-400">옵션 가격이 등록되어 있지 않습니다. 위 &quot;옵션 불러오기&quot;를 클릭하거나 &quot;행 추가&quot;로 직접 입력하세요.</div>
-              ) : (
-                <div className="border border-gray-200 rounded-lg overflow-hidden">
-                  <table className="w-full text-sm">
-                    <thead className="bg-gray-50 text-xs text-gray-600">
-                      <tr>
-                        <th className="text-left px-3 py-2 font-medium">옵션 텍스트</th>
-                        <th className="text-right px-3 py-2 font-medium w-28">공급가</th>
-                        <th className="text-right px-3 py-2 font-medium w-28">판매가</th>
-                        <th className="text-right px-3 py-2 font-medium w-24">공급배송비</th>
-                        <th className="text-left px-3 py-2 font-medium w-20">과세</th>
-                        <th className="px-3 py-2 w-12"></th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {priceOptions.map((o, idx) => (
-                        <tr key={idx} className="border-t border-gray-100">
-                          <td className="px-3 py-1.5">
-                            <input
-                              type="text"
-                              value={o.option_text}
-                              onChange={(e) => updatePriceOption(idx, { option_text: e.target.value })}
-                              placeholder="예: 선택=오리지날 1팩"
-                              className="w-full px-2 py-1 text-sm border border-gray-200 rounded focus:outline-none focus:border-[#C41E1E]"
-                            />
-                          </td>
-                          <td className="px-3 py-1.5">
-                            <input
-                              type="number"
-                              value={o.supply_price}
-                              onChange={(e) => updatePriceOption(idx, { supply_price: Number(e.target.value) || 0 })}
-                              className="w-full px-2 py-1 text-sm text-right border border-gray-200 rounded focus:outline-none focus:border-[#C41E1E]"
-                            />
-                          </td>
-                          <td className="px-3 py-1.5">
-                            <input
-                              type="number"
-                              value={o.retail_price}
-                              onChange={(e) => updatePriceOption(idx, { retail_price: Number(e.target.value) || 0 })}
-                              className="w-full px-2 py-1 text-sm text-right border border-gray-200 rounded focus:outline-none focus:border-[#C41E1E]"
-                            />
-                          </td>
-                          <td className="px-3 py-1.5">
-                            <input
-                              type="number"
-                              value={o.supply_shipping_fee}
-                              onChange={(e) => updatePriceOption(idx, { supply_shipping_fee: Number(e.target.value) || 0 })}
-                              className="w-full px-2 py-1 text-sm text-right border border-gray-200 rounded focus:outline-none focus:border-[#C41E1E]"
-                            />
-                          </td>
-                          <td className="px-3 py-1.5">
-                            <select
-                              value={o.tax_type}
-                              onChange={(e) => updatePriceOption(idx, { tax_type: e.target.value })}
-                              className="w-full px-2 py-1 text-sm border border-gray-200 rounded focus:outline-none focus:border-[#C41E1E]"
-                            >
-                              <option value="과세">과세</option>
-                              <option value="면세">면세</option>
-                            </select>
-                          </td>
-                          <td className="px-3 py-1.5 text-center">
-                            <button
-                              type="button"
-                              onClick={() => deletePriceOption(idx)}
-                              className="text-xs text-red-500 hover:text-red-700 cursor-pointer"
-                            >삭제</button>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-
-              <div className="flex justify-end">
-                <button
-                  type="button"
-                  onClick={savePriceOptions}
-                  disabled={optLoading || priceOptions.length === 0}
-                  className="px-4 py-2 text-sm font-medium text-white bg-[#C41E1E] rounded-lg hover:bg-[#A01818] disabled:opacity-50 cursor-pointer"
-                >옵션 가격 저장</button>
-              </div>
             </div>
           )}
 

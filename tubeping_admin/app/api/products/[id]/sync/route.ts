@@ -7,21 +7,26 @@ const API_VERSION = "2026-03-01";
 const CLIENT_ID = env.CAFE24_CLIENT_ID;
 const CLIENT_SECRET = env.CAFE24_CLIENT_SECRET;
 
-/* ── 통합 토큰 관리 (전부 DB 기반) ── */
-async function getStoreToken(store: { mall_id: string; access_token: string; refresh_token: string; token_expires_at: string | null; id: string }): Promise<string | null> {
+type StoreRow = {
+  id: string;
+  mall_id: string;
+  access_token: string;
+  refresh_token: string;
+  token_expires_at: string | null;
+};
+
+/* ── 통합 토큰 관리 ── */
+export async function getStoreToken(store: StoreRow): Promise<string | null> {
   if (!store.access_token) return null;
 
-  // 1. 만료 전이면 현재 토큰 그대로 사용
   const expiresAt = store.token_expires_at ? new Date(store.token_expires_at).getTime() : 0;
   if (expiresAt > Date.now() + 60000) return store.access_token;
 
-  // 2. API 호출로 유효성 테스트
   const testRes = await fetch(`https://${store.mall_id}.cafe24api.com/api/v2/admin/products?limit=1`, {
     headers: { Authorization: `Bearer ${store.access_token}`, "X-Cafe24-Api-Version": API_VERSION },
   });
   if (testRes.ok) return store.access_token;
 
-  // 3. 만료됐으면 리프레시 시도
   if (!store.refresh_token) return null;
   try {
     const res = await fetch(`https://${store.mall_id}.cafe24api.com/api/v2/oauth/token`, {
@@ -63,7 +68,7 @@ async function cafe24Put(mallId: string, token: string, productNo: number, updat
   return { ok: res.ok, status: res.status };
 }
 
-async function cafe24Post(mallId: string, token: string, product: Record<string, unknown>): Promise<{ ok: boolean; status: number; product_no?: number }> {
+async function cafe24Post(mallId: string, token: string, product: Record<string, unknown>): Promise<{ ok: boolean; status: number; product_no?: number; error?: string }> {
   const res = await fetch(`https://${mallId}.cafe24api.com/api/v2/admin/products`, {
     method: "POST",
     headers: {
@@ -73,7 +78,10 @@ async function cafe24Post(mallId: string, token: string, product: Record<string,
     },
     body: JSON.stringify({ shop_no: 1, request: product }),
   });
-  if (!res.ok) return { ok: false, status: res.status };
+  if (!res.ok) {
+    const errorText = await res.text().catch(() => "");
+    return { ok: false, status: res.status, error: errorText };
+  }
   const data = await res.json();
   return { ok: true, status: res.status, product_no: data?.product?.product_no };
 }
@@ -91,36 +99,90 @@ async function cafe24PutVariant(mallId: string, token: string, productNo: number
   return { ok: res.ok, status: res.status };
 }
 
-/**
- * POST /api/products/[id]/sync
- * TubePing 상품 → 매핑된 모든 카페24 스토어에 동기화
- *
- * 동기화 항목: 상품명, 판매가, 공급가, 소비자가, 판매상태
- */
-export async function POST(
-  _request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
-  const { id } = await params;
-  const sb = getServiceClient();
+/* ── 타입 ── */
+type AdminVariant = {
+  id: string;
+  variant_code: string | null;
+  option_name: string | null;
+  option_value: string | null;
+  option_text: string | null;
+  price: number;
+  supply_price?: number | null;
+  quantity: number;
+  display: string;
+  selling: string;
+};
 
-  // 1. TubePing 상품 정보 조회 (배리언트 포함)
+type AdminProduct = {
+  id: string;
+  tp_code: string;
+  product_name: string;
+  price: number;
+  supply_price: number;
+  retail_price: number;
+  image_url: string | null;
+  description: string | null;
+  selling: string;
+  display: string | null;
+  product_variants?: AdminVariant[];
+  product_cafe24_mappings?: Array<{
+    id: string;
+    store_id: string;
+    cafe24_product_no: number | null;
+    sync_status: string;
+  }>;
+};
+
+type SyncResult = {
+  store_id: string;
+  mall_id: string;
+  status: "synced" | "created" | "error" | "skipped";
+  error?: string;
+};
+
+/* ── 카페24 variant.options 텍스트 합치기 ── */
+function variantOptionsToText(options: Array<{ name?: string; value?: string }> | undefined): string {
+  if (!options || options.length === 0) return "";
+  return options
+    .map((o) => `${(o.name || "").trim()}=${(o.value || "").trim()}`)
+    .join(", ")
+    .trim();
+}
+
+/* ── 단일 옵션 텍스트(옵션명=옵션값) ── */
+function singleOptionText(name?: string | null, value?: string | null): string {
+  return `${(name || "").trim()}=${(value || "").trim()}`.replace(/^=+|=+$/g, "");
+}
+
+/* ── 핵심: 단일 상품을 매핑된 (또는 지정된) 스토어에 동기화 ── */
+export async function syncProductToStores(
+  productId: string,
+  options?: { storeIds?: string[] }
+): Promise<{ results: SyncResult[]; synced: number; errors: number; message: string }> {
+  const sb = getServiceClient();
+  const storeFilter = options?.storeIds;
+
+  // 1. 상품 + 매핑 + variants 조회
   const { data: product, error: pErr } = await sb
     .from("products")
     .select("*, product_cafe24_mappings(*), product_variants(*)")
-    .eq("id", id)
-    .single();
+    .eq("id", productId)
+    .single<AdminProduct>();
 
   if (pErr || !product) {
-    return NextResponse.json({ error: "상품 조회 실패" }, { status: 404 });
+    return { results: [], synced: 0, errors: 1, message: "상품 조회 실패" };
   }
 
-  const mappings = product.product_cafe24_mappings || [];
+  let mappings = product.product_cafe24_mappings || [];
+  if (storeFilter && storeFilter.length > 0) {
+    const filterSet = new Set(storeFilter);
+    mappings = mappings.filter((m) => filterSet.has(m.store_id));
+  }
   if (mappings.length === 0) {
-    return NextResponse.json({ error: "매핑된 스토어가 없습니다" }, { status: 400 });
+    return { results: [], synced: 0, errors: 0, message: "매핑된 스토어 없음" };
   }
 
-  // 동기화할 데이터
+  // 2. PUT 시 보낼 공통 데이터
   const syncData: Record<string, unknown> = {
     product_name: product.product_name,
     price: String(product.price),
@@ -129,35 +191,59 @@ export async function POST(
     selling: product.selling,
     display: product.display || "T",
   };
+  if (product.image_url) {
+    syncData.list_image = product.image_url;
+    syncData.detail_image = product.image_url;
+    syncData.tiny_image = product.image_url;
+    syncData.small_image = product.image_url;
+  }
+  if (product.description) {
+    syncData.simple_description = product.description;
+  }
 
-  const results: { store_id: string; mall_id: string; status: string; error?: string }[] = [];
+  const tpVariants = product.product_variants || [];
+  const results: SyncResult[] = [];
 
+  // 3. 매핑 대상 스토어 정보 일괄 조회
+  const storeIds = mappings.map((m) => m.store_id);
+  const { data: stores } = await sb
+    .from("stores")
+    .select("id, mall_id, access_token, refresh_token, token_expires_at")
+    .in("id", storeIds);
+  const storeById = new Map<string, StoreRow>();
+  for (const s of stores || []) storeById.set(s.id, s as StoreRow);
+
+  // 4. (storeId × admin_variant_id) → cafe24_variant_code 매핑 미리 로드
+  const variantIds = tpVariants.map((v) => v.id);
+  const variantMappingByKey = new Map<string, string>(); // `${storeId}::${admin_variant_id}` → cafe24_variant_code
+  if (variantIds.length > 0) {
+    const { data: pvcm } = await sb
+      .from("product_variant_cafe24_mappings")
+      .select("store_id, admin_variant_id, cafe24_variant_code")
+      .in("admin_variant_id", variantIds)
+      .in("store_id", storeIds);
+    for (const m of pvcm || []) {
+      variantMappingByKey.set(`${m.store_id}::${m.admin_variant_id}`, m.cafe24_variant_code);
+    }
+  }
+
+  // 5. 각 매핑별 처리
   for (const mapping of mappings) {
-    // 스토어 정보 로드
-    const { data: store } = await sb
-      .from("stores")
-      .select("id, mall_id, access_token, refresh_token, token_expires_at")
-      .eq("id", mapping.store_id)
-      .single();
-
+    const store = storeById.get(mapping.store_id);
     if (!store) {
       await sb.from("product_cafe24_mappings").update({ sync_status: "error" }).eq("id", mapping.id);
       results.push({ store_id: mapping.store_id, mall_id: "?", status: "error", error: "스토어 조회 실패" });
       continue;
     }
 
-    // 토큰 가져오기 (DB 기반 자동 갱신)
     const token = await getStoreToken(store);
-
     if (!token) {
       await sb.from("product_cafe24_mappings").update({ sync_status: "error" }).eq("id", mapping.id);
       results.push({ store_id: store.id, mall_id: store.mall_id, status: "error", error: "토큰 없음/만료" });
       continue;
     }
 
-    const tpVariants = product.product_variants || [];
-
-    // cafe24_product_no가 없으면 → 신규 생성 (POST)
+    // 5-1. cafe24_product_no 없으면 신규 생성 (POST)
     if (!mapping.cafe24_product_no) {
       const newProduct: Record<string, unknown> = {
         product_name: product.product_name,
@@ -169,7 +255,12 @@ export async function POST(
         display: "T",
       };
       if (product.description) newProduct.simple_description = product.description;
-      if (product.image_url) newProduct.list_image = product.image_url;
+      if (product.image_url) {
+        newProduct.list_image = product.image_url;
+        newProduct.detail_image = product.image_url;
+        newProduct.tiny_image = product.image_url;
+        newProduct.small_image = product.image_url;
+      }
 
       try {
         const createRes = await cafe24Post(store.mall_id, token, newProduct);
@@ -180,60 +271,33 @@ export async function POST(
             last_sync_at: new Date().toISOString(),
           }).eq("id", mapping.id);
           results.push({ store_id: store.id, mall_id: store.mall_id, status: "created" });
+
+          // 신규 생성 후 자식 카페24 variants를 받아 매핑 테이블에 저장
+          await persistVariantMappings(store.mall_id, token, createRes.product_no, store.id, tpVariants);
+
+          // 신규 생성된 자식 variants에 admin의 가격/재고 PUT
+          await syncVariantsToStore(store.mall_id, token, createRes.product_no, store.id, tpVariants);
         } else {
-          // 생성 실패 — 해당 몰에 등록 불가 (스킵 처리)
-          results.push({ store_id: store.id, mall_id: store.mall_id, status: "skipped", error: `생성 불가 (${createRes.status})` });
+          results.push({
+            store_id: store.id, mall_id: store.mall_id, status: "skipped",
+            error: `생성 불가 (${createRes.status}${createRes.error ? `: ${createRes.error.slice(0, 120)}` : ""})`,
+          });
         }
-      } catch {
-        results.push({ store_id: store.id, mall_id: store.mall_id, status: "skipped", error: "생성 중 오류" });
+      } catch (e) {
+        results.push({
+          store_id: store.id, mall_id: store.mall_id, status: "skipped",
+          error: e instanceof Error ? e.message : "생성 중 오류",
+        });
       }
       continue;
     }
 
-    // cafe24_product_no가 있으면 → 기존 수정 (PUT)
+    // 5-2. 기존 product 수정 (PUT)
     const res = await cafe24Put(store.mall_id, token, mapping.cafe24_product_no, syncData);
 
-    // 배리언트(재고/옵션) 동기화
+    // 5-3. variants 동기화
     if (res.ok && tpVariants.length > 0) {
-      // 해당 스토어의 배리언트 목록 조회 → 코드 매핑
-      let storeVariants: { variant_code: string; options: { name: string; value: string }[] }[] = [];
-      try {
-        const vRes = await fetch(`https://${store.mall_id}.cafe24api.com/api/v2/admin/products/${mapping.cafe24_product_no}?embed=variants`, {
-          headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json", "X-Cafe24-Api-Version": API_VERSION },
-        });
-        if (vRes.ok) {
-          const vData = await vRes.json();
-          storeVariants = vData?.product?.variants || [];
-        }
-      } catch (e) { console.error("[products/sync] fetch cafe24 variants failed:", e); }
-
-      for (const v of tpVariants) {
-        // 1. 같은 variant_code가 있으면 그대로 사용
-        let targetCode = storeVariants.find(sv => sv.variant_code === v.variant_code)?.variant_code;
-
-        // 2. 없으면 옵션명/값으로 매칭
-        if (!targetCode && v.option_value) {
-          const match = storeVariants.find(sv =>
-            sv.options?.some(o => v.option_value?.includes(o.value))
-          );
-          if (match) targetCode = match.variant_code;
-        }
-
-        // 3. 배리언트가 1개뿐이면 그것 사용
-        if (!targetCode && storeVariants.length === 1) {
-          targetCode = storeVariants[0].variant_code;
-        }
-
-        if (!targetCode) continue;
-
-        const variantUpdate: Record<string, unknown> = {
-          quantity: v.quantity,
-          price: String(v.price),
-          display: v.display,
-          selling: v.selling,
-        };
-        await cafe24PutVariant(store.mall_id, token, mapping.cafe24_product_no, targetCode, variantUpdate);
-      }
+      await syncVariantsToStore(store.mall_id, token, mapping.cafe24_product_no, store.id, tpVariants);
     }
 
     if (res.ok) {
@@ -259,11 +323,162 @@ export async function POST(
   if (skippedCount > 0) parts.push(`${skippedCount}개 스킵`);
   if (errorCount > 0) parts.push(`${errorCount}개 실패`);
 
-  return NextResponse.json({
-    success: syncedCount + createdCount > 0,
+  return {
+    results,
     synced: syncedCount + createdCount,
     errors: errorCount,
-    results,
     message: parts.join(", ") || "동기화 대상 없음",
+  };
+}
+
+/* ── 자식 카페24 variants 받아와 매핑 테이블에 저장 ──
+ *  product_variant_cafe24_mappings에 (admin_variant_id, store_id, cafe24_variant_code) upsert
+ */
+async function persistVariantMappings(
+  mallId: string,
+  token: string,
+  cafe24ProductNo: number,
+  storeId: string,
+  adminVariants: AdminVariant[]
+) {
+  if (adminVariants.length === 0) return;
+  try {
+    const res = await fetch(
+      `https://${mallId}.cafe24api.com/api/v2/admin/products/${cafe24ProductNo}/variants?limit=100`,
+      { headers: { Authorization: `Bearer ${token}`, "X-Cafe24-Api-Version": API_VERSION } }
+    );
+    if (!res.ok) return;
+    const data = await res.json();
+    const cafeVariants: Array<{ variant_code: string; options: Array<{ name: string; value: string }> }> =
+      data?.variants || [];
+
+    const sb = getServiceClient();
+    const rowsToUpsert: Array<{
+      admin_variant_id: string;
+      store_id: string;
+      cafe24_variant_code: string;
+      last_sync_at: string;
+    }> = [];
+
+    for (const v of adminVariants) {
+      const adminText = v.option_text || singleOptionText(v.option_name, v.option_value);
+      let matched: typeof cafeVariants[number] | null = null;
+
+      // 1순위: option_text 정확 매칭
+      matched = cafeVariants.find((cv) => variantOptionsToText(cv.options) === adminText) || null;
+
+      // 2순위: option_value 부분 매칭
+      if (!matched && v.option_value) {
+        matched = cafeVariants.find((cv) =>
+          cv.options?.some((o) => v.option_value?.includes(o.value))
+        ) || null;
+      }
+
+      // 3순위: variant가 1개뿐이면 그것
+      if (!matched && cafeVariants.length === 1) matched = cafeVariants[0];
+
+      if (matched?.variant_code) {
+        rowsToUpsert.push({
+          admin_variant_id: v.id,
+          store_id: storeId,
+          cafe24_variant_code: matched.variant_code,
+          last_sync_at: new Date().toISOString(),
+        });
+      }
+    }
+
+    if (rowsToUpsert.length > 0) {
+      await sb
+        .from("product_variant_cafe24_mappings")
+        .upsert(rowsToUpsert, { onConflict: "admin_variant_id,store_id" });
+    }
+  } catch (e) {
+    console.error("[persistVariantMappings] failed:", e);
+  }
+}
+
+/* ── admin variants 데이터 → 자식 카페24 variants PUT ──
+ *  variant_code 결정 순위:
+ *    1) product_variant_cafe24_mappings 조회
+ *    2) 매핑 없으면 자식 카페24 variants 받아와 option_text 매칭 후 매핑 저장
+ *    3) 그래도 못 찾으면 스킵 (운영자가 자식 mall 확인 필요)
+ */
+async function syncVariantsToStore(
+  mallId: string,
+  token: string,
+  cafe24ProductNo: number,
+  storeId: string,
+  adminVariants: AdminVariant[]
+) {
+  if (adminVariants.length === 0) return;
+  const sb = getServiceClient();
+
+  // 1. 기존 매핑 로드
+  const { data: existing } = await sb
+    .from("product_variant_cafe24_mappings")
+    .select("admin_variant_id, cafe24_variant_code")
+    .eq("store_id", storeId)
+    .in("admin_variant_id", adminVariants.map((v) => v.id));
+  const mapped = new Map<string, string>();
+  for (const m of existing || []) mapped.set(m.admin_variant_id, m.cafe24_variant_code);
+
+  // 2. 매핑 없는 variant가 있으면 자식 카페24 variants 받아와 매핑 시도
+  const unmapped = adminVariants.filter((v) => !mapped.has(v.id));
+  if (unmapped.length > 0) {
+    await persistVariantMappings(mallId, token, cafe24ProductNo, storeId, unmapped);
+    // 다시 로드
+    const { data: refreshed } = await sb
+      .from("product_variant_cafe24_mappings")
+      .select("admin_variant_id, cafe24_variant_code")
+      .eq("store_id", storeId)
+      .in("admin_variant_id", adminVariants.map((v) => v.id));
+    mapped.clear();
+    for (const m of refreshed || []) mapped.set(m.admin_variant_id, m.cafe24_variant_code);
+  }
+
+  // 3. 매핑된 variant_code로 PUT
+  for (const v of adminVariants) {
+    const code = mapped.get(v.id);
+    if (!code) continue;
+    await cafe24PutVariant(mallId, token, cafe24ProductNo, code, {
+      quantity: v.quantity,
+      price: String(v.price),
+      display: v.display,
+      selling: v.selling,
+    });
+  }
+
+  // 4. last_sync_at 갱신
+  const matchedIds = adminVariants.filter((v) => mapped.has(v.id)).map((v) => v.id);
+  if (matchedIds.length > 0) {
+    await sb
+      .from("product_variant_cafe24_mappings")
+      .update({ last_sync_at: new Date().toISOString() })
+      .eq("store_id", storeId)
+      .in("admin_variant_id", matchedIds);
+  }
+}
+
+/**
+ * POST /api/products/[id]/sync
+ * TubePing 상품 → 매핑된 모든 카페24 스토어에 동기화
+ * body (optional): { store_ids: string[] } — 특정 자식 스토어만 동기화
+ */
+export async function POST(
+  request: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  const { id } = await params;
+  const body = await request.json().catch(() => ({}));
+  const storeIds = Array.isArray(body.store_ids) ? body.store_ids : undefined;
+
+  const result = await syncProductToStores(id, storeIds ? { storeIds } : undefined);
+
+  return NextResponse.json({
+    success: result.synced > 0,
+    synced: result.synced,
+    errors: result.errors,
+    results: result.results,
+    message: result.message,
   });
 }
