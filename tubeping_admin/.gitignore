@@ -41,3 +41,4 @@ next-env.d.ts
 .vercel
 check_db*.js
 final_check.js
+finance-export.json
