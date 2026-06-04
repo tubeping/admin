@@ -211,7 +211,9 @@ export function computeItem(order: OrderRow, ctx: SupplyContext, store_name = ""
 
   // 샘플: 공급가 = 정산매출, 공급배송비 = 0 (순익 0)
   const supplyTotal = isCancelled ? 0 : isSample ? settledAmount : supplyPrice * qty;
-  const supShipFinal = isCancelled || isSample ? 0 : supplyShipping;
+  // 공급배송비는 박스(=출고 개수) 단위로 청구되므로 수량만큼 곱한다.
+  // (예: 명진푸드 박스당 4,000원, q2 주문은 2박스 8,000원)
+  const supShipFinal = isCancelled || isSample ? 0 : supplyShipping * qty;
   const itemType = isCancelled ? "취소" : "매출";
   const supplierData = (order.suppliers as { id: string; name: string } | null) || null;
 
