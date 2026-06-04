@@ -157,24 +157,99 @@ export interface Classifiable {
   category?: string | null;
 }
 
+/** 우리 admin DB 에 이미 등록된 이름들을 동적 매칭에 활용 (정적 RULES 보다 뒤 순위) */
+export interface ClassifyContext {
+  /** suppliers.name 목록 — 출금 매칭 시 cogs.supplier 로 분류 */
+  supplierNames?: string[];
+  /** stores.name 목록 — 입금 매칭 시 sales.channel 로 분류 */
+  storeNames?: string[];
+  /** stores.bank_holder 목록 — 출금 매칭 시 selling.influencer (인플루언서 정산 지급) */
+  storeBankHolders?: string[];
+  /** fin_purchases.partner 목록 — 출금 매칭 시 cogs.purchase (세금계산서 발행된 매입처) */
+  fpPartners?: string[];
+  /** fin_sales.partner 목록 — 입금 매칭 시 sales.channel (세금계산서 발행한 거래처) */
+  fsPartners?: string[];
+}
+
+export interface ClassifyResult {
+  code: string;
+  /** true = 자동(룰/동적), false = 사용자가 DB 에 직접 지정 */
+  auto: boolean;
+  /** 어떤 경로로 분류됐는지 (user/rule:키워드/공급사:X/판매사:X/인플루언서:X/세계매입:X/세계매출:X/fallback) */
+  via: string;
+}
+
+function normalizeForMatch(s: string | null | undefined): string {
+  if (!s) return "";
+  return s.replace(/\s/g, "").replace(/\(주\)|㈜|주식회사/g, "").toLowerCase();
+}
+
 /**
- * 자동분류.
- * 1) row.category 가 이미 유효한 account code 면 그대로 사용 (수동 분류 우선)
- * 2) RULES 순회하며 첫 match 의 code 반환
- * 3) match 없으면 입금=sales.misc, 출금=unclassified
+ * 자동분류 (context 가 있으면 DB 동적 매칭까지 시도).
+ * 우선순위:
+ *   1) row.category 가 유효한 account code → 사용자가 직접 지정한 것 우선 (auto=false)
+ *   2) 정적 RULES (keyword)
+ *   3) 동적: 출금이면 suppliers → bank_holder → fin_purchases, 입금이면 stores → fin_sales
+ *   4) fallback: 입금=sales.misc, 출금=unclassified
+ *
+ * 길이 < 2 토큰은 노이즈 방지를 위해 매칭 skip.
  */
-export function classify(row: Classifiable, side: "in" | "out"): { code: string; auto: boolean } {
+export function classify(row: Classifiable, side: "in" | "out", ctx: ClassifyContext = {}): ClassifyResult {
   if (row.category && isValidAccountCode(row.category)) {
-    return { code: row.category, auto: false };
+    return { code: row.category, auto: false, via: "user" };
   }
-  const haystack = `${row.partner || ""} ${row.descr || ""} ${row.memo || ""}`.toLowerCase();
+  const haystack = normalizeForMatch(`${row.partner || ""} ${row.descr || ""} ${row.memo || ""}`);
+
+  // 1) 정적 RULES
   for (const rule of RULES) {
     if (rule.for !== "both" && rule.for !== side) continue;
     for (const k of rule.kw) {
-      if (haystack.includes(k.toLowerCase())) return { code: rule.code, auto: true };
+      const nk = normalizeForMatch(k);
+      if (nk.length >= 2 && haystack.includes(nk)) return { code: rule.code, auto: true, via: `rule:${k}` };
     }
   }
-  return { code: side === "in" ? "sales.misc" : "unclassified", auto: true };
+
+  // 2) 동적: 출금 — 공급사 이름 → cogs.supplier
+  if (side === "out" && ctx.supplierNames) {
+    for (const name of ctx.supplierNames) {
+      const tok = normalizeForMatch(name);
+      if (tok.length >= 2 && haystack.includes(tok)) return { code: "cogs.supplier", auto: true, via: `공급사:${name}` };
+    }
+  }
+
+  // 3) 동적: 입금 — 판매사(스토어) 이름 → sales.channel
+  if (side === "in" && ctx.storeNames) {
+    for (const name of ctx.storeNames) {
+      const tok = normalizeForMatch(name);
+      if (tok.length >= 2 && haystack.includes(tok)) return { code: "sales.channel", auto: true, via: `판매사:${name}` };
+    }
+  }
+
+  // 4) 동적: 출금 — 판매사 bank_holder (인플루언서 정산 지급) → selling.influencer
+  if (side === "out" && ctx.storeBankHolders) {
+    for (const name of ctx.storeBankHolders) {
+      const tok = normalizeForMatch(name);
+      if (tok.length >= 2 && haystack.includes(tok)) return { code: "selling.influencer", auto: true, via: `인플루언서:${name}` };
+    }
+  }
+
+  // 5) 동적: 출금 — fin_purchases partner (세금계산서 발행받은 매입처) → cogs.purchase
+  if (side === "out" && ctx.fpPartners) {
+    for (const name of ctx.fpPartners) {
+      const tok = normalizeForMatch(name);
+      if (tok.length >= 2 && haystack.includes(tok)) return { code: "cogs.purchase", auto: true, via: `세계매입:${name}` };
+    }
+  }
+
+  // 6) 동적: 입금 — fin_sales partner (세금계산서 발행한 매출처) → sales.channel
+  if (side === "in" && ctx.fsPartners) {
+    for (const name of ctx.fsPartners) {
+      const tok = normalizeForMatch(name);
+      if (tok.length >= 2 && haystack.includes(tok)) return { code: "sales.channel", auto: true, via: `세계매출:${name}` };
+    }
+  }
+
+  return { code: side === "in" ? "sales.misc" : "unclassified", auto: true, via: "fallback" };
 }
 
 /** UI 드롭다운 옵션용 — depth 0 (그룹 헤더) 제외, depth 1·2 만, 보기 좋게 들여쓰기 */

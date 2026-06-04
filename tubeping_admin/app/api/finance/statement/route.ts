@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServiceClient } from "@/lib/supabase";
-import { ACCOUNTS, classify, rootOf, type Classifiable } from "@/lib/finance/accounts";
+import { ACCOUNTS, classify, rootOf, type Classifiable, type ClassifyContext } from "@/lib/finance/accounts";
 
 /**
  * GET /api/finance/statement?year=2026&month=&exclude_eum=true
@@ -30,7 +30,7 @@ export async function GET(req: NextRequest) {
   try {
     const sb = getServiceClient();
 
-    const [inR, outR, cardR, stR, ssR] = await Promise.all([
+    const [inR, outR, cardR, stR, ssR, suppliersR, storesR, fpR, fsR] = await Promise.all([
       sb.from("fin_bank_in").select("id,date,partner,amount,category,descr,memo").gte("date", from).lte("date", to),
       sb.from("fin_bank_out").select("id,date,partner,amount,category,descr,memo").gte("date", from).lte("date", to),
       sb.from("fin_card_tx").select("id,date,partner,amount,category,descr,memo").gte("date", from).lte("date", to),
@@ -40,15 +40,37 @@ export async function GET(req: NextRequest) {
       sb.from("supplier_settlements")
         .select("period,supplier_name,total_amount")
         .like("period", `${year}-%`),
+      // 동적 분류용 context — admin DB 에 등록된 이름·발행된 세금계산서 partner
+      sb.from("suppliers").select("name").eq("status", "active"),
+      sb.from("stores").select("name, bank_holder"),
+      sb.from("fin_purchases").select("partner").gte("date", from).lte("date", to),
+      sb.from("fin_sales").select("partner").gte("date", from).lte("date", to),
     ]);
-    for (const r of [inR, outR, cardR, stR, ssR]) if (r.error) throw new Error(r.error.message);
+    for (const r of [inR, outR, cardR, stR, ssR, suppliersR, storesR, fpR, fsR]) if (r.error) throw new Error(r.error.message);
 
     const bankIn = ((inR.data ?? []) as BankRow[]).map((r) => ({ ...r, _table: "fin_bank_in" as const, _side: "in" as const }));
     const bankOut = ((outR.data ?? []) as BankRow[]).map((r) => ({ ...r, _table: "fin_bank_out" as const, _side: "out" as const }));
     const cardTx = ((cardR.data ?? []) as BankRow[]).map((r) => ({ ...r, _table: "fin_card_tx" as const, _side: "out" as const }));
 
-    // 자동분류
-    const classified = [...bankIn, ...bankOut, ...cardTx].map((r) => ({ ...r, _cls: classify(r, r._side) }));
+    // 동적 분류 context (중복·빈값 제거)
+    const dedup = (arr: (string | null | undefined)[]) => [...new Set(arr.filter((x): x is string => !!x && x.trim().length >= 2))];
+    const ctx: ClassifyContext = {
+      supplierNames: dedup((suppliersR.data ?? []).map((r) => (r as { name: string | null }).name)),
+      storeNames: dedup((storesR.data ?? []).map((r) => (r as { name: string | null }).name)),
+      storeBankHolders: dedup((storesR.data ?? []).map((r) => (r as { bank_holder: string | null }).bank_holder)),
+      fpPartners: dedup((fpR.data ?? []).map((r) => (r as { partner: string | null }).partner)),
+      fsPartners: dedup((fsR.data ?? []).map((r) => (r as { partner: string | null }).partner)),
+    };
+
+    // 자동분류 (정적 RULES + 동적 context)
+    const classified = [...bankIn, ...bankOut, ...cardTx].map((r) => ({ ...r, _cls: classify(r, r._side, ctx) }));
+
+    // 분류 통계 (어떤 경로로 분류됐는지)
+    const viaStats: Record<string, number> = {};
+    for (const r of classified) {
+      const key = r._cls.via.startsWith("rule:") ? "rule" : r._cls.via.split(":")[0];
+      viaStats[key] = (viaStats[key] || 0) + 1;
+    }
 
     // 이음로직스 제외 옵션
     const filtered = excludeEum ? classified.filter((r) => rootOf(r._cls.code) !== "eumlogics") : classified;
@@ -109,13 +131,13 @@ export async function GET(req: NextRequest) {
     const nonop = get("nonop");
     const op_profit = sales - cogs - selling - ga - tax;
 
-    // 미분류 거래 (UI 수동 분류용)
+    // 미분류 거래 (UI 수동 분류용) — fallback 으로 떨어진 것만 (자동매칭된 sales.channel/cogs.supplier 등은 제외)
     const unclassified = filtered
-      .filter((r) => r._cls.code === "unclassified" || r._cls.code === "sales.misc" || r._cls.code === "ga.card")
+      .filter((r) => r._cls.via === "fallback")
       .map((r) => ({
         id: r.id, table: r._table, side: r._side,
         date: r.date, partner: r.partner, descr: r.descr, memo: r.memo,
-        amount: r.amount, current_code: r._cls.code, auto: r._cls.auto,
+        amount: r.amount, current_code: r._cls.code, auto: r._cls.auto, via: r._cls.via,
       }))
       .sort((a, b) => b.amount - a.amount)
       .slice(0, 500);
@@ -125,6 +147,16 @@ export async function GET(req: NextRequest) {
       kpi: { sales, cogs, selling, ga, tax, eumlogics: eum, nonop, op_profit },
       tree,
       unclassified,
+      classify_stats: {
+        ...viaStats,
+        context: {
+          supplier_names: ctx.supplierNames?.length || 0,
+          store_names: ctx.storeNames?.length || 0,
+          bank_holders: ctx.storeBankHolders?.length || 0,
+          fp_partners: ctx.fpPartners?.length || 0,
+          fs_partners: ctx.fsPartners?.length || 0,
+        },
+      },
       sources: {
         bank_in: bankIn.length, bank_out: bankOut.length, card_tx: cardTx.length,
         settlements: (stR.data ?? []).length, supplier_settlements: (ssR.data ?? []).length,

@@ -8,14 +8,28 @@ const fmt = (n: number | null | undefined) => (n === null || n === undefined ? "
 const pct = (n: number, base: number) => (base > 0 ? Math.round((Math.abs(n) / base) * 1000) / 10 : 0);
 
 interface TreeNode { code: string; label: string; side: "in" | "out" | "both"; depth: 0 | 1 | 2; amount: number; count: number; self_amount: number }
-interface UnclassifiedRow { id: number; table: "fin_bank_in" | "fin_bank_out" | "fin_card_tx"; side: "in" | "out"; date: string; partner: string | null; descr: string | null; memo: string | null; amount: number; current_code: string; auto: boolean }
+interface UnclassifiedRow { id: number; table: "fin_bank_in" | "fin_bank_out" | "fin_card_tx"; side: "in" | "out"; date: string; partner: string | null; descr: string | null; memo: string | null; amount: number; current_code: string; auto: boolean; via: string }
 interface Statement {
   period: { year: number; month: string | null; exclude_eum: boolean };
   kpi: { sales: number; cogs: number; selling: number; ga: number; tax: number; eumlogics: number; nonop: number; op_profit: number };
   tree: TreeNode[];
   unclassified: UnclassifiedRow[];
+  classify_stats: Record<string, number | object> & {
+    context: { supplier_names: number; store_names: number; bank_holders: number; fp_partners: number; fs_partners: number };
+  };
   sources: { bank_in: number; bank_out: number; card_tx: number; settlements: number; supplier_settlements: number };
 }
+
+const VIA_LABELS: Record<string, { label: string; color: string; bg: string }> = {
+  user: { label: "사용자 분류", color: "#15803d", bg: "#dcfce7" },
+  rule: { label: "키워드 룰", color: "#1d4ed8", bg: "#dbeafe" },
+  공급사: { label: "공급사 매칭", color: "#9333ea", bg: "#f3e8ff" },
+  판매사: { label: "판매사 매칭", color: "#0891b2", bg: "#cffafe" },
+  인플루언서: { label: "인플루언서 매칭", color: "#b45309", bg: "#fef3c7" },
+  세계매입: { label: "매입 세계 매칭", color: "#7c2d12", bg: "#fed7aa" },
+  세계매출: { label: "매출 세계 매칭", color: "#0c4a6e", bg: "#bae6fd" },
+  fallback: { label: "미분류 (수동)", color: "#991b1b", bg: "#fee2e2" },
+};
 
 // 4개 섹션 정의 (depth 0 그룹들을 비즈니스 의미로 묶음)
 const SECTIONS = [
@@ -171,6 +185,23 @@ export default function StatementPage() {
                     </div>
                   );
                 })}
+              </div>
+
+              {/* ─── 자동분류 통계 칩 ─── */}
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 16, padding: 12, background: "var(--gray-50)", borderRadius: 8, alignItems: "center" }}>
+                <span style={{ fontSize: 12, fontWeight: 700, color: "var(--text-sub)", marginRight: 8 }}>🤖 자동분류:</span>
+                {Object.entries(VIA_LABELS).map(([k, v]) => {
+                  const cnt = (data.classify_stats[k] as number) || 0;
+                  if (!cnt) return null;
+                  return (
+                    <span key={k} style={{ display: "inline-flex", alignItems: "center", gap: 4, padding: "3px 10px", background: v.bg, color: v.color, borderRadius: 12, fontSize: 11, fontWeight: 600 }}>
+                      {v.label} <b>{cnt}</b>
+                    </span>
+                  );
+                })}
+                <span style={{ marginLeft: "auto", fontSize: 11, color: "var(--text-sub)" }}>
+                  DB 매칭원: 공급사 {data.classify_stats.context.supplier_names} · 판매사 {data.classify_stats.context.store_names} · 인플루언서 {data.classify_stats.context.bank_holders} · 매입세계 {data.classify_stats.context.fp_partners} · 매출세계 {data.classify_stats.context.fs_partners}
+                </span>
               </div>
 
               {/* ─── 탭 전환 ─── */}
