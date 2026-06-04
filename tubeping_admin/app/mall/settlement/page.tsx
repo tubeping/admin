@@ -125,6 +125,14 @@ interface SupplierProduct {
   shipping: number;
   sales: number;
 }
+interface SupplierDateRow {
+  date: string;
+  count: number;
+  qty: number;
+  supply: number;
+  shipping: number;
+  sales: number;
+}
 
 // ─── 상태 스타일 ───
 const SELLER_STATUS: Record<string, { label: string; style: string }> = {
@@ -334,6 +342,7 @@ export default function SettlementPage() {
   const [supDetail, setSupDetail] = useState<SupplierSettlement | null>(null);
   const [supDetailProducts, setSupDetailProducts] = useState<SupplierProduct[]>([]);
   const [supDetailItems, setSupDetailItems] = useState<SettlementItem[]>([]);
+  const [supDetailByDate, setSupDetailByDate] = useState<SupplierDateRow[]>([]);
   const [supCreating, setSupCreating] = useState(false);
   const [supFilterStatus, setSupFilterStatus] = useState("");
 
@@ -559,6 +568,7 @@ export default function SettlementPage() {
     setSupDetail(data.supplierSettlement);
     setSupDetailProducts(data.products || []);
     setSupDetailItems(data.items || []);
+    setSupDetailByDate(data.byDate || []);
   };
 
   const handleSupDelete = async (id: string) => {
@@ -1357,6 +1367,98 @@ export default function SettlementPage() {
           {supDetailProducts.length === 0 && (
             <div className="p-12 text-center text-gray-400">
               상품 내역이 없습니다.
+            </div>
+          )}
+        </div>
+
+        {/* 일자별 내역 (출고일 기준) */}
+        <div className="bg-white rounded-xl border border-gray-200 mt-6">
+          <div className="px-6 py-4 border-b border-gray-100">
+            <h3 className="text-sm font-semibold text-gray-900">
+              일자별 내역 ({supDetailByDate.length}일)
+            </h3>
+            <p className="text-xs text-gray-400 mt-0.5">출고일 기준</p>
+          </div>
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="text-xs text-gray-500 border-b border-gray-100">
+                <th className="text-left px-6 py-2.5 font-medium">출고일</th>
+                <th className="text-right px-3 py-2.5 font-medium">건수</th>
+                <th className="text-right px-3 py-2.5 font-medium">수량</th>
+                <th className="text-right px-3 py-2.5 font-medium">공급가</th>
+                <th className="text-right px-3 py-2.5 font-medium">배송비</th>
+                <th className="text-right px-3 py-2.5 font-medium">소계</th>
+                <th className="text-right px-6 py-2.5 font-medium">판매금액</th>
+              </tr>
+            </thead>
+            <tbody>
+              {supDetailByDate.map((d) => (
+                <tr
+                  key={d.date}
+                  className="border-b border-gray-50 hover:bg-gray-50/50"
+                >
+                  <td className="px-6 py-3 text-gray-900">
+                    {d.date === "미상"
+                      ? "미상"
+                      : new Date(d.date).toLocaleDateString("ko-KR", {
+                          month: "long",
+                          day: "numeric",
+                          weekday: "short",
+                        })}
+                  </td>
+                  <td className="px-3 py-3 text-right text-gray-700">
+                    {d.count}건
+                  </td>
+                  <td className="px-3 py-3 text-right text-gray-700">
+                    {d.qty}개
+                  </td>
+                  <td className="px-3 py-3 text-right text-gray-700">
+                    {W(d.supply)}
+                  </td>
+                  <td className="px-3 py-3 text-right text-gray-700">
+                    {W(d.shipping)}
+                  </td>
+                  <td className="px-3 py-3 text-right font-medium text-blue-600">
+                    {W(d.supply + d.shipping)}
+                  </td>
+                  <td className="px-6 py-3 text-right text-gray-500">
+                    {W(d.sales)}
+                  </td>
+                </tr>
+              ))}
+              {supDetailByDate.length > 0 && (
+                <tr className="bg-gray-50 font-semibold">
+                  <td className="px-6 py-3 text-gray-900">합계</td>
+                  <td className="px-3 py-3 text-right">
+                    {supDetailByDate.reduce((a, b) => a + b.count, 0)}건
+                  </td>
+                  <td className="px-3 py-3 text-right">
+                    {supDetailByDate.reduce((a, b) => a + b.qty, 0)}개
+                  </td>
+                  <td className="px-3 py-3 text-right">
+                    {W(supDetailByDate.reduce((a, b) => a + b.supply, 0))}
+                  </td>
+                  <td className="px-3 py-3 text-right">
+                    {W(supDetailByDate.reduce((a, b) => a + b.shipping, 0))}
+                  </td>
+                  <td className="px-3 py-3 text-right text-blue-600">
+                    {W(
+                      supDetailByDate.reduce(
+                        (a, b) => a + b.supply + b.shipping,
+                        0
+                      )
+                    )}
+                  </td>
+                  <td className="px-6 py-3 text-right text-gray-500">
+                    {W(supDetailByDate.reduce((a, b) => a + b.sales, 0))}
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+          {supDetailByDate.length === 0 && (
+            <div className="p-12 text-center text-gray-400">
+              일자별 내역이 없습니다.
             </div>
           )}
         </div>
