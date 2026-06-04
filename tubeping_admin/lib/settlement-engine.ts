@@ -190,16 +190,6 @@ export function computeItem(order: OrderRow, ctx: SupplyContext, store_name = ""
   const isGift = channel === "gift";
   const isSample = channel === "sample";
 
-  // 정산매출: order_amount 기준 / 증정 0 / 취소 역산
-  let settledAmount: number;
-  if (isGift) {
-    settledAmount = 0;
-  } else if (isCancelled) {
-    settledAmount = -(order.order_amount || 0);
-  } else {
-    settledAmount = order.order_amount || 0;
-  }
-
   // 공급가 조회 + 면세 VAT 가산
   const supInfo = getSupplyInfo(order, ctx);
   let supplyPrice = supInfo.supply_price;
@@ -209,11 +199,26 @@ export function computeItem(order: OrderRow, ctx: SupplyContext, store_name = ""
     if (supplyShipping > 0) supplyShipping = Math.round(supplyShipping * 1.1);
   }
 
-  // 샘플: 공급가 = 정산매출, 공급배송비 = 0 (순익 0)
-  const supplyTotal = isCancelled ? 0 : isSample ? settledAmount : supplyPrice * qty;
+  // 공급가/공급배송비: 취소는 0, 그 외(샘플 포함) 실제 공급가 기준으로 비용 계상.
+  // 샘플도 신산이 공급사에 실제 비용을 지불하므로 0이나 고객가(order_amount)가 아니라
+  // 제품 공급가가 잡혀야 한다.
   // 공급배송비는 박스(=출고 개수) 단위로 청구되므로 수량만큼 곱한다.
   // (예: 명진푸드 박스당 4,000원, q2 주문은 2박스 8,000원)
-  const supShipFinal = isCancelled || isSample ? 0 : supplyShipping * qty;
+  const supplyTotal = isCancelled ? 0 : supplyPrice * qty;
+  const supShipFinal = isCancelled ? 0 : supplyShipping * qty;
+
+  // 정산매출: 증정 0 / 취소 역산 / 샘플은 공급가와 동일(순익 0) / 그 외 order_amount
+  let settledAmount: number;
+  if (isGift) {
+    settledAmount = 0;
+  } else if (isCancelled) {
+    settledAmount = -(order.order_amount || 0);
+  } else if (isSample) {
+    settledAmount = supplyTotal + supShipFinal;
+  } else {
+    settledAmount = order.order_amount || 0;
+  }
+
   const itemType = isCancelled ? "취소" : "매출";
   const supplierData = (order.suppliers as { id: string; name: string } | null) || null;
 
@@ -233,7 +238,7 @@ export function computeItem(order: OrderRow, ctx: SupplyContext, store_name = ""
     app_discount: order.app_discount || 0,
     additional_discount: order.additional_discount || 0,
     settled_amount: settledAmount,
-    supply_price: isSample && !isCancelled ? order.product_price || 0 : supplyPrice,
+    supply_price: supplyPrice,
     supply_total: supplyTotal,
     supply_shipping: supShipFinal,
     tax_type: supInfo.tax_type,
