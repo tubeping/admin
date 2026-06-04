@@ -9,6 +9,7 @@ interface AddrVerifyResult { id: string; status: "valid" | "invalid" | "unknown"
 
 interface Order {
   id: string;
+  created_at: string | null;
   cafe24_order_id: string;
   cafe24_order_item_code: string;
   cafe24_product_no: number;
@@ -796,9 +797,12 @@ export default function UnifiedOrdersPage() {
     if (!res.ok) { setLoading(false); return; }
     const data = await res.json();
     const fetchedOrders = (data.orders || []).sort((a: Order, b: Order) => {
-      const ka = orderIdSortKey(a.cafe24_order_id);
-      const kb = orderIdSortKey(b.cafe24_order_id);
-      return kb.localeCompare(ka); // 내림차순
+      // 1순위: 등록시각(created_at) 내림차순 → 방금 등록한 건이 항상 맨 위
+      const ta = a.created_at ? Date.parse(a.created_at) : 0;
+      const tb = b.created_at ? Date.parse(b.created_at) : 0;
+      if (tb !== ta) return tb - ta;
+      // 2순위: 주문번호(접두사 제거) 내림차순 — 같은 배치/시각 내 정렬
+      return orderIdSortKey(b.cafe24_order_id).localeCompare(orderIdSortKey(a.cafe24_order_id));
     });
     setRawOrders(fetchedOrders);
     setTotal(data.total || 0);
