@@ -28,7 +28,7 @@ export async function GET(request: NextRequest) {
   // 공급사는 출고일로 청구하므로 공급사 정산도 출고일 기준으로 집계한다.
   const { data: orders, error } = await sb
     .from("orders")
-    .select("*, suppliers(id, name)")
+    .select("*, suppliers!supplier_id(id, name)")
     .gte("shipped_at", range.startDate)
     .lte("shipped_at", range.endDate + "T23:59:59");
 

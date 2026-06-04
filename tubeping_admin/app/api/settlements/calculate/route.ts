@@ -56,7 +56,7 @@ export async function POST(request: NextRequest) {
 
   let ordQuery = sb
     .from("orders")
-    .select("*, suppliers(id, name)")
+    .select("*, suppliers!supplier_id(id, name)")
     .eq("store_id", store_id)
     .gte(dateField, startDate)
     .lte(dateField, endDate + "T23:59:59")

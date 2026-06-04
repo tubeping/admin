@@ -57,7 +57,7 @@ export async function POST(request: NextRequest) {
   // shipped_at 이 없는(미출고) 주문은 자동 제외된다.
   const { data: orders, error: ordError } = await sb
     .from("orders")
-    .select("*, suppliers(id, name)")
+    .select("*, suppliers!supplier_id(id, name)")
     .gte("shipped_at", range.startDate)
     .lte("shipped_at", range.endDate + "T23:59:59");
 
