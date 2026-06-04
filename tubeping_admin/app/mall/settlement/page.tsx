@@ -609,6 +609,27 @@ export default function SettlementPage() {
     const CH_LABEL_MAP: Record<string, string> = {
       cafe24: "자사몰", phone: "전화", sms: "문자", sample: "샘플", group: "공구", gift: "증정",
     };
+    // 공동구매형 상품별 공급대금 요약 (settlement_items 기준 클라이언트 집계)
+    const wholesaleProductSummary = (() => {
+      if (!isWholesale) return [];
+      const map: Record<string, { name: string; qty: number; goods: number; ship: number; vat: number }> = {};
+      for (const it of detailItems) {
+        const ex = it.tax_type === "면세";
+        const isCancel = it.item_type !== "매출";
+        const goods = isCancel ? 0 : (ex ? Math.round((it.supply_total || 0) / 1.1) : (it.supply_total || 0));
+        const ship = isCancel ? 0 : (ex ? Math.round((it.supply_shipping || 0) / 1.1) : (it.supply_shipping || 0));
+        const vat = ex ? 0 : Math.round((goods + ship) * 0.1);
+        const key = it.product_name || "기타";
+        if (!map[key]) map[key] = { name: key, qty: 0, goods: 0, ship: 0, vat: 0 };
+        map[key].qty += it.quantity || 0;
+        map[key].goods += goods;
+        map[key].ship += ship;
+        map[key].vat += vat;
+      }
+      return Object.values(map)
+        .map((p) => ({ ...p, total: p.goods + p.ship + p.vat }))
+        .sort((a, b) => b.total - a.total);
+    })();
 
     return (
       <div className="p-8">
@@ -883,16 +904,18 @@ export default function SettlementPage() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="text-xs text-gray-500 border-b border-gray-100">
-                  {[
-                    "구분", "판매방식", "주문번호", "주문일", "상품명", "옵션", "수량",
-                    "단가", "상품금액", "배송비", "쿠폰할인", "앱할인", "추가할인", "정산매출",
-                    "공급가", "공급배송비", "순익", "과세", "공급사", "담당자 비고", "판매사 비고",
-                  ].map((h) => (
+                  {(isWholesale
+                    ? ["구분", "판매방식", "주문번호", "주문일", "상품명", "옵션", "수량",
+                       "공급가", "공급배송비", "부가세", "공급대금", "과세", "공급사", "담당자 비고", "판매사 비고"]
+                    : ["구분", "판매방식", "주문번호", "주문일", "상품명", "옵션", "수량",
+                       "단가", "상품금액", "배송비", "쿠폰할인", "앱할인", "추가할인", "정산매출",
+                       "공급가", "공급배송비", "순익", "과세", "공급사", "담당자 비고", "판매사 비고"]
+                  ).map((h) => (
                     <th
                       key={h}
                       className={`px-3 py-2.5 font-medium text-left whitespace-nowrap ${
                         ["쿠폰할인", "앱할인", "추가할인"].includes(h) ? "text-red-500"
-                        : h === "순익" ? "text-blue-600" : ""
+                        : h === "순익" ? "text-blue-600" : h === "공급대금" ? "text-violet-600" : ""
                       }`}
                     >
                       {h}
@@ -945,39 +968,59 @@ export default function SettlementPage() {
                       {item.option_text || "-"}
                     </td>
                     <td className="px-3 py-2.5 text-right">{item.quantity}</td>
-                    <td className="px-3 py-2.5 text-right">
-                      {W(item.product_price)}
-                    </td>
-                    <td className="px-3 py-2.5 text-right text-gray-500">
-                      {W(item.product_price * item.quantity)}
-                    </td>
-                    <td className="px-3 py-2.5 text-right text-gray-500">
-                      {item.shipping_fee ? W(item.shipping_fee) : "-"}
-                    </td>
-                    <td className="px-3 py-2.5 text-right text-red-500">
-                      {item.coupon_discount ? `-${W(item.coupon_discount)}` : "-"}
-                    </td>
-                    <td className="px-3 py-2.5 text-right text-red-500">
-                      {item.app_discount ? `-${W(item.app_discount)}` : "-"}
-                    </td>
-                    <td className="px-3 py-2.5 text-right text-red-500">
-                      {item.additional_discount ? `-${W(item.additional_discount)}` : "-"}
-                    </td>
-                    <td className="px-3 py-2.5 text-right font-medium bg-yellow-50">
-                      {W(item.settled_amount)}
-                    </td>
-                    <td className="px-3 py-2.5 text-right">
-                      {W(item.supply_total)}
-                    </td>
-                    <td className="px-3 py-2.5 text-right">
-                      {W(item.supply_shipping)}
-                    </td>
-                    <td className={`px-3 py-2.5 text-right font-medium ${
-                      (item.settled_amount - item.supply_total - item.supply_shipping) >= 0
-                        ? "text-blue-600" : "text-red-600"
-                    }`}>
-                      {W(item.settled_amount - item.supply_total - item.supply_shipping)}
-                    </td>
+                    {isWholesale ? (() => {
+                      // 공동구매: 신산 공급대금 분해 (과세 10% 별도 / 면세 0)
+                      const ex = item.tax_type === "면세";
+                      const isCancel = item.item_type !== "매출";
+                      const wGoods = isCancel ? 0 : (ex ? Math.round((item.supply_total || 0) / 1.1) : (item.supply_total || 0));
+                      const wShip = isCancel ? 0 : (ex ? Math.round((item.supply_shipping || 0) / 1.1) : (item.supply_shipping || 0));
+                      const wVat = ex ? 0 : Math.round((wGoods + wShip) * 0.1);
+                      const wTotal = wGoods + wShip + wVat;
+                      return (
+                        <>
+                          <td className="px-3 py-2.5 text-right">{W(wGoods)}</td>
+                          <td className="px-3 py-2.5 text-right text-gray-500">{W(wShip)}</td>
+                          <td className="px-3 py-2.5 text-right text-gray-500">{W(wVat)}</td>
+                          <td className="px-3 py-2.5 text-right font-medium text-violet-600">{W(wTotal)}</td>
+                        </>
+                      );
+                    })() : (
+                      <>
+                        <td className="px-3 py-2.5 text-right">
+                          {W(item.product_price)}
+                        </td>
+                        <td className="px-3 py-2.5 text-right text-gray-500">
+                          {W(item.product_price * item.quantity)}
+                        </td>
+                        <td className="px-3 py-2.5 text-right text-gray-500">
+                          {item.shipping_fee ? W(item.shipping_fee) : "-"}
+                        </td>
+                        <td className="px-3 py-2.5 text-right text-red-500">
+                          {item.coupon_discount ? `-${W(item.coupon_discount)}` : "-"}
+                        </td>
+                        <td className="px-3 py-2.5 text-right text-red-500">
+                          {item.app_discount ? `-${W(item.app_discount)}` : "-"}
+                        </td>
+                        <td className="px-3 py-2.5 text-right text-red-500">
+                          {item.additional_discount ? `-${W(item.additional_discount)}` : "-"}
+                        </td>
+                        <td className="px-3 py-2.5 text-right font-medium bg-yellow-50">
+                          {W(item.settled_amount)}
+                        </td>
+                        <td className="px-3 py-2.5 text-right">
+                          {W(item.supply_total)}
+                        </td>
+                        <td className="px-3 py-2.5 text-right">
+                          {W(item.supply_shipping)}
+                        </td>
+                        <td className={`px-3 py-2.5 text-right font-medium ${
+                          (item.settled_amount - item.supply_total - item.supply_shipping) >= 0
+                            ? "text-blue-600" : "text-red-600"
+                        }`}>
+                          {W(item.settled_amount - item.supply_total - item.supply_shipping)}
+                        </td>
+                      </>
+                    )}
                     <td className="px-3 py-2.5">
                       <span
                         className={`text-xs ${item.tax_type === "면세" ? "text-pink-600" : "text-gray-400"}`}
@@ -1028,7 +1071,33 @@ export default function SettlementPage() {
           </>
         )}
 
-        {detailTab === "products" && (
+        {detailTab === "products" && isWholesale && (
+          <div className="bg-white rounded-xl border border-gray-200 overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-xs text-gray-500 border-b border-gray-100">
+                  {["상품명", "수량", "공급가", "공급배송비", "부가세", "공급대금"].map((h) => (
+                    <th key={h} className="px-4 py-2.5 font-medium text-left whitespace-nowrap">{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {wholesaleProductSummary.map((p) => (
+                  <tr key={p.name} className="border-b border-gray-50">
+                    <td className="px-4 py-3 text-gray-900 max-w-[300px] truncate">{p.name}</td>
+                    <td className="px-4 py-3 text-right">{p.qty}</td>
+                    <td className="px-4 py-3 text-right">{W(p.goods)}</td>
+                    <td className="px-4 py-3 text-right text-gray-500">{W(p.ship)}</td>
+                    <td className="px-4 py-3 text-right text-gray-500">{W(p.vat)}</td>
+                    <td className="px-4 py-3 text-right font-medium text-violet-600">{W(p.total)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        {detailTab === "products" && !isWholesale && (
           <div className="bg-white rounded-xl border border-gray-200">
             <table className="w-full text-sm">
               <thead>
