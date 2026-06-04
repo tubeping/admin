@@ -17,20 +17,23 @@ type TableName = typeof ALLOWED_TABLES[number];
 
 export async function POST(req: NextRequest) {
   try {
-    const body = await req.json() as { table?: string; id?: number; code?: string };
+    const body = await req.json() as { table?: string; id?: number; code?: string; memo?: string };
     const table = body.table as TableName;
     const id = body.id;
     const code = body.code;
+    const memo = typeof body.memo === "string" ? body.memo.trim() : undefined;
 
     if (!ALLOWED_TABLES.includes(table)) return NextResponse.json({ error: "invalid table" }, { status: 400 });
     if (typeof id !== "number") return NextResponse.json({ error: "id required" }, { status: 400 });
     if (!code || !isValidAccountCode(code)) return NextResponse.json({ error: "invalid account code" }, { status: 400 });
 
     const sb = getServiceClient();
-    const { error } = await sb.from(table).update({ category: code }).eq("id", id);
+    const patch: { category: string; memo?: string } = { category: code };
+    if (memo !== undefined && memo.length > 0) patch.memo = memo;
+    const { error } = await sb.from(table).update(patch).eq("id", id);
     if (error) throw new Error(error.message);
 
-    return NextResponse.json({ ok: true, table, id, code });
+    return NextResponse.json({ ok: true, table, id, code, memo: patch.memo });
   } catch (e) {
     return NextResponse.json({ error: e instanceof Error ? e.message : String(e) }, { status: 500 });
   }
