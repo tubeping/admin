@@ -42,6 +42,8 @@ interface Settlement {
   withholding_tax: number;
   influencer_actual: number;
   company_amount: number;
+  settlement_model?: string;
+  supplier_payable?: number;
   snap_influencer_rate: number;
   snap_company_rate: number;
   snap_settlement_type: string;
@@ -570,6 +572,9 @@ export default function SettlementPage() {
     const infPct = s.snap_influencer_rate ?? 70;
     const coPct = s.snap_company_rate ?? 30;
     const sType = s.snap_settlement_type || "사업자";
+    // 공동구매형(wholesale): 신산이 공급자로서 판매사에 공급대금을 청구
+    const isWholesale = s.settlement_model === "wholesale";
+    const supplierPayable = s.supplier_payable ?? 0;
 
     return (
       <div className="p-8">
@@ -675,7 +680,37 @@ export default function SettlementPage() {
           ))}
         </div>
 
-        {detailTab === "summary" && (
+        {detailTab === "summary" && isWholesale && (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div className="bg-white rounded-xl border border-gray-200 p-6">
+              <h3 className="text-sm font-semibold text-gray-900 mb-1">공급대금 (신산 → {storeName} 청구)</h3>
+              <p className="text-xs text-gray-400 mb-4">공동구매: 판매사가 고객결제 수취, 신산은 공급가 기준 정산금 수취</p>
+              <div className="space-y-3">
+                {s.cogs_exempt > 0 ? (
+                  <>
+                    <Row label="공급가 (과세)" value={s.cogs_taxable} />
+                    <Row label="공급가 (면세)" value={s.cogs_exempt} />
+                  </>
+                ) : (
+                  <Row label="공급가 합계" value={s.total_cogs} />
+                )}
+                {s.total_shipping > 0 && <Row label="공급배송비" value={s.total_shipping} />}
+                {s.vat_amount > 0 && <Row label="부가세 (과세분 10%)" value={s.vat_amount} />}
+                <Row label="신산 수취액" value={supplierPayable} bold highlight />
+              </div>
+            </div>
+            <div className="bg-white rounded-xl border border-gray-200 p-6">
+              <h3 className="text-sm font-semibold text-gray-900 mb-4">집계</h3>
+              <div className="space-y-3">
+                <Row label="주문 건수" value={`${s.total_orders}건`} isText />
+                <Row label="정산 품목 수" value={`${s.total_items}건`} isText />
+                <Row label="정산 기간" value={`${s.start_date} ~ ${s.end_date}`} isText />
+              </div>
+            </div>
+          </div>
+        )}
+
+        {detailTab === "summary" && !isWholesale && (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div className="bg-white rounded-xl border border-gray-200 p-6">
               <h3 className="text-sm font-semibold text-gray-900 mb-4">매출</h3>
@@ -1264,6 +1299,12 @@ export default function SettlementPage() {
     0
   );
   const draftCount = settlements.filter((s) => s.status === "draft").length;
+  // 공동구매형(wholesale) 신산 수취액 합계
+  const wholesalePayable = settlements.reduce(
+    (s, v) => s + (v.settlement_model === "wholesale" ? v.supplier_payable ?? 0 : 0),
+    0
+  );
+  const hasWholesale = settlements.some((s) => s.settlement_model === "wholesale");
 
   const supTotalAmount = supSettlements.reduce(
     (a, b) => a + b.total_amount,
@@ -1564,7 +1605,9 @@ export default function SettlementPage() {
             {[
               { label: "총 순매출", value: W(totalSales) },
               { label: "총 순익", value: W(totalProfit) },
-              { label: "인플루언서 실지급", value: W(totalInfluencer) },
+              hasWholesale
+                ? { label: "공구 공급대금 (신산 수취)", value: W(wholesalePayable) }
+                : { label: "인플루언서 실지급", value: W(totalInfluencer) },
               { label: "미확정 건수", value: `${draftCount}건` },
             ].map((c) => (
               <div
@@ -1625,30 +1668,51 @@ export default function SettlementPage() {
                       </td>
                       <td className="px-3 py-3.5 text-sm font-medium text-gray-900">
                         {s.stores?.name || "-"}
+                        {s.settlement_model === "wholesale" && (
+                          <span className="ml-1.5 text-[10px] font-medium px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 align-middle">
+                            공구
+                          </span>
+                        )}
                       </td>
                       <td className="px-3 py-3.5 text-sm text-gray-500">
                         {s.period}
                       </td>
-                      <td className="px-3 py-3.5 text-sm text-gray-700 text-right">
-                        {W(s.total_sales)}
-                      </td>
-                      <td className="px-3 py-3.5 text-sm text-gray-500 text-right">
-                        {W(s.total_cost)}
-                      </td>
-                      <td
-                        className="px-3 py-3.5 text-sm font-medium text-right"
-                        style={{
-                          color: s.net_profit >= 0 ? "#059669" : "#DC2626",
-                        }}
-                      >
-                        {W(s.net_profit)}
-                      </td>
-                      <td className="px-3 py-3.5 text-sm text-blue-600 text-right">
-                        {W(s.influencer_actual)}
-                      </td>
-                      <td className="px-3 py-3.5 text-sm text-gray-500 text-right">
-                        {W(s.company_amount)}
-                      </td>
+                      {s.settlement_model === "wholesale" ? (
+                        <>
+                          <td className="px-3 py-3.5 text-sm text-gray-300 text-right">—</td>
+                          <td className="px-3 py-3.5 text-sm text-gray-500 text-right">
+                            {W(s.total_cost)}
+                          </td>
+                          <td className="px-3 py-3.5 text-sm font-medium text-right text-gray-900">
+                            {W(s.supplier_payable ?? 0)}
+                          </td>
+                          <td className="px-3 py-3.5 text-sm text-gray-300 text-right">—</td>
+                          <td className="px-3 py-3.5 text-sm text-gray-300 text-right">—</td>
+                        </>
+                      ) : (
+                        <>
+                          <td className="px-3 py-3.5 text-sm text-gray-700 text-right">
+                            {W(s.total_sales)}
+                          </td>
+                          <td className="px-3 py-3.5 text-sm text-gray-500 text-right">
+                            {W(s.total_cost)}
+                          </td>
+                          <td
+                            className="px-3 py-3.5 text-sm font-medium text-right"
+                            style={{
+                              color: s.net_profit >= 0 ? "#059669" : "#DC2626",
+                            }}
+                          >
+                            {W(s.net_profit)}
+                          </td>
+                          <td className="px-3 py-3.5 text-sm text-blue-600 text-right">
+                            {W(s.influencer_actual)}
+                          </td>
+                          <td className="px-3 py-3.5 text-sm text-gray-500 text-right">
+                            {W(s.company_amount)}
+                          </td>
+                        </>
+                      )}
                       <td className="px-3 py-3.5 text-center">
                         <span
                           className={`text-xs font-medium px-2 py-1 rounded-full ${SELLER_STATUS[s.status]?.style}`}

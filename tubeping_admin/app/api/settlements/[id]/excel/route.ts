@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServiceClient } from "@/lib/supabase";
+import { wholesaleItemCharge } from "@/lib/settlement-engine";
 import ExcelJS from "exceljs";
 
 const CH_LABEL: Record<string, string> = {
@@ -55,6 +56,9 @@ export async function GET(
   const infPct = s.snap_influencer_rate ?? 70;
   const coPct = s.snap_company_rate ?? 30;
   const sType = s.snap_settlement_type || "사업자";
+  // 공동구매형(wholesale): 신산이 공급자로서 판매사에 공급대금 청구
+  const isWholesale = s.settlement_model === "wholesale";
+  const supplierPayable = s.supplier_payable ?? 0;
 
   // ── Workbook 생성 ──
   const wb = new ExcelJS.Workbook();
@@ -71,7 +75,7 @@ export async function GET(
   let r = 1;
   ws1.mergeCells(r, 1, r, 2);
   const titleCell = ws1.getCell(r, 1);
-  titleCell.value = `${storeName} 정산서`;
+  titleCell.value = isWholesale ? `${storeName} 공급대금 청구서` : `${storeName} 정산서`;
   titleCell.font = { size: 18, bold: true, color: { argb: C.brand } };
   titleCell.alignment = { vertical: "middle" };
   ws1.getRow(r).height = 30;
@@ -79,7 +83,9 @@ export async function GET(
   r++;
   ws1.mergeCells(r, 1, r, 2);
   const subCell = ws1.getCell(r, 1);
-  subCell.value = `정산기간: ${s.start_date} ~ ${s.end_date}  |  ${sType}  |  ${infPct}:${coPct} 분배`;
+  subCell.value = isWholesale
+    ? `정산기간: ${s.start_date} ~ ${s.end_date}  |  공동구매 (신산 → ${storeName} 공급)`
+    : `정산기간: ${s.start_date} ~ ${s.end_date}  |  ${sType}  |  ${infPct}:${coPct} 분배`;
   subCell.font = { size: 10, color: { argb: "6B7280" } };
 
   // 섹션 헬퍼
@@ -121,6 +127,23 @@ export async function GET(
     }
   }
 
+  if (isWholesale) {
+    // ── 공동구매형: 공급대금 청구 ──
+    addSection("공급대금 (신산 수취액)");
+    if (s.cogs_exempt > 0) {
+      addRow("공급가 (과세)", s.cogs_taxable);
+      addRow("공급가 (면세)", s.cogs_exempt);
+    } else {
+      addRow("공급가 합계", s.total_cogs);
+    }
+    if (s.total_shipping > 0) addRow("공급배송비", s.total_shipping);
+    if (s.vat_amount > 0) addRow("부가세 (과세분 10%)", s.vat_amount);
+    addRow("신산 수취액", supplierPayable, { bold: true, highlight: true });
+
+    addSection("집계");
+    addRow("주문 건수", `${s.total_orders}건`);
+    addRow("정산 품목 수", `${s.total_items}건`);
+  } else {
   // 매출
   addSection("매출");
   addRow("자사몰 매출", s.cafe24_sales);
@@ -163,17 +186,26 @@ export async function GET(
     addRow(`${storeName} 실지급액`, s.influencer_actual, { bold: true, highlight: true });
   }
   addRow(`신산애널리틱스 (${coPct}%)`, s.company_amount);
+  }
 
   // ═══════════════════════════════════════
   // Sheet 2: 주문상세
   // ═══════════════════════════════════════
   const ws2 = wb.addWorksheet("주문상세");
-  const orderHeaders = [
-    "구분", "판매방식", "주문번호", "주문일", "상품명", "옵션", "수량",
-    "단가", "상품금액", "배송비", "쿠폰할인", "앱할인", "추가할인", "정산매출",
-    "공급가", "공급배송비", "순익", "과세구분", "공급사",
-  ];
-  const colWidths = [6, 8, 22, 12, 40, 20, 6, 10, 12, 10, 10, 10, 10, 12, 10, 10, 10, 8, 14];
+
+  // 헤더 (모델별)
+  const orderHeaders = isWholesale
+    ? ["구분", "판매방식", "주문번호", "주문일", "상품명", "옵션", "수량",
+       "공급가", "공급배송비", "부가세", "공급대금", "과세구분", "공급사"]
+    : ["구분", "판매방식", "주문번호", "주문일", "상품명", "옵션", "수량",
+       "단가", "상품금액", "배송비", "쿠폰할인", "앱할인", "추가할인", "정산매출",
+       "공급가", "공급배송비", "순익", "과세구분", "공급사"];
+  const colWidths = isWholesale
+    ? [6, 8, 22, 12, 40, 20, 6, 12, 12, 10, 14, 8, 14]
+    : [6, 8, 22, 12, 40, 20, 6, 10, 12, 10, 10, 10, 10, 12, 10, 10, 10, 8, 14];
+  // 숫자 포맷 적용 열 범위 (1-기반)
+  const numFrom = 8;
+  const numTo = isWholesale ? 11 : 17;
 
   // 헤더
   const hRow = ws2.addRow(orderHeaders);
@@ -187,7 +219,7 @@ export async function GET(
   });
 
   // 자동필터
-  ws2.autoFilter = { from: { row: 1, column: 1 }, to: { row: 1, column: 19 } };
+  ws2.autoFilter = { from: { row: 1, column: 1 }, to: { row: 1, column: orderHeaders.length } };
 
   // 데이터 행
   (items || []).forEach((item: Record<string, unknown>, idx: number) => {
@@ -198,27 +230,52 @@ export async function GET(
     const supShip = (item.supply_shipping as number) || 0;
     const profit = settledAmt - supTotal - supShip;
 
-    const row = ws2.addRow([
-      item.item_type,
-      CH_LABEL[(item.sales_channel as string)] || (item.sales_channel as string) || "기타",
-      item.cafe24_order_id,
-      ((item.order_date as string) || "").slice(0, 10),
-      item.product_name,
-      item.option_text || "",
-      qty,
-      price,
-      price * qty,
-      (item.shipping_fee as number) || 0,
-      (item.coupon_discount as number) || 0,
-      (item.app_discount as number) || 0,
-      (item.additional_discount as number) || 0,
-      settledAmt,
-      supTotal,
-      supShip,
-      profit,
-      item.tax_type,
-      item.supplier_name || "",
-    ]);
+    let row: ExcelJS.Row;
+    if (isWholesale) {
+      const c = wholesaleItemCharge({
+        supply_total: supTotal,
+        supply_shipping: supShip,
+        tax_type: (item.tax_type as string) || "과세",
+        item_type: (item.item_type as string) || "매출",
+      });
+      row = ws2.addRow([
+        item.item_type,
+        CH_LABEL[(item.sales_channel as string)] || (item.sales_channel as string) || "기타",
+        item.cafe24_order_id,
+        ((item.order_date as string) || "").slice(0, 10),
+        item.product_name,
+        item.option_text || "",
+        qty,
+        c.goods,
+        c.shipping,
+        c.vat,
+        c.total,
+        item.tax_type,
+        item.supplier_name || "",
+      ]);
+    } else {
+      row = ws2.addRow([
+        item.item_type,
+        CH_LABEL[(item.sales_channel as string)] || (item.sales_channel as string) || "기타",
+        item.cafe24_order_id,
+        ((item.order_date as string) || "").slice(0, 10),
+        item.product_name,
+        item.option_text || "",
+        qty,
+        price,
+        price * qty,
+        (item.shipping_fee as number) || 0,
+        (item.coupon_discount as number) || 0,
+        (item.app_discount as number) || 0,
+        (item.additional_discount as number) || 0,
+        settledAmt,
+        supTotal,
+        supShip,
+        profit,
+        item.tax_type,
+        item.supplier_name || "",
+      ]);
+    }
 
     // 교차행 색상
     const isOdd = idx % 2 === 1;
@@ -228,20 +285,25 @@ export async function GET(
       if (isOdd) {
         cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: C.lightGray } };
       }
-      // 숫자 포맷 (8~17열)
-      if (colNumber >= 8 && colNumber <= 17) {
+      if (colNumber >= numFrom && colNumber <= numTo) {
         cell.numFmt = "#,##0";
         cell.alignment = { horizontal: "right" };
       }
     });
 
-    // 순익 색상
-    const profitCell = row.getCell(17);
-    profitCell.font = {
-      size: 9,
-      color: { argb: profit >= 0 ? C.green : C.red },
-      bold: true,
-    };
+    if (isWholesale) {
+      // 공급대금 강조
+      const payCell = row.getCell(11);
+      payCell.font = { size: 9, color: { argb: C.sectionFont }, bold: true };
+    } else {
+      // 순익 색상
+      const profitCell = row.getCell(17);
+      profitCell.font = {
+        size: 9,
+        color: { argb: profit >= 0 ? C.green : C.red },
+        bold: true,
+      };
+    }
   });
 
   // 헤더 고정
@@ -250,9 +312,11 @@ export async function GET(
   // ═══════════════════════════════════════
   // Sheet 3: 상품별매출
   // ═══════════════════════════════════════
-  const ws3 = wb.addWorksheet("상품별매출");
-  const prodHeaders = ["상품명", "판매수량", "매출", "매입가합계", "배송비합계", "이익", "마진율"];
-  const prodWidths = [50, 10, 14, 14, 14, 14, 10];
+  const ws3 = wb.addWorksheet(isWholesale ? "상품별공급" : "상품별매출");
+  const prodHeaders = isWholesale
+    ? ["상품명", "수량", "공급가합계", "공급배송비", "부가세", "공급대금"]
+    : ["상품명", "판매수량", "매출", "매입가합계", "배송비합계", "이익", "마진율"];
+  const prodWidths = isWholesale ? [50, 10, 14, 14, 12, 14] : [50, 10, 14, 14, 14, 14, 10];
 
   const pH = ws3.addRow(prodHeaders);
   pH.height = 24;
@@ -265,47 +329,76 @@ export async function GET(
   });
 
   // 상품별 요약 계산
-  const productMap: Record<string, { name: string; qty: number; sales: number; cogs: number; ship: number }> = {};
+  const productMap: Record<string, { name: string; qty: number; sales: number; cogs: number; ship: number; wGoods: number; wShip: number; wVat: number }> = {};
   for (const item of (items || []) as Record<string, unknown>[]) {
     const key = (item.product_name as string) || "기타";
-    if (!productMap[key]) productMap[key] = { name: key, qty: 0, sales: 0, cogs: 0, ship: 0 };
+    if (!productMap[key]) productMap[key] = { name: key, qty: 0, sales: 0, cogs: 0, ship: 0, wGoods: 0, wShip: 0, wVat: 0 };
     productMap[key].qty += (item.quantity as number) || 0;
     productMap[key].sales += (item.settled_amount as number) || 0;
     productMap[key].cogs += (item.supply_total as number) || 0;
     productMap[key].ship += (item.supply_shipping as number) || 0;
+    const c = wholesaleItemCharge({
+      supply_total: (item.supply_total as number) || 0,
+      supply_shipping: (item.supply_shipping as number) || 0,
+      tax_type: (item.tax_type as string) || "과세",
+      item_type: (item.item_type as string) || "매출",
+    });
+    productMap[key].wGoods += c.goods;
+    productMap[key].wShip += c.shipping;
+    productMap[key].wVat += c.vat;
   }
 
-  const products = Object.values(productMap)
-    .filter(p => p.sales > 0 || p.qty > 0)
-    .sort((a, b) => b.sales - a.sales);
-
-  products.forEach((p, idx) => {
-    const profit = p.sales - p.cogs - p.ship;
-    const margin = p.sales > 0 ? Math.round((profit / p.sales) * 1000) / 10 : 0;
-    const row = ws3.addRow([p.name, p.qty, p.sales, p.cogs, p.ship, profit, margin / 100 /* 0.0% format needs 0-1 */]);
-
-    const isOdd = idx % 2 === 1;
-    row.eachCell((cell, colNumber) => {
-      cell.font = { size: 9 };
-      cell.border = border();
-      if (isOdd) cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: C.lightGray } };
-      if (colNumber >= 2 && colNumber <= 6) {
-        cell.numFmt = "#,##0";
-        cell.alignment = { horizontal: "right" };
-      }
-      if (colNumber === 7) {
-        cell.numFmt = "0.0%";
-        cell.alignment = { horizontal: "right" };
-        cell.font = { size: 9, bold: true, color: { argb: margin >= 30 ? C.green : margin < 15 ? C.red : "374151" } };
-      }
+  if (isWholesale) {
+    const products = Object.values(productMap)
+      .filter(p => p.qty > 0 || p.wGoods > 0)
+      .sort((a, b) => (b.wGoods + b.wShip + b.wVat) - (a.wGoods + a.wShip + a.wVat));
+    products.forEach((p, idx) => {
+      const total = p.wGoods + p.wShip + p.wVat;
+      const row = ws3.addRow([p.name, p.qty, p.wGoods, p.wShip, p.wVat, total]);
+      const isOdd = idx % 2 === 1;
+      row.eachCell((cell, colNumber) => {
+        cell.font = { size: 9 };
+        cell.border = border();
+        if (isOdd) cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: C.lightGray } };
+        if (colNumber >= 2) {
+          cell.numFmt = "#,##0";
+          cell.alignment = { horizontal: "right" };
+        }
+        if (colNumber === 6) cell.font = { size: 9, bold: true, color: { argb: C.sectionFont } };
+      });
     });
-  });
+  } else {
+    const products = Object.values(productMap)
+      .filter(p => p.sales > 0 || p.qty > 0)
+      .sort((a, b) => b.sales - a.sales);
+    products.forEach((p, idx) => {
+      const profit = p.sales - p.cogs - p.ship;
+      const margin = p.sales > 0 ? Math.round((profit / p.sales) * 1000) / 10 : 0;
+      const row = ws3.addRow([p.name, p.qty, p.sales, p.cogs, p.ship, profit, margin / 100 /* 0.0% format needs 0-1 */]);
+
+      const isOdd = idx % 2 === 1;
+      row.eachCell((cell, colNumber) => {
+        cell.font = { size: 9 };
+        cell.border = border();
+        if (isOdd) cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: C.lightGray } };
+        if (colNumber >= 2 && colNumber <= 6) {
+          cell.numFmt = "#,##0";
+          cell.alignment = { horizontal: "right" };
+        }
+        if (colNumber === 7) {
+          cell.numFmt = "0.0%";
+          cell.alignment = { horizontal: "right" };
+          cell.font = { size: 9, bold: true, color: { argb: margin >= 30 ? C.green : margin < 15 ? C.red : "374151" } };
+        }
+      });
+    });
+  }
 
   ws3.views = [{ state: "frozen", ySplit: 1, xSplit: 0 }];
 
   // ── Buffer 생성 및 응답 ──
   const buffer = await wb.xlsx.writeBuffer();
-  const filename = encodeURIComponent(`${storeName}_${s.period}_정산서.xlsx`);
+  const filename = encodeURIComponent(`${storeName}_${s.period}_${isWholesale ? "공급대금청구서" : "정산서"}.xlsx`);
 
   return new NextResponse(buffer as ArrayBuffer, {
     headers: {

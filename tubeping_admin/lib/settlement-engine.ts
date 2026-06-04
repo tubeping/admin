@@ -243,6 +243,28 @@ export function computeItem(order: OrderRow, ctx: SupplyContext, store_name = ""
   };
 }
 
+/**
+ * 공동구매(wholesale) — 정산 아이템 1건의 "신산 수취액(공급대금)" 분해.
+ * 신산이 공급자 입장에서 판매사에 청구하는 금액.
+ *   과세: 공급가/배송비 raw + 부가세 10% 별도
+ *   면세(농산물 등): raw 그대로, 부가세 0
+ * computeItem 의 supply_total 은 면세일 때 이미 1.1배 가산되어 있으므로 raw 로 환원한다.
+ * 취소 건은 0 (computeItem 이 이미 supply_total=0 처리).
+ */
+export function wholesaleItemCharge(item: {
+  supply_total: number;
+  supply_shipping: number;
+  tax_type: string;
+  item_type?: string;
+}): { goods: number; shipping: number; vat: number; total: number } {
+  if (item.item_type === "취소") return { goods: 0, shipping: 0, vat: 0, total: 0 };
+  const exempt = item.tax_type === "면세";
+  const goods = exempt ? Math.round((item.supply_total || 0) / 1.1) : item.supply_total || 0;
+  const shipping = exempt ? Math.round((item.supply_shipping || 0) / 1.1) : item.supply_shipping || 0;
+  const vat = exempt ? 0 : Math.round((goods + shipping) * 0.1);
+  return { goods, shipping, vat, total: goods + shipping + vat };
+}
+
 /** "YYYY-MM" → { startDate, endDate } (해당 월 1일~말일) */
 export function periodToRange(period: string): { startDate: string; endDate: string } | null {
   const [year, month] = period.split("-").map(Number);

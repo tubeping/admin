@@ -32,6 +32,8 @@ interface Settlement {
   withholding_tax: number;
   influencer_actual: number;
   company_amount: number;
+  settlement_model?: string;
+  supplier_payable?: number;
   snap_influencer_rate: number;
   snap_company_rate: number;
   snap_settlement_type: string;
@@ -209,7 +211,7 @@ export default function SettlementPortalPage() {
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = `${settlement.stores?.name || "정산서"}_${settlement.period}_정산서.xlsx`;
+      a.download = `${settlement.stores?.name || "정산서"}_${settlement.period}_${settlement.settlement_model === "wholesale" ? "공급대금청구서" : "정산서"}.xlsx`;
       a.click();
       URL.revokeObjectURL(url);
     } catch {
@@ -267,6 +269,9 @@ export default function SettlementPortalPage() {
   const infPct = s.snap_influencer_rate ?? 70;
   const coPct = s.snap_company_rate ?? 30;
   const sType = s.snap_settlement_type || "사업자";
+  // 공동구매형(wholesale): 신산이 공급자로서 판매사에 공급대금 청구
+  const isWholesale = s.settlement_model === "wholesale";
+  const supplierPayable = s.supplier_payable ?? 0;
   const periodLabel = (() => { const [y, m] = s.period.split("-"); return `${y}년 ${parseInt(m)}월`; })();
 
   return (
@@ -280,9 +285,9 @@ export default function SettlementPortalPage() {
                 <span className="text-white text-[11px] font-extrabold tracking-tight">TP</span>
               </div>
               <div>
-                <h1 className="text-[15px] font-bold text-gray-900 leading-tight">{storeName} 정산서</h1>
+                <h1 className="text-[15px] font-bold text-gray-900 leading-tight">{storeName} {isWholesale ? "공급대금 청구서" : "정산서"}</h1>
                 <p className="text-[11px] text-gray-400 mt-0.5">
-                  {s.settlement_no} · {periodLabel} · {sType} · {infPct}:{coPct} 분배
+                  {s.settlement_no} · {periodLabel}{isWholesale ? " · 공동구매" : ` · ${sType} · ${infPct}:${coPct} 분배`}
                 </p>
               </div>
             </div>
@@ -308,12 +313,20 @@ export default function SettlementPortalPage() {
       <main className="max-w-7xl mx-auto px-4 sm:px-6 py-6">
         {/* ── 상단 요약 카드 ── */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
-          {[
-            { label: "순매출", value: s.total_sales, color: "from-blue-500 to-blue-600" },
-            { label: "총비용", value: s.total_cost, color: "from-slate-500 to-slate-600" },
-            { label: "순익", value: s.net_profit, color: s.net_profit >= 0 ? "from-emerald-500 to-emerald-600" : "from-red-500 to-red-600" },
-            { label: `${storeName} 정산금`, value: sType === "프리랜서" && s.withholding_tax > 0 ? s.influencer_actual : s.influencer_amount, color: "from-violet-500 to-violet-600" },
-          ].map(card => (
+          {(isWholesale
+            ? [
+                { label: "공급가", value: s.total_cogs, color: "from-blue-500 to-blue-600" },
+                { label: "공급배송비", value: s.total_shipping, color: "from-slate-500 to-slate-600" },
+                { label: "부가세", value: s.vat_amount, color: "from-amber-500 to-amber-600" },
+                { label: "신산 수취액", value: supplierPayable, color: "from-violet-500 to-violet-600" },
+              ]
+            : [
+                { label: "순매출", value: s.total_sales, color: "from-blue-500 to-blue-600" },
+                { label: "총비용", value: s.total_cost, color: "from-slate-500 to-slate-600" },
+                { label: "순익", value: s.net_profit, color: s.net_profit >= 0 ? "from-emerald-500 to-emerald-600" : "from-red-500 to-red-600" },
+                { label: `${storeName} 정산금`, value: sType === "프리랜서" && s.withholding_tax > 0 ? s.influencer_actual : s.influencer_amount, color: "from-violet-500 to-violet-600" },
+              ]
+          ).map(card => (
             <div key={card.label} className="bg-white rounded-xl border border-gray-100 p-4 shadow-sm">
               <p className="text-[11px] font-medium text-gray-400 mb-1">{card.label}</p>
               <p className={`text-lg font-bold bg-gradient-to-r ${card.color} bg-clip-text text-transparent`}>
@@ -337,8 +350,54 @@ export default function SettlementPortalPage() {
           ))}
         </div>
 
-        {/* ══ 정산요약 ══ */}
-        {tab === "summary" && (
+        {/* ══ 정산요약 (공동구매형) ══ */}
+        {tab === "summary" && isWholesale && (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <section className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
+              <div className="px-5 py-3.5 border-b border-gray-50 bg-gradient-to-r from-violet-50/50 to-transparent">
+                <h3 className="text-[13px] font-semibold text-violet-900">공급대금 (신산 수취액)</h3>
+                <p className="text-[11px] text-gray-400 mt-0.5">공동구매: 판매사가 고객결제 수취, 신산은 공급가 기준 정산</p>
+              </div>
+              <div className="px-5 py-4 space-y-2.5">
+                {s.cogs_exempt > 0 ? (
+                  <>
+                    <SRow label="공급가 (과세)" value={s.cogs_taxable} />
+                    <SRow label="공급가 (면세)" value={s.cogs_exempt} />
+                  </>
+                ) : (
+                  <SRow label="공급가 합계" value={s.total_cogs} />
+                )}
+                {s.total_shipping > 0 && <SRow label="공급배송비" value={s.total_shipping} />}
+                {s.vat_amount > 0 && <SRow label="부가세 (과세분 10%)" value={s.vat_amount} />}
+                <div className="border-t border-gray-100 pt-2.5">
+                  <SRow label="신산 수취액" value={supplierPayable} bold accent />
+                </div>
+              </div>
+            </section>
+            <section className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
+              <div className="px-5 py-3.5 border-b border-gray-50 bg-gradient-to-r from-slate-50/80 to-transparent">
+                <h3 className="text-[13px] font-semibold text-slate-800">집계</h3>
+              </div>
+              <div className="px-5 py-4 space-y-2.5">
+                <div className="flex justify-between items-center">
+                  <span className="text-[13px] text-gray-500">정산 기간</span>
+                  <span className="text-[13px] text-gray-700">{s.start_date} ~ {s.end_date}</span>
+                </div>
+                <div className="flex justify-between items-center">
+                  <span className="text-[13px] text-gray-500">주문 건수</span>
+                  <span className="text-[13px] text-gray-700">{s.total_orders}건</span>
+                </div>
+                <div className="flex justify-between items-center">
+                  <span className="text-[13px] text-gray-500">정산 품목 수</span>
+                  <span className="text-[13px] text-gray-700">{s.total_items}건</span>
+                </div>
+              </div>
+            </section>
+          </div>
+        )}
+
+        {/* ══ 정산요약 (자사몰형) ══ */}
+        {tab === "summary" && !isWholesale && (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <section className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
               <div className="px-5 py-3.5 border-b border-gray-50 bg-gradient-to-r from-blue-50/50 to-transparent">
@@ -493,10 +552,10 @@ export default function SettlementPortalPage() {
                         { label: "쿠폰할인", align: "right", color: "text-red-500" },
                         { label: "앱할인", align: "right", color: "text-red-500" },
                         { label: "추가할인", align: "right", color: "text-red-500" },
-                        { label: "정산매출", align: "right" },
+                        { label: isWholesale ? "공급대금" : "정산매출", align: "right" },
                         { label: "공급가", align: "right" },
                         { label: "공급배송비", align: "right" },
-                        { label: "순익", align: "right", color: "text-blue-600" },
+                        { label: isWholesale ? "부가세" : "순익", align: "right", color: "text-blue-600" },
                         { label: "과세", align: "left" },
                         { label: "공급사", align: "left" },
                         { label: "담당자 비고", align: "left" },
@@ -510,6 +569,12 @@ export default function SettlementPortalPage() {
                     {filteredItems.map((item, i) => {
                       const profit = (item.settled_amount || 0) - (item.supply_total || 0) - (item.supply_shipping || 0);
                       const isCancelled = item.item_type !== "매출";
+                      // 공동구매형: 신산 공급대금 분해 (과세 10% 별도 / 면세 0)
+                      const wExempt = item.tax_type === "면세";
+                      const wGoods = isCancelled ? 0 : (wExempt ? Math.round((item.supply_total || 0) / 1.1) : (item.supply_total || 0));
+                      const wShip = isCancelled ? 0 : (wExempt ? Math.round((item.supply_shipping || 0) / 1.1) : (item.supply_shipping || 0));
+                      const wVat = wExempt ? 0 : Math.round((wGoods + wShip) * 0.1);
+                      const wTotal = wGoods + wShip + wVat;
                       return (
                         <tr key={item.id || i} className={`border-b border-gray-50 hover:bg-blue-50/30 transition-colors ${isCancelled ? "bg-red-50/30" : ""}`}>
                           <td className="px-3 py-2.5 whitespace-nowrap">
@@ -533,10 +598,14 @@ export default function SettlementPortalPage() {
                           <td className="px-3 py-2.5 text-[12px] text-right tabular-nums text-red-500">{item.coupon_discount ? `-${W(item.coupon_discount)}` : "-"}</td>
                           <td className="px-3 py-2.5 text-[12px] text-right tabular-nums text-red-500">{item.app_discount ? `-${W(item.app_discount)}` : "-"}</td>
                           <td className="px-3 py-2.5 text-[12px] text-right tabular-nums text-red-500">{item.additional_discount ? `-${W(item.additional_discount)}` : "-"}</td>
-                          <td className="px-3 py-2.5 text-[12px] text-right tabular-nums font-semibold bg-yellow-50/60">{W(item.settled_amount)}</td>
-                          <td className="px-3 py-2.5 text-[12px] text-right tabular-nums">{W(item.supply_total)}</td>
-                          <td className="px-3 py-2.5 text-[12px] text-right tabular-nums">{W(item.supply_shipping)}</td>
-                          <td className={`px-3 py-2.5 text-[12px] text-right tabular-nums font-semibold ${profit >= 0 ? "text-blue-600" : "text-red-600"}`}>{W(profit)}</td>
+                          <td className="px-3 py-2.5 text-[12px] text-right tabular-nums font-semibold bg-yellow-50/60">{W(isWholesale ? wTotal : item.settled_amount)}</td>
+                          <td className="px-3 py-2.5 text-[12px] text-right tabular-nums">{W(isWholesale ? wGoods : item.supply_total)}</td>
+                          <td className="px-3 py-2.5 text-[12px] text-right tabular-nums">{W(isWholesale ? wShip : item.supply_shipping)}</td>
+                          {isWholesale ? (
+                            <td className="px-3 py-2.5 text-[12px] text-right tabular-nums text-gray-600">{W(wVat)}</td>
+                          ) : (
+                            <td className={`px-3 py-2.5 text-[12px] text-right tabular-nums font-semibold ${profit >= 0 ? "text-blue-600" : "text-red-600"}`}>{W(profit)}</td>
+                          )}
                           <td className="px-3 py-2.5 whitespace-nowrap">
                             <span className={`text-[11px] ${item.tax_type === "면세" ? "text-pink-600" : "text-gray-400"}`}>{item.tax_type}</span>
                           </td>

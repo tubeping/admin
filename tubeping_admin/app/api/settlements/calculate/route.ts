@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServiceClient } from "@/lib/supabase";
-import { loadSupplyContext, computeItem, type ComputedItem } from "@/lib/settlement-engine";
+import { loadSupplyContext, computeItem, wholesaleItemCharge, type ComputedItem } from "@/lib/settlement-engine";
 
 /**
  * POST /api/settlements/calculate
@@ -49,6 +49,8 @@ export async function POST(request: NextRequest) {
   const settlementType = store.settlement_type || "사업자";
   const tplCost = Number(store.tpl_cost ?? 0);
   const otherCost = Number(store.other_cost ?? 0);
+  // 정산 모델: platform(자사몰형, 순익 분배) / wholesale(공동구매형, 신산이 공급대금 청구)
+  const isWholesale = (store.settlement_model || "platform") === "wholesale";
 
   // ── 2. 해당 기간 주문 가져오기 ──
   // date_basis: 정산 기준 날짜 필드 선택
@@ -130,25 +132,54 @@ export async function POST(request: NextRequest) {
   const totalCogs = cogsTaxable + cogsExempt + cogsExemptVat;
   const totalShipping = shipTaxable + shipExempt + shipExemptVat;
 
-  // 총비용
-  const costBeforeVat = pgFee + totalCogs + totalShipping + tplCost + otherCost;
-  let vatAmount = 0;
+  // ── 6. 모델별 비용/순익/분배 ──
+  let vatAmount: number;
+  let totalCost: number;
+  let netProfit: number;
+  let profitRate: number;
+  let influencerAmount: number;
+  let withholdingTax: number;
+  let influencerActual: number;
+  let companyAmount: number;
+  let supplierPayable = 0;
 
-  if (settlementType === "프리랜서") {
-    const profitBeforeVat = totalSales - costBeforeVat;
-    vatAmount = profitBeforeVat > 0 ? Math.round(profitBeforeVat * 0.1) : 0;
+  if (isWholesale) {
+    // 공동구매형: 신산이 공급자로서 판매사에 청구하는 "공급대금"만 산정.
+    //   신산 수취액 = Σ(공급가) + 공급배송비 + 부가세(과세분 10% 별도)
+    //   PG·순익·인플루언서 분배 개념 없음.
+    let wVat = 0;
+    for (const item of activeItems) {
+      wVat += wholesaleItemCharge(item).vat;
+    }
+    // 공급가/배송비 raw (면세 1.1배 가산분 제외) — total_cogs/total_shipping 에 저장
+    const wGoods = cogsTaxable + cogsExempt;
+    const wShip = shipTaxable + shipExempt;
+    vatAmount = wVat;
+    supplierPayable = wGoods + wShip + wVat;
+    totalCost = supplierPayable; // 청구액 = 신산 수취액
+    netProfit = 0;
+    profitRate = 0;
+    influencerAmount = 0;
+    withholdingTax = 0;
+    influencerActual = 0;
+    companyAmount = 0;
+  } else {
+    // 자사몰형: 순익 = 순매출 - 총비용 → 인플루언서/회사 분배
+    const costBeforeVat = pgFee + totalCogs + totalShipping + tplCost + otherCost;
+    vatAmount = 0;
+    if (settlementType === "프리랜서") {
+      const profitBeforeVat = totalSales - costBeforeVat;
+      vatAmount = profitBeforeVat > 0 ? Math.round(profitBeforeVat * 0.1) : 0;
+    }
+    totalCost = costBeforeVat + vatAmount;
+    netProfit = totalSales - totalCost;
+    profitRate = totalSales > 0 ? Math.round((netProfit / totalSales) * 1000) / 10 : 0;
+    influencerAmount = netProfit > 0 ? Math.round(netProfit * infRate) : 0;
+    withholdingTax = settlementType === "프리랜서" && influencerAmount > 0
+      ? Math.round(influencerAmount * 0.033) : 0;
+    influencerActual = influencerAmount - withholdingTax;
+    companyAmount = netProfit > 0 ? Math.round(netProfit * coRate) : 0;
   }
-
-  const totalCost = costBeforeVat + vatAmount;
-  const netProfit = totalSales - totalCost;
-  const profitRate = totalSales > 0 ? Math.round((netProfit / totalSales) * 1000) / 10 : 0;
-
-  // ── 6. 분배 ──
-  const influencerAmount = netProfit > 0 ? Math.round(netProfit * infRate) : 0;
-  const withholdingTax = settlementType === "프리랜서" && influencerAmount > 0
-    ? Math.round(influencerAmount * 0.033) : 0;
-  const influencerActual = influencerAmount - withholdingTax;
-  const companyAmount = netProfit > 0 ? Math.round(netProfit * coRate) : 0;
 
   // ── 7. 기존 정산 체크 (같은 기간 draft면 덮어쓰기) ──
   const { data: existing } = await sb
@@ -182,21 +213,23 @@ export async function POST(request: NextRequest) {
       period,
       start_date: startDate,
       end_date: endDate,
-      cafe24_sales: cafe24Sales,
-      phone_sales: phoneSales,
-      refund_amount: refundTotal,
-      total_sales: totalSales,
-      pg_fee: pgFee,
+      settlement_model: isWholesale ? "wholesale" : "platform",
+      // wholesale 은 고객결제를 판매사가 수취 → 매출/PG 미집계
+      cafe24_sales: isWholesale ? 0 : cafe24Sales,
+      phone_sales: isWholesale ? 0 : phoneSales,
+      refund_amount: isWholesale ? 0 : refundTotal,
+      total_sales: isWholesale ? 0 : totalSales,
+      pg_fee: isWholesale ? 0 : pgFee,
       cogs_taxable: cogsTaxable,
       cogs_exempt: cogsExempt,
-      cogs_exempt_vat: cogsExemptVat,
-      total_cogs: totalCogs,
+      cogs_exempt_vat: isWholesale ? 0 : cogsExemptVat,
+      total_cogs: isWholesale ? cogsTaxable + cogsExempt : totalCogs,
       ship_taxable: shipTaxable,
       ship_exempt: shipExempt,
-      ship_exempt_vat: shipExemptVat,
-      total_shipping: totalShipping,
-      tpl_cost: tplCost,
-      other_cost: otherCost,
+      ship_exempt_vat: isWholesale ? 0 : shipExemptVat,
+      total_shipping: isWholesale ? shipTaxable + shipExempt : totalShipping,
+      tpl_cost: isWholesale ? 0 : tplCost,
+      other_cost: isWholesale ? 0 : otherCost,
       vat_amount: vatAmount,
       total_cost: totalCost,
       net_profit: netProfit,
@@ -205,6 +238,7 @@ export async function POST(request: NextRequest) {
       withholding_tax: withholdingTax,
       influencer_actual: influencerActual,
       company_amount: companyAmount,
+      supplier_payable: supplierPayable,
       snap_influencer_rate: store.influencer_rate,
       snap_company_rate: store.company_rate,
       snap_settlement_type: settlementType,
