@@ -298,6 +298,10 @@ export default function SettlementPage() {
   const [detailTab, setDetailTab] = useState<
     "summary" | "orders" | "products"
   >("summary");
+  // 주문상세 필터
+  const [ordSearch, setOrdSearch] = useState("");
+  const [ordType, setOrdType] = useState<"all" | "매출" | "취소">("all");
+  const [ordChannel, setOrdChannel] = useState("all");
 
   // 메모/비고
   const [adminMemo, setAdminMemo] = useState("");
@@ -445,6 +449,9 @@ export default function SettlementPage() {
     setDetailItems(data.items || []);
     setProductSummary(data.productSummary || []);
     setDetailTab("summary");
+    setOrdSearch("");
+    setOrdType("all");
+    setOrdChannel("all");
     setAdminMemo(data.settlement?.memo || "");
     setEditingNoteId(null);
     const noteMap: Record<string, string> = {};
@@ -575,6 +582,23 @@ export default function SettlementPage() {
     // 공동구매형(wholesale): 신산이 공급자로서 판매사에 공급대금을 청구
     const isWholesale = s.settlement_model === "wholesale";
     const supplierPayable = s.supplier_payable ?? 0;
+
+    // 주문상세 필터 적용
+    const ordSearchLc = ordSearch.trim().toLowerCase();
+    const filteredItems = detailItems.filter((item) => {
+      if (ordType !== "all" && item.item_type !== ordType) return false;
+      if (ordChannel !== "all" && (item.sales_channel || "") !== ordChannel) return false;
+      if (ordSearchLc) {
+        const hay = `${item.product_name || ""} ${item.option_text || ""} ${item.cafe24_order_id || ""}`.toLowerCase();
+        if (!hay.includes(ordSearchLc)) return false;
+      }
+      return true;
+    });
+    // 현재 정산서에 존재하는 판매방식만 옵션으로
+    const ordChannels = Array.from(new Set(detailItems.map((i) => i.sales_channel).filter(Boolean)));
+    const CH_LABEL_MAP: Record<string, string> = {
+      cafe24: "자사몰", phone: "전화", sms: "문자", sample: "샘플", group: "공구", gift: "증정",
+    };
 
     return (
       <div className="p-8">
@@ -802,6 +826,49 @@ export default function SettlementPage() {
         )}
 
         {detailTab === "orders" && (
+          <>
+          <div className="flex flex-wrap items-center gap-2 mb-3">
+            <div className="relative flex-1 min-w-[200px] max-w-[340px]">
+              <svg className="absolute left-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
+              <input
+                type="text"
+                value={ordSearch}
+                onChange={(e) => setOrdSearch(e.target.value)}
+                placeholder="상품명 · 옵션 · 주문번호 검색"
+                className="w-full pl-8 pr-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-[#C41E1E]/40"
+              />
+            </div>
+            <select
+              value={ordType}
+              onChange={(e) => setOrdType(e.target.value as "all" | "매출" | "취소")}
+              className="px-3 py-2 text-sm border border-gray-200 rounded-lg cursor-pointer focus:outline-none"
+            >
+              <option value="all">구분 전체</option>
+              <option value="매출">매출</option>
+              <option value="취소">취소</option>
+            </select>
+            <select
+              value={ordChannel}
+              onChange={(e) => setOrdChannel(e.target.value)}
+              className="px-3 py-2 text-sm border border-gray-200 rounded-lg cursor-pointer focus:outline-none"
+            >
+              <option value="all">판매방식 전체</option>
+              {ordChannels.map((ch) => (
+                <option key={ch} value={ch}>{CH_LABEL_MAP[ch] || ch}</option>
+              ))}
+            </select>
+            <span className="text-xs text-gray-400 ml-auto">
+              {filteredItems.length} / {detailItems.length}건
+            </span>
+            {(ordSearch || ordType !== "all" || ordChannel !== "all") && (
+              <button
+                onClick={() => { setOrdSearch(""); setOrdType("all"); setOrdChannel("all"); }}
+                className="text-xs text-gray-500 hover:text-gray-700 underline cursor-pointer"
+              >
+                필터 초기화
+              </button>
+            )}
+          </div>
           <div className="bg-white rounded-xl border border-gray-200 overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
@@ -824,7 +891,7 @@ export default function SettlementPage() {
                 </tr>
               </thead>
               <tbody>
-                {detailItems.map((item) => (
+                {filteredItems.map((item) => (
                   <tr
                     key={item.id}
                     className={`border-b border-gray-50 ${item.item_type !== "매출" ? "bg-red-50/30" : ""}`}
@@ -942,7 +1009,13 @@ export default function SettlementPage() {
                 ))}
               </tbody>
             </table>
+            {filteredItems.length === 0 && (
+              <div className="py-10 text-center text-sm text-gray-400">
+                조건에 맞는 주문이 없습니다.
+              </div>
+            )}
           </div>
+          </>
         )}
 
         {detailTab === "products" && (
