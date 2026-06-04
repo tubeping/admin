@@ -84,7 +84,7 @@ export async function GET(
   ws1.mergeCells(r, 1, r, 2);
   const subCell = ws1.getCell(r, 1);
   subCell.value = isWholesale
-    ? `정산기간: ${s.start_date} ~ ${s.end_date}  |  공동구매 (신산 → ${storeName} 공급)`
+    ? `정산기간: ${s.start_date} ~ ${s.end_date}  |  공동구매 (신산애널리틱스 → ${storeName} 공급)`
     : `정산기간: ${s.start_date} ~ ${s.end_date}  |  ${sType}  |  ${infPct}:${coPct} 분배`;
   subCell.font = { size: 10, color: { argb: "6B7280" } };
 
@@ -129,7 +129,7 @@ export async function GET(
 
   if (isWholesale) {
     // ── 공동구매형: 공급대금 청구 ──
-    addSection("공급대금 (신산 수취액)");
+    addSection("공급대금 (신산애널리틱스 수취액)");
     if (s.cogs_exempt > 0) {
       addRow("공급가 (과세)", s.cogs_taxable);
       addRow("공급가 (면세)", s.cogs_exempt);
@@ -138,7 +138,7 @@ export async function GET(
     }
     if (s.total_shipping > 0) addRow("공급배송비", s.total_shipping);
     if (s.vat_amount > 0) addRow("부가세 (과세분 10%)", s.vat_amount);
-    addRow("신산 수취액", supplierPayable, { bold: true, highlight: true });
+    addRow("신산애널리틱스 수취액", supplierPayable, { bold: true, highlight: true });
 
     addSection("집계");
     addRow("주문 건수", `${s.total_orders}건`);

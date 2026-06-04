@@ -8,29 +8,43 @@ import { getServiceClient } from "@/lib/supabase";
  * body: { token: string, seller_memo?: string, items?: { id: string, seller_note: string }[] }
  */
 export async function PATCH(request: NextRequest) {
-  let body: { token?: string; seller_memo?: string; items?: { id: string; seller_note: string }[] };
+  let body: { token?: string; settlement_id?: string; seller_memo?: string; items?: { id: string; seller_note: string }[] };
   try {
     body = await request.json();
   } catch {
     return NextResponse.json({ error: "잘못된 요청" }, { status: 400 });
   }
 
-  const { token } = body;
+  const { token, settlement_id } = body;
   if (!token || typeof token !== "string") {
     return NextResponse.json({ error: "token 필요" }, { status: 400 });
   }
 
   const sb = getServiceClient();
 
-  // 토큰으로 정산서 조회
-  const { data: settlement } = await sb
+  // 토큰 → 판매사(store) 인증
+  const { data: base } = await sb
     .from("settlements")
-    .select("id")
+    .select("id, store_id")
     .eq("share_token", token)
     .single();
 
-  if (!settlement) {
+  if (!base) {
     return NextResponse.json({ error: "정산서를 찾을 수 없습니다" }, { status: 404 });
+  }
+
+  // 수정 대상: settlement_id 지정 시 같은 판매사 소속 검증, 아니면 토큰의 정산서
+  let settlement = { id: base.id };
+  if (settlement_id && settlement_id !== base.id) {
+    const { data: target } = await sb
+      .from("settlements")
+      .select("id, store_id")
+      .eq("id", settlement_id)
+      .single();
+    if (!target || target.store_id !== base.store_id) {
+      return NextResponse.json({ error: "권한이 없습니다" }, { status: 403 });
+    }
+    settlement = { id: target.id };
   }
 
   // 정산서 판매사 메모 수정

@@ -738,8 +738,8 @@ export default function SettlementPage() {
         {detailTab === "summary" && isWholesale && (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div className="bg-white rounded-xl border border-gray-200 p-6">
-              <h3 className="text-sm font-semibold text-gray-900 mb-1">공급대금 (신산 → {storeName} 청구)</h3>
-              <p className="text-xs text-gray-400 mb-4">공동구매: 판매사가 고객결제 수취, 신산은 공급가 기준 정산금 수취</p>
+              <h3 className="text-sm font-semibold text-gray-900 mb-1">공급대금 (신산애널리틱스 → {storeName} 청구)</h3>
+              <p className="text-xs text-gray-400 mb-4">공동구매: 판매사가 고객결제 수취, 신산애널리틱스는 공급가 기준 정산금 수취</p>
               <div className="space-y-3">
                 {s.cogs_exempt > 0 ? (
                   <>
@@ -751,7 +751,7 @@ export default function SettlementPage() {
                 )}
                 {s.total_shipping > 0 && <Row label="공급배송비" value={s.total_shipping} />}
                 {s.vat_amount > 0 && <Row label="부가세 (과세분 10%)" value={s.vat_amount} />}
-                <Row label="신산 수취액" value={supplierPayable} bold highlight />
+                <Row label="신산애널리틱스 수취액" value={supplierPayable} bold highlight />
               </div>
             </div>
             <div className="bg-white rounded-xl border border-gray-200 p-6">
@@ -1543,7 +1543,7 @@ export default function SettlementPage() {
     0
   );
   const draftCount = settlements.filter((s) => s.status === "draft").length;
-  // 공동구매형(wholesale) 신산 수취액 합계
+  // 공동구매형(wholesale) 신산애널리틱스 수취액 합계
   const wholesalePayable = settlements.reduce(
     (s, v) => s + (v.settlement_model === "wholesale" ? v.supplier_payable ?? 0 : 0),
     0
@@ -1850,7 +1850,7 @@ export default function SettlementPage() {
               { label: "총 순매출", value: W(totalSales) },
               { label: "총 순익", value: W(totalProfit) },
               hasWholesale
-                ? { label: "공구 공급대금 (신산 수취)", value: W(wholesalePayable) }
+                ? { label: "공구 공급대금 (신산애널리틱스 수취)", value: W(wholesalePayable) }
                 : { label: "인플루언서 실지급", value: W(totalInfluencer) },
               { label: "미확정 건수", value: `${draftCount}건` },
             ].map((c) => (

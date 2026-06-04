@@ -103,6 +103,9 @@ export default function SettlementPortalPage() {
   const [items, setItems] = useState<SettlementItem[]>([]);
   const [products, setProducts] = useState<ProductSummary[]>([]);
   const [tab, setTab] = useState<"summary" | "orders" | "products">("summary");
+  // 월 전환
+  const [selectedPeriod, setSelectedPeriod] = useState<string | null>(null);
+  const [availablePeriods, setAvailablePeriods] = useState<{ period: string; status: string }[]>([]);
   const [confirming, setConfirming] = useState(false);
   const [confirmed, setConfirmed] = useState(false);
   const [confirmedAt, setConfirmedAt] = useState<string | null>(null);
@@ -120,12 +123,14 @@ export default function SettlementPortalPage() {
 
   const load = useCallback(async () => {
     try {
-      const res = await fetch(`/admin/api/settlement-portal?token=${token}`);
+      const qs = selectedPeriod ? `&period=${selectedPeriod}` : "";
+      const res = await fetch(`/admin/api/settlement-portal?token=${token}${qs}`);
       if (!res.ok) { setError("정산서를 찾을 수 없습니다"); return; }
       const data = await res.json();
       setSettlement(data.settlement);
       setItems(data.items);
       setProducts(data.productSummary);
+      setAvailablePeriods(data.availablePeriods || []);
       setConfirmed(data.settlement.seller_confirmed || false);
       setConfirmedAt(data.settlement.seller_confirmed_at || null);
       setSellerMemo(data.settlement.seller_memo || "");
@@ -140,7 +145,7 @@ export default function SettlementPortalPage() {
     } finally {
       setLoading(false);
     }
-  }, [token]);
+  }, [token, selectedPeriod]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -186,7 +191,7 @@ export default function SettlementPortalPage() {
       const res = await fetch("/admin/api/settlement-portal/confirm", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ token }),
+        body: JSON.stringify({ token, settlement_id: settlement?.id }),
       });
       const data = await res.json();
       if (res.ok) {
@@ -200,7 +205,7 @@ export default function SettlementPortalPage() {
     } finally {
       setConfirming(false);
     }
-  }, [token]);
+  }, [token, settlement?.id]);
 
   const handleExcelDownload = useCallback(async () => {
     if (!settlement) return;
@@ -226,12 +231,12 @@ export default function SettlementPortalPage() {
       await fetch("/admin/api/settlement-portal/notes", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ token, seller_memo: sellerMemo }),
+        body: JSON.stringify({ token, settlement_id: settlement?.id, seller_memo: sellerMemo }),
       });
     } finally {
       setSavingMemo(false);
     }
-  }, [token, sellerMemo]);
+  }, [token, settlement?.id, sellerMemo]);
 
   // 주문건별 판매사 비고 저장
   const saveSellerNote = useCallback(async (itemId: string) => {
@@ -239,10 +244,10 @@ export default function SettlementPortalPage() {
     await fetch("/admin/api/settlement-portal/notes", {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ token, items: [{ id: itemId, seller_note: note }] }),
+      body: JSON.stringify({ token, settlement_id: settlement?.id, items: [{ id: itemId, seller_note: note }] }),
     });
     setEditingNoteId(null);
-  }, [token, sellerNotes]);
+  }, [token, settlement?.id, sellerNotes]);
 
   if (loading) return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 to-gray-100 flex items-center justify-center">
@@ -292,6 +297,23 @@ export default function SettlementPortalPage() {
               </div>
             </div>
             <div className="flex items-center gap-2">
+              {availablePeriods.length > 1 && (
+                <select
+                  value={s.period}
+                  onChange={(e) => setSelectedPeriod(e.target.value)}
+                  className="px-3 py-1.5 text-[12px] font-medium border border-gray-200 rounded-lg cursor-pointer focus:outline-none focus:ring-1 focus:ring-red-300 bg-white"
+                  title="정산 월 선택"
+                >
+                  {availablePeriods.map((p) => {
+                    const [y, m] = p.period.split("-");
+                    return (
+                      <option key={p.period} value={p.period}>
+                        {y}년 {parseInt(m)}월
+                      </option>
+                    );
+                  })}
+                </select>
+              )}
               {confirmed && (
                 <div className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-50 rounded-full">
                   <div className="w-1.5 h-1.5 bg-emerald-500 rounded-full" />
@@ -318,7 +340,7 @@ export default function SettlementPortalPage() {
                 { label: "공급가", value: s.total_cogs, color: "from-blue-500 to-blue-600" },
                 { label: "공급배송비", value: s.total_shipping, color: "from-slate-500 to-slate-600" },
                 { label: "부가세", value: s.vat_amount, color: "from-amber-500 to-amber-600" },
-                { label: "신산 수취액", value: supplierPayable, color: "from-violet-500 to-violet-600" },
+                { label: "신산애널리틱스 수취액", value: supplierPayable, color: "from-violet-500 to-violet-600" },
               ]
             : [
                 { label: "순매출", value: s.total_sales, color: "from-blue-500 to-blue-600" },
@@ -355,8 +377,8 @@ export default function SettlementPortalPage() {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <section className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
               <div className="px-5 py-3.5 border-b border-gray-50 bg-gradient-to-r from-violet-50/50 to-transparent">
-                <h3 className="text-[13px] font-semibold text-violet-900">공급대금 (신산 수취액)</h3>
-                <p className="text-[11px] text-gray-400 mt-0.5">공동구매: 판매사가 고객결제 수취, 신산은 공급가 기준 정산</p>
+                <h3 className="text-[13px] font-semibold text-violet-900">공급대금 (신산애널리틱스 수취액)</h3>
+                <p className="text-[11px] text-gray-400 mt-0.5">공동구매: 판매사가 고객결제 수취, 신산애널리틱스는 공급가 기준 정산</p>
               </div>
               <div className="px-5 py-4 space-y-2.5">
                 {s.cogs_exempt > 0 ? (
@@ -370,7 +392,7 @@ export default function SettlementPortalPage() {
                 {s.total_shipping > 0 && <SRow label="공급배송비" value={s.total_shipping} />}
                 {s.vat_amount > 0 && <SRow label="부가세 (과세분 10%)" value={s.vat_amount} />}
                 <div className="border-t border-gray-100 pt-2.5">
-                  <SRow label="신산 수취액" value={supplierPayable} bold accent />
+                  <SRow label="신산애널리틱스 수취액" value={supplierPayable} bold accent />
                 </div>
               </div>
             </section>
