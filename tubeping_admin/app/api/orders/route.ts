@@ -161,7 +161,11 @@ export async function GET(request: NextRequest) {
       }
     }
     // warehouse supplier_id → name
-    const warehouseIds = [...new Set(Object.values(pidToWarehouse))];
+    // (상품 마스터 출고창고 + 주문 단위 출고지 override 양쪽 id 모두 이름 조회 대상)
+    const orderOverrideWarehouseIds = orders
+      .map((o: any) => o.fulfillment_warehouse_supplier_id)
+      .filter(Boolean);
+    const warehouseIds = [...new Set([...Object.values(pidToWarehouse), ...orderOverrideWarehouseIds])];
     const warehouseNames: Record<string, string> = {};
     if (warehouseIds.length > 0) {
       const { data: wSuppliers } = await sb.from("suppliers").select("id, name").in("id", warehouseIds);
@@ -173,7 +177,8 @@ export async function GET(request: NextRequest) {
       let pid = o.product_id || undefined;
       if (!pid && o.store_id && o.cafe24_product_no > 0) pid = storeProductToProductId[`${o.store_id}::${o.cafe24_product_no}`];
       if (!pid && o.product_name) pid = nameToProductId[o.product_name.trim()];
-      const wId = pid ? pidToWarehouse[pid] : undefined;
+      // 출고지 결정: 주문 단위 override 우선 → 없으면 상품 마스터 출고창고
+      const wId = o.fulfillment_warehouse_supplier_id || (pid ? pidToWarehouse[pid] : undefined);
       o.warehouse_name = wId ? warehouseNames[wId] || null : null;
       o.tp_code = pid ? pidToTpCode[pid] || null : null;
 
@@ -225,7 +230,7 @@ export async function PATCH(request: NextRequest) {
 
   const allowedFields = [
     "cafe24_order_id",
-    "supplier_id", "shipping_status", "memo", "purchase_order_id",
+    "supplier_id", "fulfillment_warehouse_supplier_id", "shipping_status", "memo", "purchase_order_id",
     "is_sample", "auto_assign_status",
     "tracking_number", "shipping_company",
     "buyer_name", "buyer_phone", "receiver_name", "receiver_phone", "receiver_address",

@@ -31,7 +31,7 @@ export async function POST(request: NextRequest) {
   // 1. 주문 조회 (이미 발주서에 속한 건 제외)
   const { data: orders, error: ordErr } = await sb
     .from("orders")
-    .select("id, store_id, supplier_id, cafe24_product_no, product_name, purchase_order_id, quantity, product_price")
+    .select("id, store_id, supplier_id, fulfillment_warehouse_supplier_id, cafe24_product_no, product_name, purchase_order_id, quantity, product_price")
     .in("id", orderIds);
 
   if (ordErr) return NextResponse.json({ error: ordErr.message }, { status: 500 });
@@ -86,6 +86,8 @@ export async function POST(request: NextRequest) {
   // 주문 → warehouse_supplier_id 결정
   type OrderRow = NonNullable<typeof orders>[0];
   function resolveWarehouse(o: OrderRow): string | null {
+    // 0순위: 주문 단위 출고지 override (주문수집/조회에서 수동 지정)
+    if (o.fulfillment_warehouse_supplier_id) return o.fulfillment_warehouse_supplier_id;
     // 경로 A: cafe24_product_no 기반
     if (o.store_id && o.cafe24_product_no > 0) {
       const pid = storeNoKeyToProductId[`${o.store_id}::${o.cafe24_product_no}`];
