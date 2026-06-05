@@ -356,9 +356,9 @@ const OrderRow = memo(function OrderRow({
 }: {
   o: Order; idx: number; displayedCount: number; isSelected: boolean;
   toggleSelect: (id: string) => void;
-  editingField: "channel" | "store" | "orderId" | null;
-  onStartEdit: (orderId: string, field: "channel" | "store" | "orderId") => void;
-  saveCellEdit: (orderId: string, field: "channel" | "store" | "orderId", value: string) => void;
+  editingField: "channel" | "store" | "orderId" | "product" | "option" | null;
+  onStartEdit: (orderId: string, field: "channel" | "store" | "orderId" | "product" | "option") => void;
+  saveCellEdit: (orderId: string, field: "channel" | "store" | "orderId" | "product" | "option", value: string) => void;
   stores: Store[];
   fetchOrders: () => void;
   trackingEdit: { company: string; number: string } | undefined;
@@ -433,10 +433,73 @@ const OrderRow = memo(function OrderRow({
           <div className="text-xs font-medium text-gray-900">{o.cafe24_order_id}</div>
         )}
       </td>
-      {/* 4. 상품/옵션 */}
+      {/* 4. 상품/옵션 (inline editable) */}
       <td className="px-1.5 py-1.5 max-w-[200px]">
-        <div className="text-xs text-gray-900 truncate">{o.product_name}</div>
-        {o.option_text && <div className="text-[10px] text-gray-400 truncate">{o.option_text}</div>}
+        {/* 상품명 */}
+        {editingField === "product" ? (
+          <input
+            autoFocus
+            type="text"
+            defaultValue={o.product_name}
+            onClick={(e) => e.stopPropagation()}
+            onBlur={(e) => {
+              const val = e.target.value.trim();
+              if (val && val !== o.product_name) saveCellEdit(o.id, "product", val);
+              else onStartEdit("", "product");
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                const val = (e.target as HTMLInputElement).value.trim();
+                if (val && val !== o.product_name) saveCellEdit(o.id, "product", val);
+                else onStartEdit("", "product");
+              } else if (e.key === "Escape") {
+                onStartEdit("", "product");
+              }
+            }}
+            className="w-full text-xs border border-gray-400 rounded px-1 py-0.5 bg-white"
+          />
+        ) : (
+          <div
+            className="text-xs text-gray-900 truncate cursor-pointer hover:bg-gray-100/60 rounded px-0.5"
+            onClick={(e) => { e.stopPropagation(); onStartEdit(o.id, "product"); }}
+            title="클릭해서 상품명 수정"
+          >
+            {o.product_name || <span className="text-gray-300 italic">- (클릭해서 입력)</span>}
+          </div>
+        )}
+        {/* 옵션 */}
+        {editingField === "option" ? (
+          <input
+            autoFocus
+            type="text"
+            defaultValue={o.option_text || ""}
+            onClick={(e) => e.stopPropagation()}
+            onBlur={(e) => {
+              const val = e.target.value.trim();
+              if (val !== (o.option_text || "")) saveCellEdit(o.id, "option", val);
+              else onStartEdit("", "option");
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                const val = (e.target as HTMLInputElement).value.trim();
+                if (val !== (o.option_text || "")) saveCellEdit(o.id, "option", val);
+                else onStartEdit("", "option");
+              } else if (e.key === "Escape") {
+                onStartEdit("", "option");
+              }
+            }}
+            placeholder="옵션"
+            className="w-full mt-0.5 text-[10px] border border-gray-400 rounded px-1 py-0.5 bg-white"
+          />
+        ) : (
+          <div
+            className="text-[10px] text-gray-400 truncate cursor-pointer hover:bg-gray-100/60 rounded px-0.5"
+            onClick={(e) => { e.stopPropagation(); onStartEdit(o.id, "option"); }}
+            title="클릭해서 옵션 수정"
+          >
+            {o.option_text || <span className="text-gray-300">+ 옵션</span>}
+          </div>
+        )}
       </td>
       {/* 4.5. TP코드 */}
       <td className="px-1.5 py-1.5 text-[10px] font-mono text-gray-400 whitespace-nowrap">
@@ -683,8 +746,8 @@ export default function UnifiedOrdersPage() {
   const [csSaving, setCsSaving] = useState(false);
   const [ocrProcessing, setOcrProcessing] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [editingCell, setEditingCell] = useState<{ orderId: string; field: "channel" | "store" | "orderId" } | null>(null);
-  const onStartEdit = useCallback((orderId: string, field: "channel" | "store" | "orderId") => {
+  const [editingCell, setEditingCell] = useState<{ orderId: string; field: "channel" | "store" | "orderId" | "product" | "option" } | null>(null);
+  const onStartEdit = useCallback((orderId: string, field: "channel" | "store" | "orderId" | "product" | "option") => {
     setEditingCell(orderId ? { orderId, field } : null);
   }, []);
 
@@ -1296,12 +1359,16 @@ export default function UnifiedOrdersPage() {
     }
   };
 
-  const saveCellEdit = useCallback(async (orderId: string, field: "channel" | "store" | "orderId", value: string) => {
+  const saveCellEdit = useCallback(async (orderId: string, field: "channel" | "store" | "orderId" | "product" | "option", value: string) => {
     const updates: Record<string, string | null> = {};
     if (field === "channel") {
       updates.sales_channel = value === "" ? null : value;
     } else if (field === "orderId") {
       updates.cafe24_order_id = value;
+    } else if (field === "product") {
+      updates.product_name = value;
+    } else if (field === "option") {
+      updates.option_text = value === "" ? null : value;
     } else {
       updates.store_id = value;
     }
