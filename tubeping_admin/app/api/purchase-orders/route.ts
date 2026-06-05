@@ -219,10 +219,24 @@ export async function DELETE(request: NextRequest) {
   const sb = getServiceClient();
 
   // 연결된 주문 해제 — shipping_status는 건드리지 않음 (이미 결제완료된 주문을 '입금전'으로 되돌리면 안 됨)
-  await sb
+  const { error: ordersErr } = await sb
     .from("orders")
     .update({ purchase_order_id: null })
     .eq("purchase_order_id", id);
+  if (ordersErr) {
+    return NextResponse.json({ error: `주문 연결 해제 실패: ${ordersErr.message}` }, { status: 500 });
+  }
+
+  // 송장 업로드 이력 삭제 — shipment_uploads.purchase_order_id 는 NOT NULL 이라 끊을 수 없고,
+  // 발주서에 종속된 업로드 로그이므로 함께 삭제한다 (실제 송장번호는 orders 에 보존됨).
+  // (po_legacy_items 는 ON DELETE CASCADE 라 자동 삭제됨)
+  const { error: shipErr } = await sb
+    .from("shipment_uploads")
+    .delete()
+    .eq("purchase_order_id", id);
+  if (shipErr) {
+    return NextResponse.json({ error: `송장 업로드 이력 삭제 실패: ${shipErr.message}` }, { status: 500 });
+  }
 
   // 발주서 삭제
   const { error } = await sb
@@ -231,6 +245,12 @@ export async function DELETE(request: NextRequest) {
     .eq("id", id);
 
   if (error) {
+    if (error.code === "23503") {
+      return NextResponse.json(
+        { error: `다른 데이터에서 이 발주서를 참조 중이라 삭제할 수 없습니다: ${error.details ?? error.message}` },
+        { status: 409 }
+      );
+    }
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
