@@ -1,9 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServiceClient } from "@/lib/supabase";
 import { env } from "@/lib/env.server";
+import { credsFor } from "@/lib/cafe24";
 
-const CLIENT_ID = env.CAFE24_CLIENT_ID;
-const CLIENT_SECRET = env.CAFE24_CLIENT_SECRET;
 const CRON_SECRET = env.CRON_SECRET;
 
 /**
@@ -20,7 +19,7 @@ export async function GET(request: NextRequest) {
   const sb = getServiceClient();
   const { data: rawStores } = await sb
     .from("stores")
-    .select("id, mall_id, name, refresh_token, status")
+    .select("id, mall_id, name, refresh_token, status, client_id, client_secret")
     .in("status", ["active", "auth_failed"])
     .not("refresh_token", "is", null);
 
@@ -37,6 +36,7 @@ export async function GET(request: NextRequest) {
 
   for (const store of stores) {
     let errMsg = "";
+    const { clientId, clientSecret } = credsFor(store);
     try {
       const res = await fetch(
         `https://${store.mall_id}.cafe24api.com/api/v2/oauth/token`,
@@ -44,7 +44,7 @@ export async function GET(request: NextRequest) {
           method: "POST",
           headers: {
             "Content-Type": "application/x-www-form-urlencoded",
-            Authorization: `Basic ${Buffer.from(`${CLIENT_ID}:${CLIENT_SECRET}`).toString("base64")}`,
+            Authorization: `Basic ${Buffer.from(`${clientId}:${clientSecret}`).toString("base64")}`,
           },
           body: new URLSearchParams({
             grant_type: "refresh_token",

@@ -1,9 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServiceClient } from "@/lib/supabase";
-import { env } from "@/lib/env.server";
-
-// 정식 등록된 앱(z87...)으로 강제 사용 — V2는 테스트앱이라 설치한도 걸림
-const CLIENT_ID = env.CAFE24_CLIENT_ID;
+import { credsFor } from "@/lib/cafe24";
 
 /**
  * GET /api/stores/[id]/oauth — OAuth 인증 URL 생성
@@ -17,13 +14,16 @@ export async function GET(
   const sb = getServiceClient();
   const { data: store } = await sb
     .from("stores")
-    .select("mall_id")
+    .select("mall_id, client_id, client_secret")
     .eq("id", id)
     .single();
 
   if (!store) {
     return NextResponse.json({ error: "스토어를 찾을 수 없습니다" }, { status: 404 });
   }
+
+  // store에 전용앱 자격증명이 있으면 그걸로, 없으면 기본 z87 앱으로
+  const { clientId: CLIENT_ID } = credsFor(store);
 
   // 카페24에 등록된 정확한 production URL과 일치해야 함
   const redirectUri = "https://tubepingadmin.vercel.app/admin/api/stores/oauth/callback";

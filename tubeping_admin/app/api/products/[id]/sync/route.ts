@@ -208,7 +208,7 @@ export async function syncProductToStores(
   const storeIds = mappings.map((m) => m.store_id);
   const { data: stores } = await sb
     .from("stores")
-    .select("id, mall_id, access_token, refresh_token, token_expires_at")
+    .select("id, mall_id, access_token, refresh_token, token_expires_at, client_id, client_secret")
     .in("id", storeIds);
   const storeById = new Map<string, StoreRow>();
   for (const s of stores || []) storeById.set(s.id, s as StoreRow);

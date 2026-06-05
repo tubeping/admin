@@ -1,9 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServiceClient } from "@/lib/supabase";
-import { env } from "@/lib/env.server";
-
-const CLIENT_ID = env.CAFE24_CLIENT_ID;
-const CLIENT_SECRET = env.CAFE24_CLIENT_SECRET;
+import { credsFor } from "@/lib/cafe24";
 
 /**
  * GET /api/stores/oauth/callback — 카페24 OAuth 콜백
@@ -26,13 +23,16 @@ export async function GET(request: NextRequest) {
   // 스토어 정보 조회
   const { data: store } = await sb
     .from("stores")
-    .select("mall_id, name")
+    .select("mall_id, name, client_id, client_secret")
     .eq("id", storeId)
     .single();
 
   if (!store) {
     return new NextResponse("스토어를 찾을 수 없습니다", { status: 404 });
   }
+
+  // authorize 단계와 동일한 앱 자격증명으로 토큰 교환 (전용앱이면 그걸로, 없으면 z87)
+  const { clientId: CLIENT_ID, clientSecret: CLIENT_SECRET } = credsFor(store);
 
   // authorize 단계와 정확히 동일해야 함 (카페24가 비교)
   const origin = request.nextUrl.origin;

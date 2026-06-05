@@ -92,7 +92,7 @@ export async function POST(request: NextRequest) {
   // 2. 스토어 조회 (토큰 포함)
   const { data: stores } = await sb
     .from("stores")
-    .select("id, mall_id, name, access_token, refresh_token, token_expires_at, status")
+    .select("id, mall_id, name, access_token, refresh_token, token_expires_at, status, client_id, client_secret")
     .in("id", storeIds);
   if (!stores || stores.length === 0) {
     return NextResponse.json({ error: "스토어를 찾을 수 없습니다" }, { status: 404 });

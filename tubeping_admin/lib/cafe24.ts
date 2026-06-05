@@ -6,9 +6,24 @@
 import { getServiceClient } from "./supabase";
 import { env } from "./env.server";
 
-// 단일 카페24 앱(z87...)으로 통일
+// 기본 카페24 앱(z87...). store에 별도 client_id/secret이 없으면 이걸로 폴백.
 const CLIENT_ID = env.CAFE24_CLIENT_ID;
 const CLIENT_SECRET = env.CAFE24_CLIENT_SECRET;
+
+/**
+ * store별 카페24 앱 자격증명 결정.
+ * 외부 입점몰이 자기 계정으로 만든 전용앱을 쓰면 stores.client_id/secret에 값이 들어있고,
+ * 비어있으면 기본 단일앱(z87 env)으로 폴백 → 기존 13개 몰 무영향.
+ */
+export function credsFor(store: {
+  client_id?: string | null;
+  client_secret?: string | null;
+}): { clientId: string; clientSecret: string } {
+  return {
+    clientId: store.client_id?.trim() || CLIENT_ID,
+    clientSecret: store.client_secret?.trim() || CLIENT_SECRET,
+  };
+}
 
 const API_VERSION = "2026-03-01";
 
@@ -17,7 +32,7 @@ const FETCH_TIMEOUT = 30_000; // 30초
 // 스토어별 토큰 메모리 캐시
 const tokenCache: Record<
   string,
-  { access: string; refresh: string; expiresAt: number; mallId: string }
+  { access: string; refresh: string; expiresAt: number; mallId: string; clientId: string; clientSecret: string }
 > = {};
 
 // 토큰 갱신 중복 방지 (race condition 해소)
@@ -30,6 +45,8 @@ export interface StoreInfo {
   access_token: string;
   refresh_token: string;
   token_expires_at: string | null;
+  client_id?: string | null;
+  client_secret?: string | null;
 }
 
 /**
@@ -46,7 +63,7 @@ export async function getActiveStores(): Promise<StoreInfo[]> {
   const sb = getServiceClient();
   const { data, error } = await sb
     .from("stores")
-    .select("id, mall_id, name, access_token, refresh_token, token_expires_at")
+    .select("id, mall_id, name, access_token, refresh_token, token_expires_at, client_id, client_secret")
     .eq("status", "active");
 
   if (error) throw new Error(`스토어 조회 실패: ${error.message}`);
@@ -73,6 +90,7 @@ export async function getStoreToken(store: StoreInfo): Promise<string> {
   // 캐시가 없거나 만료됨 → 전달받은 store(=DB 최신값)로 캐시 재동기화.
   // refresh-tokens 크론이 토큰을 out-of-band로 회전시키므로, 캐시에 남은
   // 옛 refresh_token으로 갱신을 시도하면 400(invalid_grant)이 난다.
+  const { clientId, clientSecret } = credsFor(store);
   tokenCache[store.id] = {
     access: store.access_token,
     refresh: store.refresh_token,
@@ -80,6 +98,8 @@ export async function getStoreToken(store: StoreInfo): Promise<string> {
       ? new Date(store.token_expires_at).getTime()
       : Date.now() + 2 * 60 * 60 * 1000,
     mallId: store.mall_id,
+    clientId,
+    clientSecret,
   };
 
   const entry = tokenCache[store.id];
@@ -119,7 +139,7 @@ async function _doRefresh(storeId: string): Promise<string> {
         method: "POST",
         headers: {
           "Content-Type": "application/x-www-form-urlencoded",
-          Authorization: `Basic ${Buffer.from(`${CLIENT_ID}:${CLIENT_SECRET}`).toString("base64")}`,
+          Authorization: `Basic ${Buffer.from(`${entry.clientId}:${entry.clientSecret}`).toString("base64")}`,
         },
         body: new URLSearchParams({
           grant_type: "refresh_token",
@@ -136,6 +156,8 @@ async function _doRefresh(storeId: string): Promise<string> {
           refresh: data.refresh_token,
           expiresAt: new Date(data.expires_at).getTime(),
           mallId: entry.mallId,
+          clientId: entry.clientId,
+          clientSecret: entry.clientSecret,
         };
         const sb = getServiceClient();
         await sb
