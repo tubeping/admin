@@ -48,6 +48,18 @@ interface Order {
   tp_code: string | null;
 }
 
+/* OCR 인식 결과(검수 단계에서 수정 가능한 형태) */
+interface OcrOrder {
+  product_name: string;
+  option_text: string;
+  quantity: number;
+  receiver_name: string;
+  receiver_phone: string;
+  receiver_address: string;
+  receiver_zipcode: string;
+  memo: string;
+}
+
 /* ── Status helpers ── */
 const STATUS_LABEL: Record<string, string> = {
   pending: "입금전",
@@ -745,6 +757,9 @@ export default function UnifiedOrdersPage() {
   const [syncing, setSyncing] = useState(false);
   const [csSaving, setCsSaving] = useState(false);
   const [ocrProcessing, setOcrProcessing] = useState(false);
+  // OCR 인식 결과를 등록 전에 사람이 검수·수정하는 단계
+  const [ocrReview, setOcrReview] = useState<{ orders: OcrOrder[]; storeId: string; salesChannel: string } | null>(null);
+  const [ocrRegistering, setOcrRegistering] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [editingCell, setEditingCell] = useState<{ orderId: string; field: "channel" | "store" | "orderId" | "product" | "option" } | null>(null);
   const onStartEdit = useCallback((orderId: string, field: "channel" | "store" | "orderId" | "product" | "option") => {
@@ -1067,7 +1082,7 @@ export default function UnifiedOrdersPage() {
 
     setOcrProcessing(true);
     try {
-      // 3. OCR 인식
+      // 3. OCR 인식 → 바로 등록하지 않고 검수 모달로 넘긴다.
       const fd = new FormData();
       fd.append("image", file);
       const res = await fetch("/admin/api/orders/ocr-import", { method: "POST", body: fd });
@@ -1075,34 +1090,61 @@ export default function UnifiedOrdersPage() {
       if (!res.ok) { alert(`OCR 실패: ${data.error}`); return; }
       if (!data.orders?.length) { alert("이미지에서 주문 데이터를 찾지 못했습니다."); return; }
 
-      // 4. 필수 필드 검증 (주문자/수취인, 연락처, 주소, 상품명, 수량)
-      const invalid: string[] = [];
-      for (const o of data.orders) {
-        const missing: string[] = [];
-        if (!o.product_name) missing.push("상품명");
-        if (!o.receiver_name && !o.buyer_name) missing.push("주문자/수취인");
-        if (!o.receiver_phone && !o.buyer_phone) missing.push("연락처");
-        if (!o.receiver_address) missing.push("주소");
-        if (!o.quantity) missing.push("수량");
-        if (missing.length > 0) invalid.push(`${o.product_name || "?"}: ${missing.join(", ")} 누락`);
-      }
-      if (invalid.length > 0) {
-        alert(`OCR 인식 결과에 필수 정보가 부족합니다:\n\n${invalid.join("\n")}\n\n캡쳐본에 주문자/수취인, 연락처, 주소, 상품명, 수량 정보가 모두 포함되어야 합니다.`);
-        return;
-      }
+      // OCR 결과를 검수용 형태로 정규화 (이름/연락처는 수취인 우선, 없으면 주문자값 사용)
+      const reviewOrders: OcrOrder[] = data.orders.map((o: Record<string, unknown>) => ({
+        product_name: String(o.product_name ?? ""),
+        option_text: String(o.option_text ?? ""),
+        quantity: Number(o.quantity) || 1,
+        receiver_name: String(o.receiver_name ?? o.buyer_name ?? ""),
+        receiver_phone: String(o.receiver_phone ?? o.buyer_phone ?? ""),
+        receiver_address: String(o.receiver_address ?? ""),
+        receiver_zipcode: String(o.receiver_zipcode ?? ""),
+        memo: String(o.memo ?? ""),
+      }));
 
-      // 5. 등록
+      setOcrReview({ orders: reviewOrders, storeId, salesChannel });
+    } catch (e) {
+      alert(`OCR 오류: ${(e as Error).message}`);
+    } finally {
+      setOcrProcessing(false);
+    }
+  }, []);
+
+  // 검수 모달에서 "등록" → manual-register + 주소검증
+  const submitOcrReview = useCallback(async () => {
+    if (!ocrReview) return;
+    const { orders, storeId, salesChannel } = ocrReview;
+
+    // 필수 필드 검증 (상품명, 수취인, 연락처, 주소, 수량)
+    const invalid: string[] = [];
+    orders.forEach((o, i) => {
+      const missing: string[] = [];
+      if (!o.product_name?.trim()) missing.push("상품명");
+      if (!o.receiver_name?.trim()) missing.push("수취인");
+      if (!o.receiver_phone?.trim()) missing.push("연락처");
+      if (!o.receiver_address?.trim()) missing.push("주소");
+      if (!o.quantity || o.quantity < 1) missing.push("수량");
+      if (missing.length > 0) invalid.push(`${i + 1}행 (${o.product_name || "?"}): ${missing.join(", ")} 누락`);
+    });
+    if (invalid.length > 0) {
+      alert(`아래 항목을 채워주세요:\n\n${invalid.join("\n")}`);
+      return;
+    }
+
+    setOcrRegistering(true);
+    try {
       const regRes = await fetch("/admin/api/orders/manual-register", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ orders: data.orders, store_id: storeId, sales_channel: salesChannel }),
+        body: JSON.stringify({ orders, store_id: storeId, sales_channel: salesChannel }),
       });
       const regData = await regRes.json();
       if (!regRes.ok) { alert(`등록 실패: ${regData.error}`); return; }
 
+      setOcrReview(null);
       showImportBanner({
         type: regData.errors?.length ? "warning" : "success",
-        message: `OCR 인식 ${data.orders.length}건 → ${regData.success}건 등록 완료`,
+        message: `OCR 인식 ${orders.length}건 → ${regData.success}건 등록 완료`,
         details: regData.errors?.length ? `실패: ${regData.errors.slice(0, 3).join(", ")}` : undefined,
         importedIds: regData.insertedIds || [],
       });
@@ -1111,12 +1153,12 @@ export default function UnifiedOrdersPage() {
       if (dateToRef.current < todayStr) setDateTo(todayStr);
       await fetchOrders();
 
-      // 6. 주소 자동 검증
+      // 주소 자동 검증
       if (regData.insertedIds?.length) {
         try {
-          const addrPayload = data.orders
-            .map((o: { receiver_address?: string }, i: number) => regData.insertedIds[i] ? { id: regData.insertedIds[i], address: o.receiver_address || "" } : null)
-            .filter((x: { id: string; address: string } | null) => x && x.address);
+          const addrPayload = orders
+            .map((o, i) => regData.insertedIds[i] ? { id: regData.insertedIds[i], address: o.receiver_address || "" } : null)
+            .filter((x): x is { id: string; address: string } => !!x && !!x.address);
           if (addrPayload.length > 0) {
             const verRes = await fetch("/admin/api/address-verify", {
               method: "POST",
@@ -1137,11 +1179,11 @@ export default function UnifiedOrdersPage() {
         } catch { /* 주소 검증 실패해도 등록은 유지 */ }
       }
     } catch (e) {
-      alert(`OCR 오류: ${(e as Error).message}`);
+      alert(`등록 오류: ${(e as Error).message}`);
     } finally {
-      setOcrProcessing(false);
+      setOcrRegistering(false);
     }
-  }, [fetchOrders, addrResults, showImportBanner]);
+  }, [ocrReview, fetchOrders, addrResults, showImportBanner]);
 
   const handleFileDrop = useCallback(async (file: File) => {
     const ext = file.name?.split(".").pop()?.toLowerCase() || "";
@@ -2195,6 +2237,76 @@ export default function UnifiedOrdersPage() {
               <button onClick={submitCs} disabled={csSaving} className="px-5 py-2 bg-[#C41E1E] text-white text-sm font-medium rounded-lg hover:bg-[#A01818] cursor-pointer disabled:opacity-50">
                 {csSaving ? "처리 중..." : "처리 완료"}
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* OCR 검수/수정 모달 — 등록 전에 인식 결과를 사람이 확인·수정 */}
+      {ocrReview && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" onClick={() => !ocrRegistering && setOcrReview(null)}>
+          <div className="bg-white rounded-2xl w-full max-w-[1100px] max-h-[90vh] flex flex-col shadow-xl" onClick={(e) => e.stopPropagation()}>
+            <div className="p-5 border-b border-gray-100">
+              <h2 className="text-lg font-bold text-gray-900">OCR 인식 결과 검수 <span className="text-sm font-normal text-gray-500">({ocrReview.orders.length}건)</span></h2>
+              <p className="text-xs text-amber-600 mt-1">⚠️ AI 인식은 한글 이름·주소를 틀릴 수 있습니다. <b>특히 이름·연락처·주소를 원본과 대조</b>한 뒤 등록하세요.</p>
+            </div>
+            <div className="p-4 overflow-auto flex-1">
+              <table className="w-full text-xs border-collapse">
+                <thead>
+                  <tr className="bg-gray-50 text-gray-600">
+                    <th className="border border-gray-200 px-2 py-1.5 w-8">#</th>
+                    <th className="border border-gray-200 px-2 py-1.5 text-left">상품명 *</th>
+                    <th className="border border-gray-200 px-2 py-1.5 text-left">옵션</th>
+                    <th className="border border-gray-200 px-2 py-1.5 w-14">수량 *</th>
+                    <th className="border border-gray-200 px-2 py-1.5 text-left">수취인 *</th>
+                    <th className="border border-gray-200 px-2 py-1.5 text-left">연락처 *</th>
+                    <th className="border border-gray-200 px-2 py-1.5 text-left">주소 *</th>
+                    <th className="border border-gray-200 px-2 py-1.5 text-left w-20">우편번호</th>
+                    <th className="border border-gray-200 px-2 py-1.5 w-8"></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {ocrReview.orders.map((o, idx) => {
+                    const upd = (field: keyof OcrOrder, value: string | number) =>
+                      setOcrReview((prev) => prev ? { ...prev, orders: prev.orders.map((x, i) => i === idx ? { ...x, [field]: value } : x) } : prev);
+                    const cell = (field: keyof OcrOrder, extra = "") => (
+                      <input value={String(o[field] ?? "")} onChange={(e) => upd(field, e.target.value)}
+                        className={`w-full px-1.5 py-1 rounded border ${!String(o[field] ?? "").trim() ? "border-red-300 bg-red-50" : "border-transparent hover:border-gray-300"} focus:border-blue-400 focus:bg-white outline-none ${extra}`} />
+                    );
+                    return (
+                      <tr key={idx} className="align-top">
+                        <td className="border border-gray-200 px-2 py-1 text-center text-gray-400">{idx + 1}</td>
+                        <td className="border border-gray-200 px-1 py-1">{cell("product_name")}</td>
+                        <td className="border border-gray-200 px-1 py-1">{cell("option_text")}</td>
+                        <td className="border border-gray-200 px-1 py-1">
+                          <input type="number" min={1} value={o.quantity} onChange={(e) => upd("quantity", Number(e.target.value) || 0)}
+                            className={`w-full px-1.5 py-1 rounded border text-center ${!o.quantity || o.quantity < 1 ? "border-red-300 bg-red-50" : "border-transparent hover:border-gray-300"} focus:border-blue-400 focus:bg-white outline-none`} />
+                        </td>
+                        <td className="border border-gray-200 px-1 py-1 w-24">{cell("receiver_name")}</td>
+                        <td className="border border-gray-200 px-1 py-1 w-32">{cell("receiver_phone")}</td>
+                        <td className="border border-gray-200 px-1 py-1 min-w-[220px]">{cell("receiver_address")}</td>
+                        <td className="border border-gray-200 px-1 py-1">{cell("receiver_zipcode")}</td>
+                        <td className="border border-gray-200 px-1 py-1 text-center">
+                          <button onClick={() => setOcrReview((prev) => prev ? { ...prev, orders: prev.orders.filter((_, i) => i !== idx) } : prev)}
+                            className="text-gray-400 hover:text-red-500 cursor-pointer" title="이 행 삭제">✕</button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+              {ocrReview.orders.length === 0 && <p className="text-center text-gray-400 py-6 text-sm">모든 행이 삭제되었습니다.</p>}
+            </div>
+            <div className="p-4 border-t border-gray-100 flex justify-between items-center">
+              <p className="text-[11px] text-gray-400">* 표시는 필수 항목. 빨간 칸은 비어 있어 등록되지 않습니다.</p>
+              <div className="flex gap-2">
+                <button onClick={() => setOcrReview(null)} disabled={ocrRegistering}
+                  className="px-4 py-2 border border-gray-300 text-sm rounded-lg hover:bg-gray-50 cursor-pointer disabled:opacity-50">취소</button>
+                <button onClick={submitOcrReview} disabled={ocrRegistering || ocrReview.orders.length === 0}
+                  className="px-5 py-2 bg-[#C41E1E] text-white text-sm font-medium rounded-lg hover:bg-[#A01818] cursor-pointer disabled:opacity-50">
+                  {ocrRegistering ? "등록 중..." : `${ocrReview.orders.length}건 검수 완료 · 등록`}
+                </button>
+              </div>
             </div>
           </div>
         </div>
