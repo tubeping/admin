@@ -516,11 +516,18 @@ export default function ProductsPage() {
   };
 
   const deleteProduct = async (id: string) => {
-    if (!confirm("이 상품을 삭제하시겠습니까?")) return;
+    if (!confirm("이 상품을 삭제하시겠습니까?\n(연결된 주문·매출 기록은 보존되며 상품 연결만 해제됩니다)")) return;
     try {
-      await fetch(`/admin/api/products/${id}`, { method: "DELETE" });
+      const res = await fetch(`/admin/api/products/${id}`, { method: "DELETE" });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        alert(`삭제 실패: ${data.error ?? `서버 오류 (${res.status})`}`);
+        return;
+      }
       refreshAll();
-    } catch { /* skip */ }
+    } catch (e) {
+      alert(`삭제 실패: ${e instanceof Error ? e.message : "네트워크 오류"}`);
+    }
   };
 
   const activeStores = useMemo(() => stores.filter((s) => s.status === "active" || s.status === "connected"), [stores]);

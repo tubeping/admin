@@ -227,12 +227,39 @@ export async function DELETE(
   const { id } = await params;
   const sb = getServiceClient();
 
+  // orders / offline_orders 는 products(id) 를 CASCADE 없이 참조한다.
+  // 주문·매출 기록은 product_name 텍스트 스냅샷을 별도로 보관하므로,
+  // 삭제 전에 참조만 NULL 로 끊어 기록은 보존하고 상품만 제거한다.
+  // (product_variants / product_options / product_cafe24_mappings 는 ON DELETE CASCADE)
+  const { error: ordersErr } = await sb
+    .from("orders")
+    .update({ product_id: null })
+    .eq("product_id", id);
+  if (ordersErr) {
+    return NextResponse.json({ error: `주문 연결 해제 실패: ${ordersErr.message}` }, { status: 500 });
+  }
+
+  const { error: offlineErr } = await sb
+    .from("offline_orders")
+    .update({ product_id: null })
+    .eq("product_id", id);
+  if (offlineErr) {
+    return NextResponse.json({ error: `오프라인 납품 연결 해제 실패: ${offlineErr.message}` }, { status: 500 });
+  }
+
   const { error } = await sb
     .from("products")
     .delete()
     .eq("id", id);
 
   if (error) {
+    // 23503 = 아직 남아 있는 외래키 참조 (위에서 못 끊은 다른 테이블)
+    if (error.code === "23503") {
+      return NextResponse.json(
+        { error: `다른 데이터에서 이 상품을 참조 중이라 삭제할 수 없습니다: ${error.details ?? error.message}` },
+        { status: 409 }
+      );
+    }
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
