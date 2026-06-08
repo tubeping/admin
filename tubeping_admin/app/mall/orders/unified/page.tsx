@@ -1657,6 +1657,7 @@ export default function UnifiedOrdersPage() {
           <div className="flex gap-1">
             {[
               { label: "이번달", from: (() => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-01`; })(), to: today() },
+              { label: "지난달", from: (() => { const d = new Date(); const s = new Date(d.getFullYear(), d.getMonth() - 1, 1); return `${s.getFullYear()}-${String(s.getMonth() + 1).padStart(2, "0")}-01`; })(), to: (() => { const d = new Date(); const e = new Date(d.getFullYear(), d.getMonth(), 0); return `${e.getFullYear()}-${String(e.getMonth() + 1).padStart(2, "0")}-${String(e.getDate()).padStart(2, "0")}`; })() },
               { label: "오늘", from: today(), to: today() },
               { label: "7일", from: daysAgo(7), to: today() },
               { label: "15일", from: daysAgo(15), to: today() },
