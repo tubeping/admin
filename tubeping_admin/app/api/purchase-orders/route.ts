@@ -18,7 +18,7 @@ export async function GET(request: NextRequest) {
   const sb = getServiceClient();
   let query = sb
     .from("purchase_orders")
-    .select("*, suppliers:supplier_id(name, email)")
+    .select("*, suppliers:supplier_id(name, email, po_config)")
     .order("order_date", { ascending: false })
     .order("created_at", { ascending: false });
 
@@ -59,11 +59,17 @@ export async function GET(request: NextRequest) {
     for (const s of stores || []) storeNames[s.id] = s.name;
   }
 
-  const enriched = (data || []).map((p) => ({
-    ...p,
-    shipment_stats: stats[p.id] || { tracked: 0, synced: 0, total: 0 },
-    store_names: [...(poStoreIds[p.id] || [])].map((sid) => storeNames[sid] || sid),
-  }));
+  const enriched = (data || []).map((p) => {
+    const cfg = (p.suppliers?.po_config || null) as { format?: string; delivery?: string } | null;
+    return {
+      ...p,
+      shipment_stats: stats[p.id] || { tracked: 0, synced: 0, total: 0 },
+      store_names: [...(poStoreIds[p.id] || [])].map((sid) => storeNames[sid] || sid),
+      // 발주 전달방식: 카카오톡(엑셀) 공급사 여부 — UI 분기용
+      po_format: cfg?.format || "csv",
+      is_kakao: cfg?.delivery === "kakao" || cfg?.format === "xlsx",
+    };
+  });
 
   return NextResponse.json({ purchase_orders: enriched });
 }

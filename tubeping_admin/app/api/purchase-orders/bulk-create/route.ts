@@ -149,7 +149,7 @@ export async function POST(request: NextRequest) {
   const targetIds = Object.keys(byTarget);
   const { data: targetSuppliers } = await sb
     .from("suppliers")
-    .select("id, name, email, order_email")
+    .select("id, name, email, order_email, po_config")
     .in("id", targetIds);
   const supplierMap = Object.fromEntries((targetSuppliers || []).map((s) => [s.id, s]));
 
@@ -230,20 +230,28 @@ export async function POST(request: NextRequest) {
       continue;
     }
 
+    // 발주 전달방식: 카카오톡(엑셀) 공급사는 이메일 발송을 건너뛴다 (draft 유지 → 엑셀 다운로드 후 카톡 전달)
+    const poConfig = supplier?.po_config as { delivery?: string; format?: string } | null;
+    const isKakao = poConfig?.delivery === "kakao" || poConfig?.format === "xlsx";
+
     // 메일 발송 호출
     let emailSent = false;
     let emailError: string | undefined;
-    try {
-      const emailRes = await fetch(`${baseUrl}/admin/api/purchase-orders/send-email`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ purchase_order_id: po.id }),
-      });
-      const emailData = await emailRes.json();
-      emailSent = !!emailData.success;
-      if (!emailSent) emailError = emailData.error || "메일 발송 실패";
-    } catch (e) {
-      emailError = e instanceof Error ? e.message : "메일 호출 실패";
+    if (isKakao) {
+      emailError = "카카오톡 발주 공급사 — 메일 발송 건너뜀 (엑셀 다운로드 후 카톡 전달)";
+    } else {
+      try {
+        const emailRes = await fetch(`${baseUrl}/admin/api/purchase-orders/send-email`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ purchase_order_id: po.id }),
+        });
+        const emailData = await emailRes.json();
+        emailSent = !!emailData.success;
+        if (!emailSent) emailError = emailData.error || "메일 발송 실패";
+      } catch (e) {
+        emailError = e instanceof Error ? e.message : "메일 호출 실패";
+      }
     }
 
     results.push({

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServiceClient } from "@/lib/supabase";
 import { generateOrderCsv, enrichWithTpCode, POConfig } from "@/lib/purchaseOrderCsv";
+import { generateCrystalliXlsx } from "@/lib/purchaseOrderXlsx";
 
 /**
  * GET /api/purchase-orders/download?id=xxx&type=po|shipment
@@ -105,6 +106,20 @@ export async function GET(request: NextRequest) {
   }
 
   const enriched = await enrichWithTpCode(sb, orders);
+
+  // 엑셀(.xlsx) 양식 공급사 (예: 크리스탈리 — 카카오톡 발주) → 공식 양식 그대로 생성
+  if (poConfig?.format === "xlsx") {
+    const { buffer } = await generateCrystalliXlsx(enriched, poConfig);
+    const supplierName = po.suppliers?.name || "발주서";
+    const filename = `${supplierName}_발주서_${po.po_number}.xlsx`;
+    return new NextResponse(buffer, {
+      headers: {
+        "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        "Content-Disposition": `attachment; filename="${encodeURIComponent(filename)}"`,
+      },
+    });
+  }
+
   const csv = generateOrderCsv(enriched, poConfig);
   const filename = `발주서_${po.po_number}.csv`;
 

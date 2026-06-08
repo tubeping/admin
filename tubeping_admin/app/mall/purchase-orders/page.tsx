@@ -19,6 +19,8 @@ interface PurchaseOrder {
   suppliers: { name: string; email: string } | null;
   shipment_stats: { tracked: number; synced: number; total: number };
   store_names: string[];
+  po_format: string;      // "xlsx" | "csv"
+  is_kakao: boolean;      // 카카오톡(엑셀) 발주 공급사
 }
 
 const STATUS_LABEL: Record<string, string> = {
@@ -506,10 +508,13 @@ export default function PurchaseOrdersPage() {
                   </td>
                   <td className="px-2 py-3.5 text-center">
                     <div className="flex flex-wrap items-center justify-center gap-x-2 gap-y-1">
-                      {po.status === "draft" && (
+                      {po.is_kakao && po.status === "draft" && (
+                        <span className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-yellow-50 text-yellow-700 whitespace-nowrap" title="이메일 대신 엑셀을 받아 카카오톡으로 전달하세요">💬 카톡 발주</span>
+                      )}
+                      {!po.is_kakao && po.status === "draft" && (
                         <button onClick={() => handleSendEmail(po)} className="text-xs text-[#C41E1E] hover:underline cursor-pointer whitespace-nowrap">메일 발송</button>
                       )}
-                      {(po.status === "sent" || po.status === "viewed") && po.shipment_stats.tracked < po.shipment_stats.total && (
+                      {!po.is_kakao && (po.status === "sent" || po.status === "viewed") && po.shipment_stats.tracked < po.shipment_stats.total && (
                         <button
                           onClick={async () => {
                             const res = await fetch("/admin/api/purchase-orders/remind", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ purchase_order_id: po.id }) });
@@ -537,7 +542,11 @@ export default function PurchaseOrdersPage() {
                   </td>
                   <td className="px-3 py-3.5 text-center">
                     <div className="flex flex-col items-center gap-1">
-                      {po.status !== "draft" && (
+                      {po.is_kakao ? (
+                        <button onClick={() => handleDownload(po.id, "po")} className="text-xs font-medium text-green-800 bg-green-100 hover:bg-green-200 px-2 py-1 rounded cursor-pointer whitespace-nowrap" title="크리스탈리 양식 엑셀 — 카카오톡으로 전달">
+                          엑셀 발주서 ↓
+                        </button>
+                      ) : po.status !== "draft" && (
                         <button onClick={() => handleDownload(po.id, "po")} className="text-xs text-gray-700 bg-gray-100 hover:bg-gray-200 px-2 py-1 rounded cursor-pointer whitespace-nowrap">
                           발주파일 ↓
                         </button>
