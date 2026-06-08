@@ -134,6 +134,48 @@ interface SupplierDateRow {
   sales: number;
 }
 
+// ─── 공급사 자료 대조(검증) ───
+type VMatchStatus = "match" | "qty" | "amount" | "onlyTuping" | "onlySupplier";
+interface VDiffCell {
+  tuping: number;
+  supplier: number;
+  diff: number;
+}
+interface VKeyCompare {
+  key: string;
+  label: string;
+  product_name: string;
+  qty: VDiffCell;
+  supply: VDiffCell;
+  shipping: VDiffCell;
+  status: VMatchStatus;
+}
+interface VerifyResponse {
+  settlement: { id: string; supplier_name: string; period: string };
+  file: {
+    name: string;
+    sheet?: string;
+    headerRow: number;
+    columns?: Record<string, number>;
+    dataRows?: number;
+    skipped?: number;
+    parsedRows: number;
+  };
+  result: {
+    mode: "item_code" | "order_id" | "product";
+    modeLabel: string;
+    summary: {
+      tuping: { count: number; qty: number; supply: number; shipping: number; amount: number };
+      supplier: { count: number; qty: number; supply: number; shipping: number; amount: number };
+      diff: { qty: number; supply: number; shipping: number; amount: number };
+      status: "match" | "mismatch";
+    };
+    products: VKeyCompare[];
+    details: VKeyCompare[];
+    counts: { match: number; mismatch: number; onlyTuping: number; onlySupplier: number };
+  };
+}
+
 // ─── 상태 스타일 ───
 const SELLER_STATUS: Record<string, { label: string; style: string }> = {
   draft: { label: "임시", style: "bg-gray-100 text-gray-600" },
@@ -149,7 +191,21 @@ const SUP_STATUS: Record<string, { label: string; style: string; icon: string }>
 };
 const SUP_STATUS_ORDER = ["draft", "sent", "confirmed", "invoiced", "paid"];
 
+// 대조 결과 상태 스타일
+const VSTATUS: Record<string, { label: string; style: string; row: string }> = {
+  match: { label: "일치", style: "bg-green-100 text-green-700", row: "" },
+  qty: { label: "수량 불일치", style: "bg-orange-100 text-orange-700", row: "bg-orange-50" },
+  amount: { label: "금액 불일치", style: "bg-orange-100 text-orange-700", row: "bg-orange-50" },
+  onlyTuping: { label: "공급사 누락", style: "bg-red-100 text-red-700", row: "bg-red-50" },
+  onlySupplier: { label: "튜핑에 없음", style: "bg-red-100 text-red-700", row: "bg-red-50" },
+};
+
 const W = (n: number) => `₩${n.toLocaleString()}`;
+// 차이 표시 (+ 빨강, - 파랑, 0 회색)
+const Wdiff = (n: number) =>
+  n === 0 ? "—" : `${n > 0 ? "+" : "−"}₩${Math.abs(n).toLocaleString()}`;
+const diffColor = (n: number) =>
+  n === 0 ? "text-gray-400" : n > 0 ? "text-red-600" : "text-blue-600";
 
 function periodOptions() {
   const opts: string[] = [];
@@ -345,6 +401,12 @@ export default function SettlementPage() {
   const [supDetailByDate, setSupDetailByDate] = useState<SupplierDateRow[]>([]);
   const [supCreating, setSupCreating] = useState(false);
   const [supFilterStatus, setSupFilterStatus] = useState("");
+
+  // 공급사 자료 대조(검증)
+  const [supVerify, setSupVerify] = useState<VerifyResponse | null>(null);
+  const [supVerifying, setSupVerifying] = useState(false);
+  const [supVerifyError, setSupVerifyError] = useState("");
+  const [supVerifyShowMatch, setSupVerifyShowMatch] = useState(false);
 
   // ─── Data Fetching ───
   const fetchStores = useCallback(async () => {
@@ -569,6 +631,36 @@ export default function SettlementPage() {
     setSupDetailProducts(data.products || []);
     setSupDetailItems(data.items || []);
     setSupDetailByDate(data.byDate || []);
+    // 다른 공급사를 열면 이전 대조결과 초기화
+    setSupVerify(null);
+    setSupVerifyError("");
+    setSupVerifyShowMatch(false);
+  };
+
+  // 공급사가 보낸 거래명세서/엑셀을 업로드해 튜핑 집계와 대조
+  const handleSupVerifyUpload = async (file: File) => {
+    if (!supDetail) return;
+    setSupVerifying(true);
+    setSupVerifyError("");
+    setSupVerify(null);
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+      const res = await fetch(`/admin/api/supplier-settlements/${supDetail.id}/verify`, {
+        method: "POST",
+        body: fd,
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setSupVerifyError(data.error || "대조 실패");
+      } else {
+        setSupVerify(data as VerifyResponse);
+      }
+    } catch {
+      setSupVerifyError("업로드 중 오류가 발생했습니다");
+    } finally {
+      setSupVerifying(false);
+    }
   };
 
   const handleSupDelete = async (id: string) => {
@@ -1530,6 +1622,378 @@ export default function SettlementPage() {
               일자별 내역이 없습니다.
             </div>
           )}
+        </div>
+
+        {/* ═══ 공급사 자료 대조 (검증) ═══ */}
+        <div className="bg-white rounded-xl border border-gray-200 mt-6">
+          <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between gap-4 flex-wrap">
+            <div>
+              <h3 className="text-sm font-semibold text-gray-900">
+                📋 공급사 자료 대조 (검증)
+              </h3>
+              <p className="text-xs text-gray-500 mt-0.5">
+                공급사가 보낸 거래명세서·정산표(.xlsx/.xls/.csv)를 업로드하면 튜핑 집계와
+                자동 대조합니다.
+              </p>
+            </div>
+            <div className="flex items-center gap-2">
+              {supVerify && (
+                <button
+                  onClick={() => {
+                    setSupVerify(null);
+                    setSupVerifyError("");
+                  }}
+                  className="px-3 py-2 border border-gray-300 text-gray-600 text-sm rounded-lg hover:bg-gray-50 cursor-pointer"
+                >
+                  초기화
+                </button>
+              )}
+              <label
+                className={`px-4 py-2 text-white text-sm rounded-lg cursor-pointer ${
+                  supVerifying ? "bg-gray-400" : "bg-[#C41E1E] hover:bg-[#a51919]"
+                }`}
+              >
+                {supVerifying ? "대조 중..." : supVerify ? "다른 파일 업로드" : "파일 업로드"}
+                <input
+                  type="file"
+                  accept=".xlsx,.xls,.csv"
+                  hidden
+                  disabled={supVerifying}
+                  onChange={(e) => {
+                    const f = e.target.files?.[0];
+                    if (f) handleSupVerifyUpload(f);
+                    e.target.value = "";
+                  }}
+                />
+              </label>
+            </div>
+          </div>
+
+          <div className="p-6">
+            {/* 안내 (결과 전) */}
+            {!supVerify && !supVerifyError && !supVerifying && (
+              <div className="text-sm text-gray-500 bg-gray-50 rounded-lg p-4 leading-relaxed">
+                <p className="font-medium text-gray-700 mb-1">대조 방식</p>
+                <ul className="list-disc list-inside space-y-0.5">
+                  <li>
+                    파일에 <strong>주문상품고유번호/주문번호</strong>가 있으면 주문 단위로
+                    정밀 대조 (누락·과청구·금액불일치 검출)
+                  </li>
+                  <li>없으면 <strong>상품별·총액 단위</strong>로 대조</li>
+                  <li>
+                    금액 기준: 공급가 = 공급단가×수량, 배송비 = 박스당×수량 (이 정산서의 표기
+                    값과 동일)
+                  </li>
+                </ul>
+              </div>
+            )}
+
+            {supVerifyError && (
+              <div className="text-sm text-red-700 bg-red-50 border border-red-200 rounded-lg p-4">
+                ⚠️ {supVerifyError}
+              </div>
+            )}
+
+            {supVerify &&
+              (() => {
+                const r = supVerify.result;
+                const f = supVerify.file;
+                const ok = r.summary.status === "match";
+                const colNames: Record<string, string> = {
+                  item_code: "주문상품고유번호",
+                  order_id: "주문번호",
+                  product: "상품명",
+                  qty: "수량",
+                  supply: "공급가",
+                  unit: "단가",
+                  shipping: "배송비",
+                  amount: "합계",
+                  recipient: "수령인",
+                  tax: "세액",
+                };
+                const detailRows = r.details.filter((d) =>
+                  supVerifyShowMatch ? true : d.status !== "match"
+                );
+                return (
+                  <div className="space-y-5">
+                    {/* 결과 배너 */}
+                    <div
+                      className={`rounded-xl p-5 border ${
+                        ok
+                          ? "bg-green-50 border-green-200"
+                          : "bg-orange-50 border-orange-200"
+                      }`}
+                    >
+                      <div className="flex items-center gap-3 flex-wrap">
+                        <span className="text-2xl">{ok ? "✅" : "⚠️"}</span>
+                        <div className="flex-1">
+                          <p
+                            className={`text-base font-bold ${
+                              ok ? "text-green-800" : "text-orange-800"
+                            }`}
+                          >
+                            {ok
+                              ? "공급사 자료와 완전히 일치합니다"
+                              : "공급사 자료와 차이가 있습니다 — 확인 필요"}
+                          </p>
+                          <p className="text-xs text-gray-500 mt-0.5">
+                            {f.name} · {r.modeLabel} · 공급사 {r.summary.supplier.count}행 ↔
+                            튜핑 {r.summary.tuping.count}건
+                          </p>
+                        </div>
+                        <div className="flex gap-1.5 flex-wrap">
+                          {r.counts.match > 0 && (
+                            <span className="text-xs px-2 py-1 rounded-full bg-green-100 text-green-700">
+                              일치 {r.counts.match}
+                            </span>
+                          )}
+                          {r.counts.mismatch > 0 && (
+                            <span className="text-xs px-2 py-1 rounded-full bg-orange-100 text-orange-700">
+                              불일치 {r.counts.mismatch}
+                            </span>
+                          )}
+                          {r.counts.onlyTuping > 0 && (
+                            <span className="text-xs px-2 py-1 rounded-full bg-red-100 text-red-700">
+                              공급사 누락 {r.counts.onlyTuping}
+                            </span>
+                          )}
+                          {r.counts.onlySupplier > 0 && (
+                            <span className="text-xs px-2 py-1 rounded-full bg-red-100 text-red-700">
+                              튜핑에 없음 {r.counts.onlySupplier}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* 총계 비교 */}
+                    <div>
+                      <h4 className="text-xs font-semibold text-gray-700 mb-2">총계 비교</h4>
+                      <div className="overflow-x-auto border border-gray-200 rounded-lg">
+                        <table className="w-full text-sm">
+                          <thead className="bg-gray-50 text-gray-500 text-xs">
+                            <tr>
+                              <th className="px-4 py-2 text-left">항목</th>
+                              <th className="px-4 py-2 text-right">튜핑 집계</th>
+                              <th className="px-4 py-2 text-right">공급사 자료</th>
+                              <th className="px-4 py-2 text-right">차이</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-gray-100">
+                            {[
+                              {
+                                k: "수량",
+                                t: `${r.summary.tuping.qty}개`,
+                                s: `${r.summary.supplier.qty}개`,
+                                d: r.summary.diff.qty,
+                                money: false,
+                              },
+                              {
+                                k: "공급가",
+                                t: W(r.summary.tuping.supply),
+                                s: W(r.summary.supplier.supply),
+                                d: r.summary.diff.supply,
+                                money: true,
+                              },
+                              {
+                                k: "배송비",
+                                t: W(r.summary.tuping.shipping),
+                                s: W(r.summary.supplier.shipping),
+                                d: r.summary.diff.shipping,
+                                money: true,
+                              },
+                              {
+                                k: "합계 (공급가+배송비)",
+                                t: W(r.summary.tuping.amount),
+                                s: W(r.summary.supplier.amount),
+                                d: r.summary.diff.amount,
+                                money: true,
+                                bold: true,
+                              },
+                            ].map((row) => (
+                              <tr key={row.k} className={row.bold ? "font-semibold" : ""}>
+                                <td className="px-4 py-2 text-gray-700">{row.k}</td>
+                                <td className="px-4 py-2 text-right text-gray-900">{row.t}</td>
+                                <td className="px-4 py-2 text-right text-gray-900">{row.s}</td>
+                                <td
+                                  className={`px-4 py-2 text-right ${diffColor(row.d)}`}
+                                >
+                                  {row.money
+                                    ? Wdiff(row.d)
+                                    : row.d === 0
+                                      ? "—"
+                                      : `${row.d > 0 ? "+" : ""}${row.d}개`}
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                      <p className="text-[11px] text-gray-400 mt-1.5">
+                        차이 = 공급사 자료 − 튜핑 집계. <span className="text-red-600">양수(+)</span>
+                        는 공급사가 더 청구, <span className="text-blue-600">음수(−)</span>는 덜
+                        청구.
+                      </p>
+                    </div>
+
+                    {/* 주문단위 불일치 상세 */}
+                    {r.mode !== "product" && (
+                      <div>
+                        <div className="flex items-center justify-between mb-2">
+                          <h4 className="text-xs font-semibold text-gray-700">
+                            주문단위 대조 (
+                            {supVerifyShowMatch
+                              ? `전체 ${r.details.length}건`
+                              : `불일치 ${detailRows.length}건`}
+                            )
+                          </h4>
+                          <button
+                            onClick={() => setSupVerifyShowMatch((v) => !v)}
+                            className="text-xs text-blue-600 hover:underline cursor-pointer"
+                          >
+                            {supVerifyShowMatch ? "불일치만 보기" : "일치 포함 전체보기"}
+                          </button>
+                        </div>
+                        {detailRows.length === 0 ? (
+                          <div className="text-sm text-green-700 bg-green-50 rounded-lg p-4">
+                            주문단위 불일치 없음 ✓
+                          </div>
+                        ) : (
+                          <div className="overflow-x-auto border border-gray-200 rounded-lg max-h-[420px] overflow-y-auto">
+                            <table className="w-full text-sm">
+                              <thead className="bg-gray-50 text-gray-500 text-xs sticky top-0">
+                                <tr>
+                                  <th className="px-3 py-2 text-left">상태</th>
+                                  <th className="px-3 py-2 text-left">주문번호</th>
+                                  <th className="px-3 py-2 text-left">상품</th>
+                                  <th className="px-3 py-2 text-right">수량 (튜핑/공급사)</th>
+                                  <th className="px-3 py-2 text-right">공급가 (튜핑/공급사)</th>
+                                  <th className="px-3 py-2 text-right">차이</th>
+                                </tr>
+                              </thead>
+                              <tbody className="divide-y divide-gray-100">
+                                {detailRows.map((d) => (
+                                  <tr key={d.key} className={VSTATUS[d.status]?.row}>
+                                    <td className="px-3 py-2">
+                                      <span
+                                        className={`text-[11px] px-2 py-0.5 rounded-full ${VSTATUS[d.status]?.style}`}
+                                      >
+                                        {VSTATUS[d.status]?.label}
+                                      </span>
+                                    </td>
+                                    <td className="px-3 py-2 text-gray-600 font-mono text-xs">
+                                      {d.label}
+                                    </td>
+                                    <td className="px-3 py-2 text-gray-700 max-w-[220px] truncate">
+                                      {d.product_name}
+                                    </td>
+                                    <td className="px-3 py-2 text-right text-gray-700">
+                                      <span
+                                        className={
+                                          d.qty.diff !== 0 ? "font-semibold text-orange-700" : ""
+                                        }
+                                      >
+                                        {d.qty.tuping} / {d.qty.supplier}
+                                      </span>
+                                    </td>
+                                    <td className="px-3 py-2 text-right text-gray-700">
+                                      {W(d.supply.tuping)} / {W(d.supply.supplier)}
+                                    </td>
+                                    <td
+                                      className={`px-3 py-2 text-right ${diffColor(d.supply.diff)}`}
+                                    >
+                                      {Wdiff(d.supply.diff)}
+                                    </td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {/* 상품별 대조 */}
+                    <div>
+                      <h4 className="text-xs font-semibold text-gray-700 mb-2">
+                        상품별 대조 ({r.products.length}종)
+                      </h4>
+                      <div className="overflow-x-auto border border-gray-200 rounded-lg">
+                        <table className="w-full text-sm">
+                          <thead className="bg-gray-50 text-gray-500 text-xs">
+                            <tr>
+                              <th className="px-3 py-2 text-left">상태</th>
+                              <th className="px-3 py-2 text-left">상품</th>
+                              <th className="px-3 py-2 text-right">수량 (튜핑/공급사)</th>
+                              <th className="px-3 py-2 text-right">공급가 (튜핑/공급사)</th>
+                              <th className="px-3 py-2 text-right">차이</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-gray-100">
+                            {r.products.map((p) => (
+                              <tr key={p.key} className={VSTATUS[p.status]?.row}>
+                                <td className="px-3 py-2">
+                                  <span
+                                    className={`text-[11px] px-2 py-0.5 rounded-full ${VSTATUS[p.status]?.style}`}
+                                  >
+                                    {VSTATUS[p.status]?.label}
+                                  </span>
+                                </td>
+                                <td className="px-3 py-2 text-gray-700 max-w-[280px] truncate">
+                                  {p.product_name}
+                                </td>
+                                <td className="px-3 py-2 text-right text-gray-700">
+                                  <span
+                                    className={
+                                      p.qty.diff !== 0 ? "font-semibold text-orange-700" : ""
+                                    }
+                                  >
+                                    {p.qty.tuping} / {p.qty.supplier}
+                                  </span>
+                                </td>
+                                <td className="px-3 py-2 text-right text-gray-700">
+                                  {W(p.supply.tuping)} / {W(p.supply.supplier)}
+                                </td>
+                                <td
+                                  className={`px-3 py-2 text-right ${diffColor(p.supply.diff)}`}
+                                >
+                                  {Wdiff(p.supply.diff)}
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+
+                    {/* 파싱 정보 */}
+                    <details className="text-xs text-gray-500">
+                      <summary className="cursor-pointer hover:text-gray-700">
+                        파싱 정보 (인식된 파일 구조)
+                      </summary>
+                      <div className="mt-2 bg-gray-50 rounded-lg p-3 space-y-1">
+                        <p>
+                          시트: <strong>{f.sheet}</strong> · 헤더 {f.headerRow}행 · 데이터{" "}
+                          {f.parsedRows}행 인식
+                          {f.skipped ? ` (${f.skipped}행 스킵)` : ""}
+                        </p>
+                        <p>
+                          인식 컬럼:{" "}
+                          {f.columns
+                            ? Object.keys(f.columns)
+                                .map((c) => colNames[c] || c)
+                                .join(", ")
+                            : "—"}
+                        </p>
+                        <p className="text-gray-400">
+                          상품명·공급가가 잘못 인식됐다면 공급사 파일의 헤더(컬럼명)를 확인하세요.
+                        </p>
+                      </div>
+                    </details>
+                  </div>
+                );
+              })()}
+          </div>
         </div>
       </div>
     );
