@@ -390,6 +390,14 @@ const OrderRow = memo(function OrderRow({
   // 로컬 state로 입력 처리 — 키 입력마다 상위 리렌더 방지
   const [localTrackingCompany, setLocalTrackingCompany] = useState(trackingEdit?.company || "CJ대한통운");
   const [localTrackingNumber, setLocalTrackingNumber] = useState(trackingEdit?.number || "");
+  const [addrOpen, setAddrOpen] = useState(false); // 배송주소 전체보기 토글
+  const [copiedNum, setCopiedNum] = useState<string | null>(null); // 송장번호 복사 피드백
+  const copyTracking = (num: string) => {
+    navigator.clipboard.writeText(num).then(() => {
+      setCopiedNum(num);
+      setTimeout(() => setCopiedNum((c) => (c === num ? null : c)), 1200);
+    });
+  };
   useEffect(() => {
     if (trackingEdit) {
       setLocalTrackingCompany(trackingEdit.company);
@@ -536,16 +544,16 @@ const OrderRow = memo(function OrderRow({
         const isInvalid = status === "invalid";
         return (
           <td
-            className={`px-1.5 py-1.5 max-w-[180px] ${isInvalid ? "cursor-pointer hover:bg-red-50/60" : ""}`}
-            onClick={isInvalid ? (e) => { e.stopPropagation(); onEditAddress(o); } : undefined}
-            title={isInvalid ? `${title} — 클릭하여 주소 수정` : title}
+            className={`px-1.5 py-1.5 ${addrOpen ? "max-w-[260px]" : "max-w-[180px]"} cursor-pointer ${isInvalid ? "hover:bg-red-50/60" : "hover:bg-gray-100/60"}`}
+            onClick={(e) => { e.stopPropagation(); if (isInvalid) onEditAddress(o); else setAddrOpen((v) => !v); }}
+            title={isInvalid ? `${title} — 클릭하여 주소 수정` : `${title} — 클릭하여 전체 주소 보기`}
           >
-            <div className="flex items-center gap-1">
-              <span className={`shrink-0 w-2 h-2 rounded-full ${color}`} />
-              <div className={`text-[11px] truncate ${isInvalid ? "text-red-600 underline decoration-dotted" : "text-gray-600"}`} title={o.receiver_address || ""}>
+            <div className="flex items-start gap-1">
+              <span className={`shrink-0 w-2 h-2 mt-1 rounded-full ${color}`} />
+              <div className={`text-[11px] ${addrOpen ? "whitespace-normal break-words" : "truncate"} ${isInvalid ? "text-red-600 underline decoration-dotted" : "text-gray-600"}`} title={o.receiver_address || ""}>
                 {o.receiver_address || <span className="text-gray-300">-</span>}
               </div>
-              {isInvalid && <span className="shrink-0 text-[9px] text-red-400">&#9998;</span>}
+              {isInvalid && <span className="shrink-0 text-[9px] text-red-400 mt-0.5">&#9998;</span>}
             </div>
           </td>
         );
@@ -673,6 +681,15 @@ const OrderRow = memo(function OrderRow({
                       ) : (
                         <span className="font-mono text-gray-700 text-xs truncate">{num}</span>
                       )}
+                      <button onClick={() => copyTracking(num)}
+                        className={`cursor-pointer flex-shrink-0 ${copiedNum === num ? "text-green-600" : "text-gray-400 hover:text-gray-600"}`}
+                        title={copiedNum === num ? "복사됨" : "송장번호 복사"}>
+                        {copiedNum === num ? (
+                          <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>
+                        ) : (
+                          <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg>
+                        )}
+                      </button>
                       {i === 0 && (
                         <button onClick={() => onTrackingEdit(o.id, { company: o.shipping_company || "CJ대한통운", number: o.tracking_number })}
                           className="text-gray-400 hover:text-gray-600 cursor-pointer flex-shrink-0" title="수정">
