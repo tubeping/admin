@@ -184,7 +184,7 @@ export async function POST(request: NextRequest) {
   // ── 7. 기존 정산 체크 (같은 기간 draft면 덮어쓰기) ──
   const { data: existing } = await sb
     .from("settlements")
-    .select("id, status")
+    .select("id, status, share_token")
     .eq("store_id", store_id)
     .eq("period", period)
     .single();
@@ -209,6 +209,9 @@ export async function POST(request: NextRequest) {
     .from("settlements")
     .insert({
       settlement_no: settlementNo,
+      // 재계산(삭제 후 재생성) 시에도 기존 공유 링크(share_token)를 유지한다.
+      // (delete 가 먼저 실행되므로 UNIQUE 충돌 없음. 신규면 트리거가 자동 생성)
+      ...(existing?.share_token ? { share_token: existing.share_token } : {}),
       store_id,
       period,
       start_date: startDate,

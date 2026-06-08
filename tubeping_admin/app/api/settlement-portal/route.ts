@@ -49,10 +49,49 @@ export async function GET(request: NextRequest) {
     ? settlementQuery.eq("period", period)
     : settlementQuery.eq("id", base.id);
 
-  const { data: settlement, error } = await settlementQuery.single();
+  let { data: settlement, error } = await settlementQuery.single();
 
   if (error || !settlement) {
     return NextResponse.json({ error: "해당 월 정산서를 찾을 수 없습니다" }, { status: 404 });
+  }
+
+  // 3-b) 자동 재계산 — 미확정(draft·미확정) 정산서는 그 기간 주문이
+  //      정산 생성 이후 변경됐으면 조회 시점에 최신 주문 기준으로 재계산한다.
+  //      (확정/지급완료 또는 판매사 확정 건은 스냅샷 고정 → 건드리지 않음)
+  if (settlement.status === "draft" && !settlement.seller_confirmed) {
+    const { data: lastOrder } = await sb
+      .from("orders")
+      .select("updated_at")
+      .eq("store_id", settlement.store_id)
+      .gte("order_date", settlement.start_date)
+      .lte("order_date", settlement.end_date + "T23:59:59")
+      .order("updated_at", { ascending: false })
+      .limit(1);
+    const latestOrderUpd = lastOrder?.[0]?.updated_at;
+    if (latestOrderUpd && settlement.updated_at && new Date(latestOrderUpd) > new Date(settlement.updated_at)) {
+      try {
+        const calcRes = await fetch(
+          new URL("/admin/api/settlements/calculate", request.url).toString(),
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ store_id: settlement.store_id, period: settlement.period }),
+          }
+        );
+        if (calcRes.ok) {
+          // 재계산본 재조회 (share_token 은 calculate 가 보존)
+          const { data: fresh } = await sb
+            .from("settlements")
+            .select("*, stores(name, mall_id, settlement_type, influencer_rate, company_rate)")
+            .eq("store_id", settlement.store_id)
+            .eq("period", settlement.period)
+            .single();
+          if (fresh) settlement = fresh;
+        }
+      } catch {
+        // 재계산 실패 시 기존 스냅샷 그대로 노출 (가용성 우선)
+      }
+    }
   }
 
   // 상세 아이템 (최대 5000건)
