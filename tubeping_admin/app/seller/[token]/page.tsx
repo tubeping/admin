@@ -293,7 +293,7 @@ export default function SellerPortalPage() {
   return (
     <div className="min-h-screen bg-gradient-to-b from-[#f8f9fb] to-[#f0f2f5]">
       <header className="bg-white/80 backdrop-blur-md border-b border-gray-200/60 sticky top-0 z-10">
-        <div className="max-w-6xl mx-auto px-4 sm:px-6 py-3.5">
+        <div className="max-w-[1600px] mx-auto px-4 sm:px-6 py-3.5">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
               <div className="w-9 h-9 bg-gradient-to-br from-[#C41E1E] to-[#a01818] rounded-lg flex items-center justify-center shrink-0 shadow-sm">
@@ -345,7 +345,7 @@ export default function SellerPortalPage() {
         </div>
       </header>
 
-      <main className="max-w-6xl mx-auto px-4 sm:px-6 py-6 space-y-5">
+      <main className="max-w-[1600px] mx-auto px-4 sm:px-6 py-6 space-y-5">
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
           <StatCard label="전체 주문" value={totalOrders} suffix="건" icon="📦" color="gray" />
           <StatCard label="총 금액" value={totalAmount} suffix="원" icon="💰" format color="blue" />
@@ -378,6 +378,12 @@ export default function SellerPortalPage() {
           <section className="bg-white rounded-xl border border-gray-200/60 overflow-hidden shadow-sm">
             <div className="flex items-center justify-between px-4 py-2.5 border-b border-gray-100 bg-gray-50/40">
               <div className="flex items-center gap-2 text-[11px] text-gray-400">
+                <button
+                  onClick={toggleSelectAll}
+                  className="md:hidden px-2 py-1 rounded-md border border-gray-200 text-gray-500 active:scale-95"
+                >
+                  {isAllSelected ? "선택해제" : "전체선택"}
+                </button>
                 <span>{filteredMallOrders.length}건{hasFilters ? " (필터 적용)" : ""}</span>
                 {hasFilters && (
                   <button onClick={() => setFilters({})} className="text-red-400 hover:text-red-600 underline">필터 초기화</button>
@@ -394,7 +400,7 @@ export default function SellerPortalPage() {
                 {selectedIds.size > 0 ? `선택 ${selectedIds.size}건 다운로드` : "엑셀 다운로드"}
               </button>
             </div>
-            <div className="overflow-x-auto">
+            <div className="hidden md:block overflow-x-auto">
               <table className="w-full">
                 <thead>
                   <tr className="bg-gray-50/80 border-b border-gray-100">
@@ -416,7 +422,7 @@ export default function SellerPortalPage() {
                     <th className="px-3 py-3 text-left text-[11px] font-semibold text-gray-500 uppercase tracking-wider whitespace-nowrap">수령인</th>
                     <th className="px-3 py-3 text-center text-[11px] font-semibold text-gray-500 uppercase tracking-wider whitespace-nowrap">구분</th>
                     <th className="px-3 py-3 text-center text-[11px] font-semibold text-gray-500 uppercase tracking-wider whitespace-nowrap">상태</th>
-                    <th className="px-5 py-3 text-left text-[11px] font-semibold text-gray-500 uppercase tracking-wider whitespace-nowrap min-w-[220px]">운송장</th>
+                    <th className="px-3 py-3 text-left text-[11px] font-semibold text-gray-500 uppercase tracking-wider whitespace-nowrap">운송장</th>
                     <th className="px-3 py-3 text-left text-[11px] font-semibold text-gray-500 uppercase tracking-wider whitespace-nowrap">담당자 비고</th>
                     <th className="px-3 py-3 text-left text-[11px] font-semibold text-gray-500 uppercase tracking-wider whitespace-nowrap">판매사 비고</th>
                   </tr>
@@ -448,7 +454,7 @@ export default function SellerPortalPage() {
                         {Object.values(MALL_STATUS).map((s) => <option key={s.label} value={s.label}>{s.label}</option>)}
                       </select>
                     </td>
-                    <td className="px-5 py-1.5" />
+                    <td className="px-3 py-1.5" />
                     <td className="px-3 py-1.5" />
                     <td className="px-3 py-1.5" />
                   </tr>
@@ -491,29 +497,34 @@ export default function SellerPortalPage() {
                         <td className="px-3 py-3 text-center">
                           <span className={`inline-block text-[10px] font-semibold px-2 py-0.5 rounded-full whitespace-nowrap ${st.color} ${st.bg}`}>{st.label}</span>
                         </td>
-                        <td className="px-5 py-3 text-[11px] whitespace-nowrap min-w-[220px]">
+                        <td className="px-3 py-3 text-[11px] whitespace-nowrap">
                           {o.tracking_number ? (
                             trackingUrl ? (
-                              <a href={trackingUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-2 text-blue-600 hover:text-blue-800 transition-colors group">
-                                <span className="font-medium">{o.shipping_company}</span>
-                                <span className="font-mono text-blue-500 group-hover:underline">{o.tracking_number}</span>
-                                <svg className="w-3 h-3 text-blue-400 group-hover:text-blue-600 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
-                                </svg>
+                              <a href={trackingUrl} target="_blank" rel="noopener noreferrer" className="group inline-flex flex-col leading-tight" title={`${o.shipping_company || ""} ${o.tracking_number}`}>
+                                <span className="text-[10px] text-gray-400 group-hover:text-gray-600">{o.shipping_company}</span>
+                                <span className="inline-flex items-center gap-1 font-mono text-blue-600 group-hover:underline">
+                                  {o.tracking_number}
+                                  <svg className="w-2.5 h-2.5 text-blue-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                                  </svg>
+                                </span>
                               </a>
                             ) : (
-                              <span className="text-gray-500">{o.shipping_company} {o.tracking_number}</span>
+                              <span className="inline-flex flex-col leading-tight text-gray-500">
+                                <span className="text-[10px] text-gray-400">{o.shipping_company}</span>
+                                <span className="font-mono">{o.tracking_number}</span>
+                              </span>
                             )
                           ) : (
                             <span className="text-gray-200">—</span>
                           )}
                         </td>
                         {/* 담당자 비고 (읽기전용) */}
-                        <td className="px-3 py-3 text-[11px] text-gray-500 min-w-[120px]">
+                        <td className="px-3 py-3 text-[11px] text-gray-500 min-w-[96px]">
                           {o.admin_note || <span className="text-gray-200">-</span>}
                         </td>
                         {/* 판매사 비고 (편집가능) */}
-                        <td className="px-3 py-3 min-w-[150px]">
+                        <td className="px-3 py-3 min-w-[120px]">
                           {editingNoteId === o.id ? (
                             <div className="flex items-center gap-1">
                               <input
@@ -540,6 +551,102 @@ export default function SellerPortalPage() {
                   })}
                 </tbody>
               </table>
+            </div>
+
+            {/* 모바일: 카드 리스트 */}
+            <div className="md:hidden divide-y divide-gray-100">
+              {filteredMallOrders.map((o) => {
+                const st = MALL_STATUS[o.shipping_status] || MALL_STATUS.pending;
+                const saleAmount = o.order_amount || (o.product_price || 0) * o.quantity || 0;
+                const supplyAmount = (o.supply_price || 0) * o.quantity;
+                const shippingFee = o.shipping_fee || 0;
+                const channel = detectChannel(o.sales_channel, o.cafe24_order_id);
+                const trackingUrl = o.tracking_number ? getTrackingUrl(o.shipping_company, o.tracking_number) : null;
+                const selected = selectedIds.has(o.id);
+                return (
+                  <div key={o.id} className={`px-3.5 py-3 ${selected ? "bg-blue-50/40" : ""}`}>
+                    <div className="flex items-start gap-2.5">
+                      <input type="checkbox" checked={selected} onChange={() => toggleSelect(o.id)} className="mt-1 w-4 h-4 rounded border-gray-300 text-[#C41E1E] focus:ring-[#C41E1E] cursor-pointer shrink-0" />
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="min-w-0">
+                            <p className="text-sm font-semibold text-gray-900 leading-snug break-words">{o.product_name}</p>
+                            {o.option_text && <p className="text-[11px] text-gray-400 mt-0.5 break-words">{o.option_text}</p>}
+                          </div>
+                          <span className={`shrink-0 inline-block text-[10px] font-semibold px-2 py-0.5 rounded-full whitespace-nowrap ${st.color} ${st.bg}`}>{st.label}</span>
+                        </div>
+
+                        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 mt-1.5 text-[11px] text-gray-500">
+                          <span className={`inline-block font-semibold px-1.5 py-0.5 rounded-full ${
+                            channel === "자사몰" ? "text-indigo-600 bg-indigo-50" :
+                            channel === "샘플" ? "text-orange-600 bg-orange-50" :
+                            channel === "전화주문" ? "text-teal-600 bg-teal-50" :
+                            channel === "문자주문" ? "text-cyan-600 bg-cyan-50" :
+                            channel === "공구주문" ? "text-pink-600 bg-pink-50" :
+                            channel === "증정" ? "text-purple-600 bg-purple-50" :
+                            "text-gray-500 bg-gray-50"
+                          }`}>{channel}</span>
+                          <span>{formatDate(o.order_date)}</span>
+                          <span className="text-gray-300">·</span>
+                          <span className="text-gray-700 font-medium">{o.receiver_name}</span>
+                          <span className="font-mono text-gray-300 text-[10px]">{o.cafe24_order_id}</span>
+                        </div>
+
+                        <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 mt-2 text-xs">
+                          <span className="font-bold text-gray-900 tabular-nums">{saleAmount > 0 ? <>{formatAmount(saleAmount)}<span className="text-[10px] font-normal text-gray-400 ml-0.5">원</span></> : <span className="text-gray-300">-</span>}</span>
+                          <span className="text-gray-400">수량 {o.quantity}</span>
+                          {supplyAmount > 0 && <span className="text-gray-400 tabular-nums">공급 {formatAmount(supplyAmount)}</span>}
+                          {shippingFee > 0 && <span className="text-gray-400 tabular-nums">배송 {formatAmount(shippingFee)}</span>}
+                        </div>
+
+                        {o.tracking_number && (
+                          <div className="mt-2 text-[11px]">
+                            {trackingUrl ? (
+                              <a href={trackingUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1.5 text-blue-600">
+                                <span className="text-gray-400">{o.shipping_company}</span>
+                                <span className="font-mono underline">{o.tracking_number}</span>
+                                <svg className="w-3 h-3 text-blue-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" /></svg>
+                              </a>
+                            ) : (
+                              <span className="text-gray-500"><span className="text-gray-400">{o.shipping_company}</span> <span className="font-mono">{o.tracking_number}</span></span>
+                            )}
+                          </div>
+                        )}
+
+                        {o.admin_note && (
+                          <div className="mt-2 text-[11px] text-gray-600 bg-amber-50/60 border border-amber-100 rounded-md px-2 py-1 break-words">
+                            <span className="text-amber-600 font-medium">담당자</span> {o.admin_note}
+                          </div>
+                        )}
+
+                        <div className="mt-2">
+                          {editingNoteId === o.id ? (
+                            <div className="flex items-center gap-1.5">
+                              <input
+                                type="text"
+                                value={sellerNotes[o.id] || ""}
+                                onChange={e => setSellerNotes(prev => ({ ...prev, [o.id]: e.target.value }))}
+                                onKeyDown={e => { if (e.key === "Enter") saveSellerNote(o.id); if (e.key === "Escape") setEditingNoteId(null); }}
+                                placeholder="판매사 비고 입력"
+                                className="flex-1 px-2 py-1.5 text-[12px] border border-blue-300 rounded-md focus:outline-none focus:ring-1 focus:ring-blue-400"
+                                autoFocus
+                              />
+                              <button onClick={() => saveSellerNote(o.id)} className="px-2.5 py-1.5 text-[11px] font-semibold text-white bg-blue-500 rounded-md active:scale-95 whitespace-nowrap">저장</button>
+                            </div>
+                          ) : (
+                            <span
+                              onClick={() => { setEditingNoteId(o.id); setSellerNotes(prev => ({ ...prev, [o.id]: prev[o.id] || o.seller_note || "" })); }}
+                              className={`inline-block text-[11px] cursor-pointer px-2 py-1 rounded-md border border-dashed ${sellerNotes[o.id] || o.seller_note ? "text-gray-700 border-gray-200 bg-gray-50" : "text-gray-400 border-gray-200"}`}
+                            >
+                              {sellerNotes[o.id] || o.seller_note ? `📝 ${sellerNotes[o.id] || o.seller_note}` : "📝 비고 입력"}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           </section>
         )}

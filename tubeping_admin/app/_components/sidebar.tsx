@@ -122,6 +122,7 @@ const MENU_GROUPS: MenuGroup[] = [
           { key: "phone-orders-list", label: "전화주문", href: "/mall/phone-orders" },
           { key: "sms-orders-list", label: "문자주문(개발중)", href: "/mall/sms-orders" },
           { key: "orders-unified", label: "주문수집 및 조회", href: "/mall/orders/unified" },
+          { key: "orders-phone", label: "전화주문 관리", href: "/mall/orders/phone" },
           { key: "orders-payment", label: "입금확인", href: "/mall/orders/payment" },
           { key: "orders-verification", label: "매핑 검증", href: "/mall/orders/verification" },
           { key: "supplier-holidays", label: "공급사 휴무", href: "/mall/supplier-holidays" },
