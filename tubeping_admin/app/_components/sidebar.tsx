@@ -120,7 +120,7 @@ const MENU_GROUPS: MenuGroup[] = [
         ),
         children: [
           { key: "phone-orders-list", label: "전화주문", href: "/mall/phone-orders" },
-          { key: "sms-orders-list", label: "문자주문", href: "/mall/sms-orders" },
+          { key: "sms-orders-list", label: "문자주문(개발중)", href: "/mall/sms-orders" },
           { key: "orders-unified", label: "주문수집 및 조회", href: "/mall/orders/unified" },
           { key: "orders-payment", label: "입금확인", href: "/mall/orders/payment" },
           { key: "orders-verification", label: "매핑 검증", href: "/mall/orders/verification" },

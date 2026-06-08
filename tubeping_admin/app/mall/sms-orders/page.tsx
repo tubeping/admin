@@ -517,7 +517,7 @@ export default function SmsOrdersPage() {
       {/* 헤더 */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">문자주문 관리</h1>
+          <h1 className="text-2xl font-bold text-gray-900">문자주문 관리(개발중)</h1>
           <p className="text-sm text-gray-500 mt-2">SMS로 접수된 주문을 자동 파싱하고 발주 이관합니다</p>
         </div>
         <button
