@@ -55,9 +55,9 @@ export async function GET(request: NextRequest) {
       orders = data || [];
     }
 
-    // 5. 공급가 보강 — /api/orders/route.ts와 동일한 우선순위 체인
+    // 5. 공급가 보강 + 판매금액·배송비 자동 채우기 — /api/orders/route.ts와 동일한 우선순위 체인
     //    product_options(옵션 매칭) → supplier_products(공급사+상품) → products(기본)
-    //    ※ 판매금액(order_amount), 배송비(shipping_fee)는 orders 테이블 값을 그대로 사용
+    //    판매금액/배송비가 비어있으면 상품관리 정보로 자동 채운다.
     if (orders.length > 0) {
       // product_name → product_id 매핑
       const productNames = [...new Set(orders.map((o: any) => o.product_name?.trim()).filter(Boolean))];
@@ -157,15 +157,18 @@ export async function GET(request: NextRequest) {
           o.supply_shipping_fee = pid ? pidToSupplyShipping[pid] || 0 : 0;
         }
 
-        // 판매가 비어있을 때만 fallback (실제 거래가가 없는 경우에 한해)
-        if (!o.product_price && !o.order_amount) {
+        // 판매가/판매금액 자동 채우기 + 배송비 채우기
+        if (!o.product_price) {
           const fallbackPrice = (opt?.retail_price && opt.retail_price > 0)
             ? opt.retail_price
             : (pid ? pidToSalePrice[pid] || 0 : 0);
-          if (fallbackPrice > 0) {
-            o.product_price = fallbackPrice;
-            o.order_amount = fallbackPrice * (o.quantity || 1);
-          }
+          if (fallbackPrice > 0) o.product_price = fallbackPrice;
+        }
+        if (!o.order_amount && o.product_price) {
+          o.order_amount = o.product_price * (o.quantity || 1);
+        }
+        if (!o.shipping_fee && o.supply_shipping_fee) {
+          o.shipping_fee = o.supply_shipping_fee;
         }
       }
     }
