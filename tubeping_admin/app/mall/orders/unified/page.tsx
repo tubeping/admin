@@ -729,6 +729,15 @@ const OrderRow = memo(function OrderRow({
               ) : (
                 <span className="text-gray-300">-</span>
               )}
+              {o.purchase_orders?.po_number && (
+                <div
+                  className="text-[10px] text-gray-500 font-mono mt-0.5 cursor-pointer hover:text-blue-600"
+                  title="클릭하면 발주번호 복사"
+                  onClick={(e) => { e.stopPropagation(); navigator.clipboard?.writeText(o.purchase_orders!.po_number); }}
+                >
+                  {o.purchase_orders.po_number}
+                </div>
+              )}
             </td>
           </>
         );
