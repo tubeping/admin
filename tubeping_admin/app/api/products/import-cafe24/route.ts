@@ -170,8 +170,11 @@ export async function POST(request: NextRequest) {
       if ((p.shipping_fee_type || "") === "T") shippingByNo.set(p.product_no, 0);
       else needDetail.push(p.product_no);
     }
-    const CONC = 6;
+    const CONC = 12; // 카페24 버킷 ~13건/s
+    const BUDGET_MS = 230_000; // Vercel 300s 한도 내 안전 마진 (초과분은 0 유지)
+    const startTs = Date.now();
     for (let i = 0; i < needDetail.length; i += CONC) {
+      if (Date.now() - startTs > BUDGET_MS) break;
       const slice = needDetail.slice(i, i + CONC);
       await Promise.all(
         slice.map(async (no) => {

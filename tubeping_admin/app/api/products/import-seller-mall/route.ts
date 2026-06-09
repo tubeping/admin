@@ -106,16 +106,21 @@ export async function POST(request: NextRequest) {
     }
   }
 
-  // 배송비 보강 (무료 외만 상세 조회)
-  const shippingByNo = new Map<number, number>();
+  // 배송비 보강: 무료(shipping_fee_type='T')는 0, 그 외는 상세의 shipping_rates[0].shipping_fee.
+  //  - 동시성 12 (카페24 버킷 ~13건/s 관측 → 700건 ≈ 1분).
+  //  - 시간예산 초과(초대형 카탈로그) 분은 null 로 두고 price 는 그대로 저장 → 재실행 시 보강.
+  const shippingByNo = new Map<number, number | null>();
   {
     const needDetail: number[] = [];
     for (const p of allCafe) {
       if ((p.shipping_fee_type || "") === "T") shippingByNo.set(p.product_no, 0);
       else needDetail.push(p.product_no);
     }
-    const CONC = 6;
+    const CONC = 12;
+    const BUDGET_MS = 230_000; // Vercel 300s 한도 내 안전 마진
+    const startTs = Date.now();
     for (let i = 0; i < needDetail.length; i += CONC) {
+      if (Date.now() - startTs > BUDGET_MS) break; // 초과분은 미설정 → null
       const slice = needDetail.slice(i, i + CONC);
       await Promise.all(
         slice.map(async (no) => {
@@ -125,7 +130,7 @@ export async function POST(request: NextRequest) {
             const rates = d?.product?.shipping_rates as Array<{ shipping_fee?: string }> | undefined;
             shippingByNo.set(no, rates && rates[0] ? Math.round(Number(rates[0].shipping_fee) || 0) : 0);
           } catch {
-            shippingByNo.set(no, 0);
+            shippingByNo.set(no, null);
           }
         })
       );
@@ -139,7 +144,7 @@ export async function POST(request: NextRequest) {
     cafe24_product_no: number;
     cafe24_product_code: string | null;
     seller_price: number;
-    seller_shipping_fee: number;
+    seller_shipping_fee: number | null;
     seller_product_code: string;
     seller_synced_at: string;
     sync_status: string;
@@ -172,7 +177,7 @@ export async function POST(request: NextRequest) {
       cafe24_product_no: p.product_no,
       cafe24_product_code: p.product_code || null,
       seller_price: Math.round(Number(p.price) || 0),
-      seller_shipping_fee: shippingByNo.get(p.product_no) ?? 0,
+      seller_shipping_fee: shippingByNo.get(p.product_no) ?? null,
       seller_product_code: withSellerPrefix(masterCore, storeName),
       seller_synced_at: now,
       sync_status: "synced",

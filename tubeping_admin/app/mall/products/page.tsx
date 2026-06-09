@@ -2225,7 +2225,11 @@ function StorePricesTab({
                       <td className="px-3 py-2.5 text-right text-gray-500">{formatPrice(p.supply_price)}</td>
                       <td className="px-3 py-2.5 text-right font-medium text-gray-900">{formatPrice(sp)}</td>
                       <td className="px-3 py-2.5 text-right text-gray-500">
-                        {m.seller_shipping_fee ? formatPrice(m.seller_shipping_fee) : "무료"}
+                        {m.seller_shipping_fee == null
+                          ? "미확인"
+                          : m.seller_shipping_fee > 0
+                            ? formatPrice(m.seller_shipping_fee)
+                            : "무료"}
                       </td>
                       <td className="px-3 py-2.5 text-right text-gray-600">{margin}</td>
                       <td className="px-3 py-2.5 text-xs text-gray-400">
