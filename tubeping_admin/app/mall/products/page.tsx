@@ -501,7 +501,7 @@ export default function ProductsPage() {
 
   /* ── 대량 출고 방식 변경 (병렬) ── */
   const bulkSetFulfillment = async (warehouseId: string | null) => {
-    const label = warehouseId ? "창고발주" : "직배송";
+    const label = warehouseId ? "창고발주" : "자체배송";
     if (!confirm(`${selectedProducts.size}개 상품을 "${label}"(으)로 변경합니다.\n계속할까요?`)) return;
     const count = selectedProducts.size;
     await Promise.allSettled(
@@ -743,7 +743,7 @@ export default function ProductsPage() {
               className="px-3 py-2.5 text-sm border border-gray-200 rounded-lg text-gray-600 focus:outline-none cursor-pointer"
             >
               <option value="all">전체 출고지</option>
-              <option value="direct">직배송</option>
+              <option value="direct">자체배송</option>
               <option value="warehouse">창고발주</option>
             </select>
             <select
@@ -804,7 +804,7 @@ export default function ProductsPage() {
                       ))}
                       <div className="border-t border-gray-100 mt-1 pt-1">
                         <button onClick={() => bulkSetFulfillment(null)} className="w-full px-4 py-2.5 text-left hover:bg-gray-50 cursor-pointer">
-                          <p className="text-sm font-medium text-gray-700">직배송으로 해제</p>
+                          <p className="text-sm font-medium text-gray-700">자체배송으로 해제</p>
                           <p className="text-[10px] text-gray-400">tp_code 공급사가 직접 출고</p>
                         </button>
                       </div>
@@ -1005,10 +1005,10 @@ export default function ProductsPage() {
                           <select
                             value={p.fulfillment_warehouse_supplier_id || ""}
                             onChange={(e) => updateProductField(p.id, { fulfillment_warehouse_supplier_id: e.target.value || null })}
-                            title="출고지 (직배송=tp코드 공급사 출고 / 창고발주=지정 창고 출고)"
+                            title="출고지 (자체배송=tp코드 공급사 출고 / 창고발주=지정 창고 출고)"
                             className={`w-full max-w-[110px] px-1.5 py-1 text-xs border rounded cursor-pointer focus:outline-none focus:ring-1 focus:ring-[#C41E1E]/30 ${warehouse ? "border-amber-300 bg-amber-50 text-amber-800 font-medium" : "border-gray-200 text-gray-600"}`}
                           >
-                            <option value="">직배송</option>
+                            <option value="">자체배송</option>
                             {warehouses.map((w) => (
                               <option key={w.id} value={w.id}>{w.name}</option>
                             ))}

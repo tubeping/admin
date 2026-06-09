@@ -629,7 +629,7 @@ const OrderRow = memo(function OrderRow({
                   className={`text-[10px] px-1 py-px rounded font-medium ${o.fulfillment_warehouse_supplier_id ? "bg-amber-50 text-amber-700" : "bg-blue-50 text-blue-700"}`}>
                   {o.warehouse_name}{o.fulfillment_warehouse_supplier_id ? " ✎" : ""}
                 </span>
-              : <span className="text-[10px] px-1 py-px rounded bg-gray-100 text-gray-500">자체출고</span>
+              : <span className="text-[10px] px-1 py-px rounded bg-gray-100 text-gray-500">자체배송</span>
             }</div>
           </div>
         ) : (
@@ -1577,7 +1577,7 @@ export default function UnifiedOrdersPage() {
       "배송지": o.receiver_address || "",
       "배송메시지": o.memo || "",
       "공급사": o.suppliers?.name || "",
-      "출고지": o.warehouse_name || (o.suppliers?.name ? "자체출고" : ""),
+      "출고지": o.warehouse_name || (o.suppliers?.name ? "자체배송" : ""),
       "상태": STATUS_LABEL[o.shipping_status] || o.shipping_status,
       "택배사": o.shipping_company || "",
       "송장번호": o.tracking_number || "",
