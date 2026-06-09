@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServiceClient } from "@/lib/supabase";
 import { getActiveStores, cafe24Fetch as _cafe24Fetch, type StoreInfo } from "@/lib/cafe24";
+import { coreCode, withSupplierPrefix } from "@/lib/productCode";
 
 const MALL_ID = "tubeping";
 
@@ -92,8 +93,9 @@ export async function POST(request: NextRequest) {
     }
   }
 
-  const tpCodeToProductId = new Map<string, string>();
-  const productIdToTpCode = new Map<string, string>();
+  // 코어코드(TP…) 기준 맵 — tp_code 앞에 '공급사명_' 접두사가 붙어도 매칭/충돌 판정은 코어로
+  const coreToProductId = new Map<string, string>();
+  const productIdToCore = new Map<string, string>();
   {
     let pOffset = 0;
     const pLimit = 1000;
@@ -105,8 +107,9 @@ export async function POST(request: NextRequest) {
       if (!rows?.length) break;
       for (const r of rows) {
         if (r.tp_code) {
-          tpCodeToProductId.set(r.tp_code, r.id);
-          productIdToTpCode.set(r.id, r.tp_code);
+          const core = coreCode(r.tp_code);
+          coreToProductId.set(core, r.id);
+          productIdToCore.set(r.id, core);
         }
       }
       if (rows.length < pLimit) break;
@@ -157,6 +160,31 @@ export async function POST(request: NextRequest) {
     }
   }
 
+  // 배송비 보강: 목록 응답엔 shipping_fee_type 만 있고 숫자 배송비는 상세의 shipping_rates 에 있음.
+  //  - shipping_fee_type='T'(무료) → 0
+  //  - 그 외 → 상세를 동시성 제한으로 조회해 shipping_rates[0].shipping_fee 추출 (실패 시 0, 수동수정 가능)
+  const shippingByNo = new Map<number, number>();
+  {
+    const needDetail: number[] = [];
+    for (const p of allCafeProducts as Array<{ product_no: number; shipping_fee_type?: string }>) {
+      if ((p.shipping_fee_type || "") === "T") shippingByNo.set(p.product_no, 0);
+      else needDetail.push(p.product_no);
+    }
+    const CONC = 6;
+    for (let i = 0; i < needDetail.length; i += CONC) {
+      const slice = needDetail.slice(i, i + CONC);
+      await Promise.all(
+        slice.map(async (no) => {
+          try {
+            const d = await cafe24Fetch(`https://${MALL_ID}.cafe24api.com/api/v2/admin/products/${no}`);
+            const rates = d?.product?.shipping_rates as Array<{ shipping_fee?: string }> | undefined;
+            shippingByNo.set(no, rates && rates[0] ? Math.round(Number(rates[0].shipping_fee) || 0) : 0);
+          } catch { shippingByNo.set(no, 0); }
+        })
+      );
+    }
+  }
+
   // 작업 단위 만들기 (DB 쓰기는 병렬 배치)
   type UpdateJob = { kind: "update"; productId: string; tpCode: string | null; fields: Record<string, unknown>; mapping: Record<string, unknown> };
   type InsertJob = { kind: "insert"; tpCode: string; fields: Record<string, unknown>; mapping: Record<string, unknown>; cafeProductNo: number };
@@ -178,6 +206,7 @@ export async function POST(request: NextRequest) {
       price: Math.round(Number(p.price) || 0),
       supply_price: Math.round(Number(p.supply_price) || 0),
       retail_price: Math.round(Number(p.retail_price) || 0),
+      supply_shipping_fee: shippingByNo.get(p.product_no) ?? 0,
       image_url: img,
       selling: p.selling === "T" ? "T" : "F",
       description: (p.simple_description as string) || null,
@@ -191,26 +220,28 @@ export async function POST(request: NextRequest) {
       last_sync_at: new Date().toISOString(),
     };
 
-    let productId = noToProductId.get(p.product_no) || tpCodeToProductId.get(customCode) || null;
+    // 코어(TP…) 공유키 + 공급사명 접두사 → 공급사 코드 (예: 귀빈정_TPCZ00872)
+    const core = coreCode(customCode);
+    const desiredTpCode = withSupplierPrefix(core, supplierName);
+
+    const productId = noToProductId.get(p.product_no) || coreToProductId.get(core) || null;
 
     if (productId) {
-      const currentTp = productIdToTpCode.get(productId);
-      let nextTpCode: string | null = customCode;
-      if (currentTp && currentTp !== customCode) {
-        const conflictId = tpCodeToProductId.get(customCode);
-        if (conflictId && conflictId !== productId) {
-          nextTpCode = null;
-          conflicts.push({
-            cafe24_product_no: p.product_no,
-            new_tp_code: customCode,
-            reason: `다른 상품이 이미 ${customCode}를 사용 중`,
-          });
-        }
+      // 코어가 다른 상품 소유면 코드 갱신만 건너뛰고(충돌 보고) 나머지 필드는 갱신
+      let nextTpCode: string | null = desiredTpCode;
+      const ownerOfCore = coreToProductId.get(core);
+      if (ownerOfCore && ownerOfCore !== productId) {
+        nextTpCode = null;
+        conflicts.push({
+          cafe24_product_no: p.product_no,
+          new_tp_code: desiredTpCode,
+          reason: `다른 상품이 이미 코어 ${core} 를 사용 중`,
+        });
       }
       const fields = nextTpCode ? { tp_code: nextTpCode, ...fieldsBase } : fieldsBase;
       jobs.push({ kind: "update", productId, tpCode: nextTpCode, fields, mapping: { product_id: productId, ...mappingBase } });
     } else {
-      jobs.push({ kind: "insert", tpCode: customCode, fields: { tp_code: customCode, ...fieldsBase, total_stock: 0 }, mapping: mappingBase, cafeProductNo: p.product_no });
+      jobs.push({ kind: "insert", tpCode: desiredTpCode, fields: { tp_code: desiredTpCode, ...fieldsBase, total_stock: 0 }, mapping: mappingBase, cafeProductNo: p.product_no });
     }
   }
 

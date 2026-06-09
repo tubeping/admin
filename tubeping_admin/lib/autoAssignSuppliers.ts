@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { parseSupplierShort } from "./productCode";
 
 /**
  * 주문 → 공급사 자동 매칭 (products 기준만)
@@ -109,15 +110,11 @@ export async function autoAssignSuppliers(
   }
 
   // tp_code에서 공급사 코드 추출 → suppliers.short_code → supplier_id
-  // 포맷: [채널 2자: A-Z][공급사 2자: A-Z0-9][숫자] (예: TPDV00789, TP0H00817)
+  // 접두사(공급사명_) 유무 무관 — 코어 기준 (귀빈정_TPDV00789 → 'DV', TP0H00817 → '0H')
   // 구형 하이픈 포맷(TP-0166 등)은 매칭 실패
-  const TP_CODE_RE = /^([A-Z]{2})([A-Z0-9]{2})\d+$/;
   const supplierIdFromTpCode = (tpCode: string): string | null => {
-    if (!tpCode) return null;
-    const m = tpCode.toUpperCase().match(TP_CODE_RE);
-    if (!m) return null;
-    const code = m[2];
-    return codeToSupplierId[code] || null;
+    const code = parseSupplierShort(tpCode);
+    return code ? codeToSupplierId[code] || null : null;
   };
 
   // product_id → supplier_id (products.supplier 우선, tp_code regex fallback)

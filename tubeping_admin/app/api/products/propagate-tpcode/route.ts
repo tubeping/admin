@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServiceClient } from "@/lib/supabase";
 import { getCafe24Stores, cafe24Fetch } from "@/lib/cafe24";
+import { coreCode, normalizeName } from "@/lib/productCode";
 
 export const maxDuration = 300;
 
@@ -37,13 +38,6 @@ type StoreReport = {
   errors: string[];
 };
 
-// 정규화: 공백/괄호/특수문자 제거 + 소문자
-function normalizeName(s: string): string {
-  return s
-    .toLowerCase()
-    .replace(/[\s\[\](){}【】〔〕「」『』<>＜＞,.·•!?~@#$%^&*_=+\-\\/|"'`:;]/g, "")
-    .trim();
-}
 
 /**
  * POST /api/products/propagate-tpcode
@@ -244,11 +238,14 @@ export async function POST(request: NextRequest) {
             });
             continue;
           }
-          if (p.custom_product_code === tpCode) {
+          // 판매사몰 custom_product_code 에는 '공급사명_' 접두사 없이 코어만 내보낸다
+          // (수집 매칭/조인의 공유키를 깨끗하게 유지)
+          const pushCode = coreCode(tpCode);
+          if (p.custom_product_code === pushCode) {
             report.matched++;
             continue;
           }
-          updateJobs.push({ p, tpCode });
+          updateJobs.push({ p, tpCode: pushCode });
           report.matched++;
         }
 

@@ -13,6 +13,11 @@ type Cafe24Mapping = {
   cafe24_product_code: string | null;
   sync_status: "none" | "pending" | "synced" | "error";
   last_sync_at: string | null;
+  // 판매사몰 가격 레이어 (import-seller-mall 로 채워짐)
+  seller_price?: number | null;
+  seller_shipping_fee?: number | null;
+  seller_product_code?: string | null;
+  seller_synced_at?: string | null;
 };
 
 type Variant = {
@@ -40,6 +45,7 @@ type Product = {
   price: number;
   supply_price: number;
   retail_price: number;
+  supply_shipping_fee: number;
   image_url: string | null;
   selling: string;
   display: string;
@@ -128,6 +134,7 @@ const SYNC_STATUS: Record<string, { label: string; cls: string }> = {
 const TABS = [
   { key: "inventory", label: "인벤토리" },
   { key: "mappings", label: "카페24 매핑" },
+  { key: "store-prices", label: "판매사 가격" },
   { key: "overview", label: "현황" },
 ] as const;
 
@@ -1203,6 +1210,11 @@ export default function ProductsPage() {
         />
       )}
 
+      {/* ─── 판매사 가격 탭 ─── */}
+      {tab === "store-prices" && (
+        <StorePricesTab products={products} stores={stores} storesLoading={storesLoading} onImported={refreshAll} />
+      )}
+
       {/* ─── 현황 탭 ─── */}
       {tab === "overview" && (
         <OverviewTab products={products} stores={stores} getStoreName={getStoreName} summaryStats={summaryStats} />
@@ -1990,6 +2002,248 @@ function EditProductModal({
           <div className="text-[10px] text-gray-400 pt-2 border-t border-gray-100">
             생성: {new Date(product.created_at).toLocaleString("ko")} · 수정: {new Date(product.updated_at).toLocaleString("ko")}
           </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ══════════════════════════════════════════
+   판매사 가격 탭 — 판매사 자사몰별 판매가·배송비 (import-seller-mall)
+   ══════════════════════════════════════════ */
+
+function StorePricesTab({
+  products, stores, storesLoading, onImported,
+}: {
+  products: Product[];
+  stores: Store[];
+  storesLoading: boolean;
+  onImported: () => void;
+}) {
+  // 판매사몰 = active Cafe24 몰 중 마스터(tubeping)·수기 스토어 제외
+  const sellerStores = useMemo(
+    () =>
+      stores.filter(
+        (s) =>
+          (s.status === "active" || s.status === "connected") &&
+          s.mall_id !== "tubeping" &&
+          !/^(manual_|excel_|test_)/.test(s.mall_id)
+      ),
+    [stores]
+  );
+  const [storeId, setStoreId] = useState("");
+  const [keyword, setKeyword] = useState("");
+  const [importing, setImporting] = useState(false);
+  const [result, setResult] = useState<string>("");
+  const [unmatched, setUnmatched] = useState<
+    { cafe24_product_no: number; product_name: string; custom_product_code: string }[]
+  >([]);
+
+  useEffect(() => {
+    if (!storeId && sellerStores.length) setStoreId(sellerStores[0].id);
+  }, [sellerStores, storeId]);
+
+  const runImport = async () => {
+    if (!storeId) return;
+    const sName = sellerStores.find((s) => s.id === storeId)?.name || "";
+    if (!confirm(`'${sName}' 판매사몰에서 상품(판매가·배송비)을 가져옵니다.\n계속할까요?`)) return;
+    setImporting(true);
+    setResult("");
+    setUnmatched([]);
+    try {
+      const res = await fetch("/admin/api/products/import-seller-mall", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ store_id: storeId }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        setResult(data.error || "가져오기 실패");
+        return;
+      }
+      setResult(data.message);
+      setUnmatched(data.unmatched || []);
+      onImported();
+    } catch (e) {
+      setResult(e instanceof Error ? e.message : "가져오기 실패");
+    } finally {
+      setImporting(false);
+    }
+  };
+
+  const rows = useMemo(() => {
+    if (!storeId) return [];
+    const kw = keyword.trim().toLowerCase();
+    const out: { product: Product; mapping: Cafe24Mapping }[] = [];
+    for (const p of products) {
+      const m = (p.product_cafe24_mappings || []).find(
+        (mm) => mm.store_id === storeId && mm.seller_price != null
+      );
+      if (!m) continue;
+      if (
+        kw &&
+        !(
+          p.product_name.toLowerCase().includes(kw) ||
+          (p.tp_code || "").toLowerCase().includes(kw) ||
+          (m.seller_product_code || "").toLowerCase().includes(kw)
+        )
+      )
+        continue;
+      out.push({ product: p, mapping: m });
+    }
+    return out;
+  }, [products, storeId, keyword]);
+
+  if (storesLoading)
+    return <div className="flex items-center justify-center py-20 text-gray-400">스토어 데이터 로딩 중...</div>;
+  if (!sellerStores.length)
+    return (
+      <div className="bg-white rounded-xl border border-gray-200 p-12 text-center text-gray-400">
+        연동된 판매사몰(Cafe24)이 없습니다.
+      </div>
+    );
+
+  return (
+    <div className="space-y-4">
+      {/* 컨트롤 */}
+      <div className="bg-white rounded-xl border border-gray-200 p-4 flex flex-col sm:flex-row sm:items-end gap-3">
+        <div>
+          <label className="text-xs text-gray-500 block mb-1">판매사몰 선택</label>
+          <select
+            value={storeId}
+            onChange={(e) => {
+              setStoreId(e.target.value);
+              setResult("");
+              setUnmatched([]);
+            }}
+            className="w-full sm:w-72 border border-gray-300 rounded-lg px-3 py-2 text-sm"
+          >
+            {sellerStores.map((s) => (
+              <option key={s.id} value={s.id}>
+                {s.name} ({s.mall_id})
+              </option>
+            ))}
+          </select>
+        </div>
+        <div className="flex-1">
+          <label className="text-xs text-gray-500 block mb-1">상품 검색</label>
+          <input
+            value={keyword}
+            onChange={(e) => setKeyword(e.target.value)}
+            placeholder="상품명 / 코드"
+            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+          />
+        </div>
+        <button
+          onClick={runImport}
+          disabled={importing || !storeId}
+          className="px-4 py-2.5 bg-[#C41E1E] text-white text-sm font-medium rounded-lg hover:bg-[#A01818] disabled:opacity-50 cursor-pointer whitespace-nowrap"
+        >
+          {importing ? "가져오는 중..." : "이 판매사몰에서 가져오기"}
+        </button>
+      </div>
+
+      {result && (
+        <div className="p-4 bg-blue-50 text-blue-700 text-sm rounded-lg border border-blue-200 flex items-center justify-between">
+          <span>{result}</span>
+          <button onClick={() => setResult("")} className="text-xs text-blue-400 hover:text-blue-600 cursor-pointer">
+            닫기
+          </button>
+        </div>
+      )}
+
+      {/* 보류(미매칭) 리포트 */}
+      {unmatched.length > 0 && (
+        <div className="bg-amber-50 border border-amber-200 rounded-xl p-4">
+          <p className="text-sm font-semibold text-amber-800 mb-2">
+            보류 — 마스터에 없는 상품 {unmatched.length}건 (수동 확인 필요)
+          </p>
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="text-amber-700/70 text-left">
+                  <th className="py-1 pr-3 font-medium">카페24 번호</th>
+                  <th className="py-1 pr-3 font-medium">상품명</th>
+                  <th className="py-1 font-medium">자체코드</th>
+                </tr>
+              </thead>
+              <tbody>
+                {unmatched.slice(0, 100).map((u) => (
+                  <tr key={u.cafe24_product_no} className="border-t border-amber-100">
+                    <td className="py-1 pr-3 text-amber-900">{u.cafe24_product_no}</td>
+                    <td className="py-1 pr-3 text-amber-900">{u.product_name}</td>
+                    <td className="py-1 font-mono text-amber-900">{u.custom_product_code || "-"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            {unmatched.length > 100 && (
+              <p className="text-[11px] text-amber-600 mt-2">…외 {unmatched.length - 100}건</p>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* 판매사 가격 목록 */}
+      <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+        <div className="px-4 py-3 border-b border-gray-100 text-sm text-gray-500">
+          판매가 보유 상품 <b className="text-gray-900">{rows.length}</b>건
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="text-xs text-gray-500 border-b border-gray-100 bg-gray-50 text-left">
+                <th className="px-4 py-2.5 font-medium">판매사 코드</th>
+                <th className="px-3 py-2.5 font-medium">상품명</th>
+                <th className="px-3 py-2.5 font-medium text-right">공급가</th>
+                <th className="px-3 py-2.5 font-medium text-right">판매가</th>
+                <th className="px-3 py-2.5 font-medium text-right">판매 배송비</th>
+                <th className="px-3 py-2.5 font-medium text-right">마진</th>
+                <th className="px-3 py-2.5 font-medium">가져온 시각</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.length === 0 ? (
+                <tr>
+                  <td colSpan={7} className="px-4 py-12 text-center text-gray-400">
+                    이 판매사몰의 판매가 데이터가 없습니다. 위 &quot;가져오기&quot;를 실행하세요.
+                  </td>
+                </tr>
+              ) : (
+                rows.map(({ product: p, mapping: m }) => {
+                  const sp = m.seller_price ?? 0;
+                  const margin =
+                    sp > 0 && p.supply_price > 0 ? `${(((sp - p.supply_price) / sp) * 100).toFixed(1)}%` : "-";
+                  return (
+                    <tr key={p.id} className="border-b border-gray-50 last:border-0 hover:bg-gray-50/50">
+                      <td className="px-4 py-2.5">
+                        <span className="text-xs font-mono font-bold text-[#C41E1E] bg-[#FFF0F5] px-2 py-0.5 rounded">
+                          {m.seller_product_code || "-"}
+                        </span>
+                      </td>
+                      <td className="px-3 py-2.5 text-gray-900">{p.product_name}</td>
+                      <td className="px-3 py-2.5 text-right text-gray-500">{formatPrice(p.supply_price)}</td>
+                      <td className="px-3 py-2.5 text-right font-medium text-gray-900">{formatPrice(sp)}</td>
+                      <td className="px-3 py-2.5 text-right text-gray-500">
+                        {m.seller_shipping_fee ? formatPrice(m.seller_shipping_fee) : "무료"}
+                      </td>
+                      <td className="px-3 py-2.5 text-right text-gray-600">{margin}</td>
+                      <td className="px-3 py-2.5 text-xs text-gray-400">
+                        {m.seller_synced_at
+                          ? new Date(m.seller_synced_at).toLocaleString("ko-KR", {
+                              month: "2-digit",
+                              day: "2-digit",
+                              hour: "2-digit",
+                              minute: "2-digit",
+                            })
+                          : "-"}
+                      </td>
+                    </tr>
+                  );
+                })
+              )}
+            </tbody>
+          </table>
         </div>
       </div>
     </div>

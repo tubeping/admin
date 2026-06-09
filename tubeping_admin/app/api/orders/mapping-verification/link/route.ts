@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServiceClient } from "@/lib/supabase";
 import { cafe24Fetch } from "@/lib/cafe24";
+import { parseSupplierShort } from "@/lib/productCode";
 
 export const maxDuration = 120;
 
@@ -14,7 +15,6 @@ export const maxDuration = 120;
  * 4) product_cafe24_mappings 전체 순회하면서 각 cafe24 스토어에 custom_product_code = tp_code PUT
  */
 
-const TP_CODE_RE = /^([A-Z]{2})([A-Z0-9]{2})\d+$/;
 
 export async function POST(request: NextRequest) {
   const body = await request.json().catch(() => ({}));
@@ -59,12 +59,12 @@ export async function POST(request: NextRequest) {
   let supplierId: string | null = null;
   const tpCode = product.tp_code;
   if (tpCode) {
-    const m = tpCode.toUpperCase().match(TP_CODE_RE);
-    if (m) {
+    const short = parseSupplierShort(tpCode);
+    if (short) {
       const { data: supplier } = await sb
         .from("suppliers")
         .select("id")
-        .eq("short_code", m[2])
+        .eq("short_code", short)
         .maybeSingle();
       supplierId = supplier?.id || null;
     }

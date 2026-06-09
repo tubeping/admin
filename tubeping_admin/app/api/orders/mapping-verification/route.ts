@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServiceClient } from "@/lib/supabase";
+import { parseSupplierShort } from "@/lib/productCode";
 
 /**
  * GET /api/orders/mapping-verification
@@ -16,8 +17,6 @@ import { getServiceClient } from "@/lib/supabase";
  *  - invalid_tp_code      : 매핑은 있지만 tp_code가 비정상 포맷
  *  - unknown_supplier_code: tp_code는 정상이나 공급사 코드가 suppliers에 없음
  */
-
-const TP_CODE_RE = /^([A-Z]{2})([A-Z0-9]{2})\d+$/;
 
 export async function GET(request: NextRequest) {
   const sp = request.nextUrl.searchParams;
@@ -225,11 +224,10 @@ export async function GET(request: NextRequest) {
         expectedSupplierId = s.id;
         expectedSupplierName = s.name;
       } else if (tpCode) {
-        const m = tpCode.toUpperCase().match(TP_CODE_RE);
-        if (m) {
-          const s = codeToSupplier[m[2]];
-          if (s) { expectedSupplierId = s.id; expectedSupplierName = s.name; }
-        }
+        // 접두사(공급사명_) 유무와 무관하게 코어에서 공급사 short_code 추출
+        const short = parseSupplierShort(tpCode);
+        const s = short ? codeToSupplier[short] : null;
+        if (s) { expectedSupplierId = s.id; expectedSupplierName = s.name; }
       }
 
       // 상태 결정

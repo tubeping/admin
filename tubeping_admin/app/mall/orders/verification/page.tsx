@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
+import { parseSupplierShort } from "@/lib/productCode";
 
 interface Store { id: string; name: string; }
 
@@ -162,12 +163,8 @@ export default function OrderMappingVerificationPage() {
     fetchGroups();
   };
 
-  // TP코드에서 공급사 코드 2자 추출 (TP0H00817 → '0H', TPAR00004 → 'AR')
-  const extractSupplierCode = (tpCode: string | null): string | null => {
-    if (!tpCode) return null;
-    const m = tpCode.toUpperCase().match(/^([A-Z]{2})([A-Z0-9]{2})\d+$/);
-    return m ? m[2] : null;
-  };
+  // TP코드에서 공급사 코드 2자 추출. 접두사(공급사명_) 유무 무관 — 코어 기준 (귀빈정_TPCZ00872 → 'CZ')
+  const extractSupplierCode = (tpCode: string | null): string | null => parseSupplierShort(tpCode);
 
   return (
     <div className="p-6">

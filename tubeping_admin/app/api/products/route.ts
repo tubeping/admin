@@ -22,17 +22,8 @@ export async function GET(request: NextRequest) {
 
   const sb = getServiceClient();
 
-  // 리스트 뷰는 가벼운 컬럼만 (모달 열릴 때 detail API로 fullload)
-  // count는 with_count=1 일 때만 exact (전체 row 카운트는 비싼 작업)
-  let query = sb
-    .from("products")
-    .select(
-      "id, tp_code, product_name, price, supply_price, retail_price, image_url, selling, display, approval_status, category, supplier, total_stock, fulfillment_warehouse_supplier_id, created_at, updated_at, product_cafe24_mappings(id, store_id, sync_status), product_variants(id)",
-      withCount ? { count: "exact" } : undefined
-    )
-    .order("created_at", { ascending: false })
-    .range(offset, offset + limit - 1);
-
+  // 키워드 → tp_code 패턴 확장용 OR절 (공급사명/short_code 매칭) 미리 계산
+  let orClause: string | null = null;
   if (keyword) {
     // 기본 검색: 상품명 / tp_code / 자유형 supplier 텍스트 (ILIKE는 대소문자 무시)
     const orClauses = [
@@ -40,51 +31,48 @@ export async function GET(request: NextRequest) {
       `tp_code.ilike.%${keyword}%`,
       `supplier.ilike.%${keyword}%`,
     ];
-
-    // 공급사명/short_code 기반 추가 매칭:
-    // 키워드로 suppliers를 조회해서 매치된 공급사의 short_code들을 tp_code 패턴으로 확장
-    // (tp_code 포맷: [채널2][공급사코드2][숫자] → 패턴은 '__' + short_code + '%')
+    // 코어 포맷: TP[공급사short_code2][숫자]. tp_code 앞에 '공급사명_' 접두사가 붙어도
+    //  코어 부분문자열 '%TP{short_code}%' 로 매칭 — 접두사 한글명은 위 %keyword% 가 커버
     const { data: matchedSuppliers } = await sb
       .from("suppliers")
       .select("short_code")
       .or(`name.ilike.%${keyword}%,short_code.ilike.%${keyword}%`)
       .not("short_code", "is", null);
-
     for (const s of matchedSuppliers || []) {
-      if (s.short_code) {
-        orClauses.push(`tp_code.ilike.__${s.short_code}%`);
-      }
+      if (s.short_code) orClauses.push(`tp_code.ilike.%TP${s.short_code}%`);
     }
-
-    query = query.or(orClauses.join(","));
-  }
-  if (category) {
-    query = query.eq("category", category);
-  }
-  if (selling === "T" || selling === "F") {
-    query = query.eq("selling", selling);
-  }
-  if (display === "T" || display === "F") {
-    query = query.eq("display", display);
-  }
-  if (approval) {
-    query = query.eq("approval_status", approval);
-  }
-  if (fulfillment === "warehouse") {
-    query = query.not("fulfillment_warehouse_supplier_id", "is", null);
-  } else if (fulfillment === "direct") {
-    query = query.is("fulfillment_warehouse_supplier_id", null);
-  }
-  if (stock === "out") {
-    query = query.lte("total_stock", 0);
-  } else if (stock === "in") {
-    query = query.gt("total_stock", 0);
-  }
-  if (supplier) {
-    query = query.eq("supplier", supplier);
+    orClause = orClauses.join(",");
   }
 
-  const { data, error, count } = await query;
+  // 판매사 가격 레이어 컬럼(031 마이그레이션). 아직 컬럼이 없는 환경에서도 동작하도록
+  // 1차 시도가 실패하면 seller_* 없는 select 로 폴백한다(배포-마이그레이션 순서 무관).
+  const SELLER_COLS = ", seller_price, seller_shipping_fee, seller_product_code, seller_synced_at";
+  const mkSelect = (withSeller: boolean) =>
+    `id, tp_code, product_name, price, supply_price, retail_price, supply_shipping_fee, image_url, selling, display, approval_status, category, supplier, total_stock, fulfillment_warehouse_supplier_id, created_at, updated_at, product_cafe24_mappings(id, store_id, cafe24_product_no, sync_status${withSeller ? SELLER_COLS : ""}), product_variants(id)`;
+
+  const buildAndRun = (withSeller: boolean) => {
+    let query = sb
+      .from("products")
+      .select(mkSelect(withSeller), withCount ? { count: "exact" } : undefined)
+      .order("created_at", { ascending: false })
+      .range(offset, offset + limit - 1);
+    if (orClause) query = query.or(orClause);
+    if (category) query = query.eq("category", category);
+    if (selling === "T" || selling === "F") query = query.eq("selling", selling);
+    if (display === "T" || display === "F") query = query.eq("display", display);
+    if (approval) query = query.eq("approval_status", approval);
+    if (fulfillment === "warehouse") query = query.not("fulfillment_warehouse_supplier_id", "is", null);
+    else if (fulfillment === "direct") query = query.is("fulfillment_warehouse_supplier_id", null);
+    if (stock === "out") query = query.lte("total_stock", 0);
+    else if (stock === "in") query = query.gt("total_stock", 0);
+    if (supplier) query = query.eq("supplier", supplier);
+    return query;
+  };
+
+  let { data, error, count } = await buildAndRun(true);
+  if (error && /seller_(price|shipping_fee|product_code|synced_at)/.test(error.message)) {
+    ({ data, error, count } = await buildAndRun(false));
+  }
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
