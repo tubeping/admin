@@ -14,6 +14,10 @@ export async function GET(request: NextRequest) {
   const category = searchParams.get("category") || "";
   const selling = searchParams.get("selling") || "";
   const display = searchParams.get("display") || "";
+  const approval = searchParams.get("approval_status") || "";
+  const fulfillment = searchParams.get("fulfillment") || "";   // direct | warehouse
+  const stock = searchParams.get("stock") || "";               // out | in
+  const supplier = searchParams.get("supplier") || "";
   const withCount = searchParams.get("with_count") === "1";
 
   const sb = getServiceClient();
@@ -62,6 +66,22 @@ export async function GET(request: NextRequest) {
   }
   if (display === "T" || display === "F") {
     query = query.eq("display", display);
+  }
+  if (approval) {
+    query = query.eq("approval_status", approval);
+  }
+  if (fulfillment === "warehouse") {
+    query = query.not("fulfillment_warehouse_supplier_id", "is", null);
+  } else if (fulfillment === "direct") {
+    query = query.is("fulfillment_warehouse_supplier_id", null);
+  }
+  if (stock === "out") {
+    query = query.lte("total_stock", 0);
+  } else if (stock === "in") {
+    query = query.gt("total_stock", 0);
+  }
+  if (supplier) {
+    query = query.eq("supplier", supplier);
   }
 
   const { data, error, count } = await query;

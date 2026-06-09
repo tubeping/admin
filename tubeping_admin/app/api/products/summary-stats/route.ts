@@ -8,11 +8,12 @@ import { getServiceClient } from "@/lib/supabase";
 export async function GET() {
   const sb = getServiceClient();
 
-  const [totalRes, sellingRes, mappingsRes, categoriesRes] = await Promise.all([
+  const [totalRes, sellingRes, mappingsRes, categoriesRes, suppliersRes] = await Promise.all([
     sb.from("products").select("id", { count: "exact", head: true }),
     sb.from("products").select("id", { count: "exact", head: true }).eq("selling", "T"),
     sb.from("product_cafe24_mappings").select("id", { count: "exact", head: true }),
     sb.from("products").select("category").not("category", "is", null),
+    sb.from("products").select("supplier").not("supplier", "is", null),
   ]);
 
   const total = totalRes.count || 0;
@@ -34,6 +35,7 @@ export async function GET() {
   const unmapped = total - uniqueMapped;
 
   const categories = [...new Set((categoriesRes.data || []).map((r: { category: string }) => r.category))].sort();
+  const suppliers = [...new Set((suppliersRes.data || []).map((r: { supplier: string }) => r.supplier).filter(Boolean))].sort();
 
   return NextResponse.json({
     total,
@@ -41,5 +43,6 @@ export async function GET() {
     totalMappings,
     unmapped,
     categories,
+    suppliers,
   });
 }

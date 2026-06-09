@@ -78,6 +78,8 @@ type ViewMode = "table" | "card";
 type SellingFilter = "all" | "selling" | "not_selling";
 type DisplayFilter = "all" | "displayed" | "hidden";
 type FulfillmentFilter = "all" | "direct" | "warehouse";
+type ApprovalFilter = "all" | "pending" | "requested" | "re_requested" | "approved" | "rejected";
+type StockFilter = "all" | "out" | "in";
 
 /* ══════════════════════════════════════════
    유틸
@@ -146,13 +148,16 @@ export default function ProductsPage() {
   const [sellingFilter, setSellingFilter] = useState<SellingFilter>("all");
   const [displayFilter, setDisplayFilter] = useState<DisplayFilter>("all");
   const [fulfillmentFilter, setFulfillmentFilter] = useState<FulfillmentFilter>("all");
+  const [approvalFilter, setApprovalFilter] = useState<ApprovalFilter>("all");
+  const [stockFilter, setStockFilter] = useState<StockFilter>("all");
+  const [supplierFilter, setSupplierFilter] = useState("");
   const [catFilter, setCatFilter] = useState("");
   const [page, setPage] = useState(0);
   const [total, setTotal] = useState(0);
   const PAGE_SIZE = 50;
 
   // 전체 통계 (서버에서 별도 로드 — 현재 페이지가 아닌 전체 기준)
-  const [summaryStats, setSummaryStats] = useState({ total: 0, selling: 0, totalMappings: 0, unmapped: 0, categories: [] as string[] });
+  const [summaryStats, setSummaryStats] = useState({ total: 0, selling: 0, totalMappings: 0, unmapped: 0, categories: [] as string[], suppliers: [] as string[] });
 
   const [selectedProducts, setSelectedProducts] = useState<Set<string>>(new Set());
   const [showAssignDropdown, setShowAssignDropdown] = useState(false);
@@ -213,6 +218,10 @@ export default function ProductsPage() {
     if (sellingFilter === "not_selling") params.set("selling", "F");
     if (displayFilter === "displayed") params.set("display", "T");
     if (displayFilter === "hidden") params.set("display", "F");
+    if (approvalFilter !== "all") params.set("approval_status", approvalFilter);
+    if (fulfillmentFilter !== "all") params.set("fulfillment", fulfillmentFilter);
+    if (stockFilter !== "all") params.set("stock", stockFilter);
+    if (supplierFilter) params.set("supplier", supplierFilter);
 
     try {
       const res = await fetch(`/admin/api/products?${params}`);
@@ -225,7 +234,7 @@ export default function ProductsPage() {
     } finally {
       setLoading(false);
     }
-  }, [keyword, catFilter, sellingFilter, displayFilter, page]);
+  }, [keyword, catFilter, sellingFilter, displayFilter, approvalFilter, fulfillmentFilter, stockFilter, supplierFilter, page]);
 
   // ref로 최신 fetchProducts를 추적 (useEffect에서 stale closure 방지)
   const fetchProductsRef = useRef(fetchProducts);
@@ -236,6 +245,28 @@ export default function ProductsPage() {
     fetchProductsRef.current(true);
     fetchSummary();
   }, [fetchSummary]);
+
+  /** 인라인 단일 필드 수정 (공급사·판매가·공급가·출고지). 낙관적 업데이트 후 PUT */
+  const updateProductField = useCallback(
+    async (id: string, patch: Record<string, unknown>) => {
+      // 낙관적 반영
+      setProducts((prev) => prev.map((p) => (p.id === id ? { ...p, ...patch } : p)));
+      try {
+        const res = await fetch(`/admin/api/products/${id}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(patch),
+        });
+        if (!res.ok) throw new Error(`저장 실패 (${res.status})`);
+        // 공급사 변경 시 필터용 공급사 목록도 갱신
+        if ("supplier" in patch) fetchSummary();
+      } catch (e) {
+        alert(e instanceof Error ? e.message : "저장 실패 — 다시 시도해주세요");
+        fetchProductsRef.current?.(); // 서버 값으로 롤백
+      }
+    },
+    [fetchSummary]
+  );
 
   /* ── 카페24 가져오기 ── */
   const importFromCafe24 = async () => {
@@ -300,7 +331,7 @@ export default function ProductsPage() {
   useEffect(() => {
     fetchProductsRef.current?.();
     setSelectedProducts(new Set());
-  }, [sellingFilter, displayFilter, catFilter, page]);
+  }, [sellingFilter, displayFilter, catFilter, approvalFilter, fulfillmentFilter, stockFilter, supplierFilter, page]);
 
   // 드롭다운 외부 클릭 닫기
   useEffect(() => {
@@ -330,13 +361,8 @@ export default function ProductsPage() {
     else { setSortKey(key); setSortDir("asc"); }
   };
 
-  const filteredProducts = useMemo(() => products.filter((p) => {
-    if (fulfillmentFilter === "warehouse") return !!p.fulfillment_warehouse_supplier_id;
-    if (fulfillmentFilter === "direct") return !p.fulfillment_warehouse_supplier_id;
-    return true;
-  }), [products, fulfillmentFilter]);
-
-  const sortedProducts = useMemo(() => [...filteredProducts].sort((a, b) => {
+  // 출고/판매/진열/승인/재고/공급사 필터는 서버사이드 처리 → 여기선 정렬만
+  const sortedProducts = useMemo(() => [...products].sort((a, b) => {
     const dir = sortDir === "asc" ? 1 : -1;
     switch (sortKey) {
       case "tp_code": return dir * a.tp_code.localeCompare(b.tp_code);
@@ -347,7 +373,7 @@ export default function ProductsPage() {
       case "updated": return dir * (a.updated_at.localeCompare(b.updated_at));
       default: return 0;
     }
-  }), [filteredProducts, sortKey, sortDir]);
+  }), [products, sortKey, sortDir]);
 
   /* ── 선택 ── */
   const toggleSelect = (id: string) => {
@@ -660,7 +686,7 @@ export default function ProductsPage() {
             {categories.length > 0 && (
               <select
                 value={catFilter}
-                onChange={(e) => setCatFilter(e.target.value)}
+                onChange={(e) => { setPage(0); setCatFilter(e.target.value); }}
                 className="px-3 py-2.5 text-sm border border-gray-200 rounded-lg text-gray-600 focus:outline-none cursor-pointer"
               >
                 <option value="">전체 카테고리</option>
@@ -669,25 +695,82 @@ export default function ProductsPage() {
                 ))}
               </select>
             )}
+            {summaryStats.suppliers.length > 0 && (
+              <select
+                value={supplierFilter}
+                onChange={(e) => { setPage(0); setSupplierFilter(e.target.value); }}
+                className="px-3 py-2.5 text-sm border border-gray-200 rounded-lg text-gray-600 focus:outline-none cursor-pointer"
+              >
+                <option value="">전체 공급사</option>
+                {summaryStats.suppliers.map((s) => (
+                  <option key={s} value={s}>{s}</option>
+                ))}
+              </select>
+            )}
             <select
               value={sellingFilter}
-              onChange={(e) => setSellingFilter(e.target.value as SellingFilter)}
+              onChange={(e) => { setPage(0); setSellingFilter(e.target.value as SellingFilter); }}
               className="px-3 py-2.5 text-sm border border-gray-200 rounded-lg text-gray-600 focus:outline-none cursor-pointer"
             >
-              <option value="all">전체 상태</option>
+              <option value="all">전체 판매</option>
               <option value="selling">판매중</option>
               <option value="not_selling">미판매</option>
             </select>
             <select
-              value={fulfillmentFilter}
-              onChange={(e) => setFulfillmentFilter(e.target.value as FulfillmentFilter)}
+              value={displayFilter}
+              onChange={(e) => { setPage(0); setDisplayFilter(e.target.value as DisplayFilter); }}
               className="px-3 py-2.5 text-sm border border-gray-200 rounded-lg text-gray-600 focus:outline-none cursor-pointer"
             >
-              <option value="all">전체 출고</option>
+              <option value="all">전체 진열</option>
+              <option value="displayed">진열함</option>
+              <option value="hidden">진열안함</option>
+            </select>
+            <select
+              value={approvalFilter}
+              onChange={(e) => { setPage(0); setApprovalFilter(e.target.value as ApprovalFilter); }}
+              className="px-3 py-2.5 text-sm border border-gray-200 rounded-lg text-gray-600 focus:outline-none cursor-pointer"
+            >
+              <option value="all">전체 승인</option>
+              <option value="pending">승인대기</option>
+              <option value="requested">승인요청</option>
+              <option value="re_requested">재승인요청</option>
+              <option value="approved">승인완료</option>
+              <option value="rejected">반려</option>
+            </select>
+            <select
+              value={fulfillmentFilter}
+              onChange={(e) => { setPage(0); setFulfillmentFilter(e.target.value as FulfillmentFilter); }}
+              className="px-3 py-2.5 text-sm border border-gray-200 rounded-lg text-gray-600 focus:outline-none cursor-pointer"
+            >
+              <option value="all">전체 출고지</option>
               <option value="direct">직배송</option>
               <option value="warehouse">창고발주</option>
             </select>
+            <select
+              value={stockFilter}
+              onChange={(e) => { setPage(0); setStockFilter(e.target.value as StockFilter); }}
+              className="px-3 py-2.5 text-sm border border-gray-200 rounded-lg text-gray-600 focus:outline-none cursor-pointer"
+            >
+              <option value="all">전체 재고</option>
+              <option value="in">재고있음</option>
+              <option value="out">품절</option>
+            </select>
             <button onClick={handleSearch} className="px-4 py-2.5 bg-[#C41E1E] text-white text-sm font-medium rounded-lg hover:bg-[#A01818] cursor-pointer">검색</button>
+            {(catFilter || supplierFilter || sellingFilter !== "all" || displayFilter !== "all" || approvalFilter !== "all" || fulfillmentFilter !== "all" || stockFilter !== "all" || keyword) && (
+              <button
+                onClick={() => {
+                  setPage(0);
+                  setKeyword(""); setCatFilter(""); setSupplierFilter("");
+                  setSellingFilter("all"); setDisplayFilter("all");
+                  setApprovalFilter("all"); setFulfillmentFilter("all"); setStockFilter("all");
+                  // 키워드만 걸려있던 경우 필터 deps가 안 바뀌어 effect가 안 돌 수 있어 명시적 재조회
+                  setTimeout(() => fetchProductsRef.current?.(true), 0);
+                }}
+                className="px-3 py-2.5 text-sm font-medium text-gray-500 border border-gray-200 rounded-lg hover:bg-gray-50 cursor-pointer"
+              >
+                필터 초기화
+              </button>
+            )}
 
             <div className="flex-1" />
 
@@ -856,6 +939,7 @@ export default function ProductsPage() {
                       상품명<SortIcon field="name" />
                     </th>
                     <th className="text-left px-3 py-3 font-medium w-24">공급사</th>
+                    <th className="text-left px-3 py-3 font-medium w-28">출고지</th>
                     <th className="text-right px-3 py-3 font-medium cursor-pointer hover:text-gray-900 select-none" onClick={() => handleSort("price")}>
                       판매가<SortIcon field="price" />
                     </th>
@@ -875,9 +959,9 @@ export default function ProductsPage() {
                 </thead>
                 <tbody>
                   {loading && products.length === 0 ? (
-                    <tr><td colSpan={14} className="px-6 py-16 text-center text-sm text-gray-400">상품 로딩 중...</td></tr>
+                    <tr><td colSpan={15} className="px-6 py-16 text-center text-sm text-gray-400">상품 로딩 중...</td></tr>
                   ) : sortedProducts.length === 0 ? (
-                    <tr><td colSpan={10} className="px-6 py-16 text-center text-sm text-gray-400">
+                    <tr><td colSpan={15} className="px-6 py-16 text-center text-sm text-gray-400">
                       등록된 상품이 없습니다. &quot;상품 등록&quot; 버튼으로 첫 상품을 추가하세요.
                     </td></tr>
                   ) : sortedProducts.map((p) => {
@@ -911,20 +995,39 @@ export default function ProductsPage() {
                           {p.category && <p className="text-[10px] text-gray-400 mt-0.5">{p.category}</p>}
                         </td>
                         <td className="px-3 py-2.5">
-                          {warehouse ? (
-                            <div className="flex flex-col gap-0.5">
-                              <span className="inline-flex items-center gap-1 text-[10px] font-bold text-amber-800 bg-amber-100 border border-amber-200 px-2 py-0.5 rounded w-fit">
-                                <svg className="w-2.5 h-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 8h14M5 8l-1 4m1-4l1-4h12l1 4M5 12h14M5 12l-1 8h16l-1-8" /></svg>
-                                창고발주
-                              </span>
-                              <span className="text-xs text-gray-700">{p.supplier || "-"}</span>
-                            </div>
-                          ) : (
-                            <span className="text-xs text-gray-600">{p.supplier || "-"}</span>
-                          )}
+                          <InlineText
+                            value={p.supplier || ""}
+                            placeholder="공급사"
+                            onSave={(v) => updateProductField(p.id, { supplier: v || null })}
+                          />
                         </td>
-                        <td className="px-3 py-2.5 text-sm text-gray-900 text-right font-medium">{formatPrice(p.price)}</td>
-                        <td className="px-3 py-2.5 text-sm text-gray-500 text-right">{formatPrice(p.supply_price)}</td>
+                        <td className="px-3 py-2.5">
+                          <select
+                            value={p.fulfillment_warehouse_supplier_id || ""}
+                            onChange={(e) => updateProductField(p.id, { fulfillment_warehouse_supplier_id: e.target.value || null })}
+                            title="출고지 (직배송=tp코드 공급사 출고 / 창고발주=지정 창고 출고)"
+                            className={`w-full max-w-[110px] px-1.5 py-1 text-xs border rounded cursor-pointer focus:outline-none focus:ring-1 focus:ring-[#C41E1E]/30 ${warehouse ? "border-amber-300 bg-amber-50 text-amber-800 font-medium" : "border-gray-200 text-gray-600"}`}
+                          >
+                            <option value="">직배송</option>
+                            {warehouses.map((w) => (
+                              <option key={w.id} value={w.id}>{w.name}</option>
+                            ))}
+                          </select>
+                        </td>
+                        <td className="px-3 py-2.5 text-right">
+                          <InlineNumber
+                            value={p.price}
+                            onSave={(v) => updateProductField(p.id, { price: v })}
+                            className="text-gray-900 font-medium"
+                          />
+                        </td>
+                        <td className="px-3 py-2.5 text-right">
+                          <InlineNumber
+                            value={p.supply_price}
+                            onSave={(v) => updateProductField(p.id, { supply_price: v })}
+                            className="text-gray-500"
+                          />
+                        </td>
                         <td className="px-3 py-2.5 text-right">
                           <span className={`text-sm font-medium ${mr >= 30 ? "text-green-600" : mr >= 20 ? "text-blue-600" : "text-gray-500"}`}>
                             {marginRate(p.price, p.supply_price)}
@@ -2299,5 +2402,107 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
       <label className="block text-xs font-medium text-gray-500 mb-1.5">{label}</label>
       {children}
     </div>
+  );
+}
+
+/* ══════════════════════════════════════════
+   인라인 편집 셀 (목록에서 바로 수정)
+   ══════════════════════════════════════════ */
+
+/** 숫자 인라인 편집 — 클릭 시 입력창, Enter/blur 저장, Esc 취소 */
+function InlineNumber({
+  value, onSave, prefix = "₩", className = "",
+}: {
+  value: number;
+  onSave: (v: number) => void;
+  prefix?: string;
+  className?: string;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState("");
+
+  const start = () => { setDraft(String(value)); setEditing(true); };
+  const commit = () => {
+    setEditing(false);
+    const n = Number(draft);
+    if (!Number.isNaN(n) && n !== value) onSave(n);
+  };
+
+  if (editing) {
+    return (
+      <input
+        autoFocus
+        type="number"
+        value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={commit}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") commit();
+          if (e.key === "Escape") setEditing(false);
+        }}
+        className="w-24 px-2 py-1 text-sm text-right border border-[#C41E1E]/50 rounded focus:outline-none focus:ring-1 focus:ring-[#C41E1E]/30"
+      />
+    );
+  }
+  return (
+    <button
+      onClick={start}
+      title="클릭해서 수정"
+      className={`group inline-flex items-center gap-1 text-sm hover:text-[#C41E1E] cursor-pointer ${className}`}
+    >
+      {prefix}{value.toLocaleString()}
+      <svg className="w-3 h-3 opacity-0 group-hover:opacity-100 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+      </svg>
+    </button>
+  );
+}
+
+/** 텍스트 인라인 편집 — 클릭 시 입력창, Enter/blur 저장, Esc 취소 */
+function InlineText({
+  value, onSave, placeholder = "",
+}: {
+  value: string;
+  onSave: (v: string) => void;
+  placeholder?: string;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState("");
+
+  const start = () => { setDraft(value); setEditing(true); };
+  const commit = () => {
+    setEditing(false);
+    const v = draft.trim();
+    if (v !== value) onSave(v);
+  };
+
+  if (editing) {
+    return (
+      <input
+        autoFocus
+        type="text"
+        value={draft}
+        placeholder={placeholder}
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={commit}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") commit();
+          if (e.key === "Escape") setEditing(false);
+        }}
+        className="w-24 px-2 py-1 text-xs border border-[#C41E1E]/50 rounded focus:outline-none focus:ring-1 focus:ring-[#C41E1E]/30"
+      />
+    );
+  }
+  return (
+    <button
+      onClick={start}
+      title="클릭해서 수정"
+      className="group inline-flex items-center gap-1 text-xs text-gray-600 hover:text-[#C41E1E] cursor-pointer max-w-[110px]"
+    >
+      <span className="truncate">{value || <span className="text-gray-300">{placeholder || "-"}</span>}</span>
+      <svg className="w-3 h-3 flex-shrink-0 opacity-0 group-hover:opacity-100 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+      </svg>
+    </button>
   );
 }
