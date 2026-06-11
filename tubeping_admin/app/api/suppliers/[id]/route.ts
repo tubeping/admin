@@ -38,3 +38,20 @@ export async function PUT(
   }
   return NextResponse.json({ supplier: data });
 }
+
+/**
+ * DELETE /api/suppliers/[id] — 공급사 삭제
+ */
+export async function DELETE(
+  _request: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  const { id } = await params;
+  const sb = getServiceClient();
+  const { error } = await sb.from("suppliers").delete().eq("id", id);
+
+  if (error) {
+    return NextResponse.json({ error: error.message }, { status: 500 });
+  }
+  return NextResponse.json({ success: true });
+}

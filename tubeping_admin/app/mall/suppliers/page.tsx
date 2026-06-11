@@ -44,6 +44,11 @@ export default function SuppliersPage() {
     cafe24_supplier_code: "", short_code: "", order_email: "", settlement_email: "",
   });
   const [searchKeyword, setSearchKeyword] = useState("");
+  const [filters, setFilters] = useState({
+    short_code: "", cafe24: "", name: "", contact: "", order_email: "", settlement_email: "",
+    form: "all", status: "all",
+  });
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
   const fetchSuppliers = async () => {
     setLoading(true);
@@ -78,6 +83,17 @@ export default function SuppliersPage() {
     fetchSuppliers();
   };
 
+  const handleDelete = async (s: Supplier) => {
+    if (!confirm(`"${s.name}" 공급사를 삭제하시겠습니까?\n연결된 상품·주문이 있으면 삭제되지 않습니다.\n이 작업은 되돌릴 수 없습니다.`)) return;
+    const res = await fetch(`/admin/api/suppliers/${s.id}`, { method: "DELETE" });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      alert(`삭제 실패: ${err.error || res.statusText}`);
+      return;
+    }
+    fetchSuppliers();
+  };
+
   const openEdit = (s: Supplier) => {
     setEditingSupplier(s);
     setEditForm({
@@ -88,12 +104,50 @@ export default function SuppliersPage() {
     });
   };
 
-  // 검색 필터
+  // 검색 + 컬럼별 필터
+  const has = (val: string | null | undefined, kw: string) => (val || "").toLowerCase().includes(kw.toLowerCase());
   const filtered = suppliers.filter((s) => {
-    if (!searchKeyword) return true;
-    const kw = searchKeyword.toLowerCase();
-    return s.name.toLowerCase().includes(kw) || s.cafe24_supplier_code?.toLowerCase().includes(kw) || s.short_code?.toLowerCase().includes(kw) || s.email?.toLowerCase().includes(kw);
+    if (searchKeyword) {
+      const kw = searchKeyword.toLowerCase();
+      if (!(has(s.name, kw) || has(s.cafe24_supplier_code, kw) || has(s.short_code, kw) || has(s.email, kw))) return false;
+    }
+    const f = filters;
+    if (f.short_code && !has(s.short_code, f.short_code)) return false;
+    if (f.cafe24 && !has(s.cafe24_supplier_code, f.cafe24)) return false;
+    if (f.name && !has(s.name, f.name)) return false;
+    if (f.contact && !has(s.contact_name, f.contact)) return false;
+    if (f.order_email && !has(s.order_email || s.email, f.order_email)) return false;
+    if (f.settlement_email && !has(s.settlement_email, f.settlement_email)) return false;
+    if (f.form !== "all") {
+      const hasExtra = (s.po_config?.extra_columns?.length || 0) > 0;
+      if (f.form === "custom" && !hasExtra) return false;
+      if (f.form === "default" && hasExtra) return false;
+    }
+    if (f.status !== "all" && s.status !== f.status) return false;
+    return true;
   });
+
+  // 체크박스 선택
+  const toggleOne = (id: string) => setSelectedIds((prev) => {
+    const next = new Set(prev);
+    if (next.has(id)) next.delete(id); else next.add(id);
+    return next;
+  });
+  const allChecked = filtered.length > 0 && filtered.every((s) => selectedIds.has(s.id));
+  const toggleAll = () => setSelectedIds(allChecked ? new Set() : new Set(filtered.map((s) => s.id)));
+
+  const handleBulkDelete = async () => {
+    const ids = [...selectedIds];
+    if (!ids.length) return;
+    if (!confirm(`선택한 ${ids.length}개 공급사를 삭제하시겠습니까?\n연결된 상품·주문이 있으면 일부는 삭제되지 않을 수 있습니다.\n이 작업은 되돌릴 수 없습니다.`)) return;
+    const results = await Promise.all(
+      ids.map((id) => fetch(`/admin/api/suppliers/${id}`, { method: "DELETE" }).then((r) => r.ok).catch(() => false))
+    );
+    const failed = results.filter((ok) => !ok).length;
+    if (failed) alert(`${failed}개는 삭제에 실패했습니다 (연결된 데이터가 있을 수 있습니다).`);
+    setSelectedIds(new Set());
+    fetchSuppliers();
+  };
 
   return (
     <div className="p-8">
@@ -126,6 +180,12 @@ export default function SuppliersPage() {
           className="text-sm border border-gray-300 rounded-lg px-3 py-2 w-64"
           placeholder="공급사명, 코드, 이메일 검색" />
         <span className="text-sm text-gray-400 ml-3">{filtered.length}개</span>
+        {selectedIds.size > 0 && (
+          <span className="ml-3 inline-flex items-center gap-2">
+            <span className="text-sm text-gray-500">{selectedIds.size}개 선택</span>
+            <button onClick={handleBulkDelete} className="px-3 py-1.5 bg-red-600 text-white text-xs font-medium rounded-lg hover:bg-red-700 cursor-pointer">선택 삭제</button>
+          </span>
+        )}
       </div>
 
       {/* 추가 폼 */}
@@ -160,7 +220,7 @@ export default function SuppliersPage() {
       )}
 
       {/* 목록 */}
-      <div className="bg-white rounded-xl border border-gray-200 overflow-x-auto">
+      <div className="bg-white rounded-xl border border-gray-200 overflow-auto max-h-[calc(100vh-260px)]">
         {loading ? (
           <div className="p-12 text-center text-gray-400">불러오는 중...</div>
         ) : filtered.length === 0 ? (
@@ -168,21 +228,51 @@ export default function SuppliersPage() {
         ) : (
           <table className="w-full text-sm">
             <thead>
-              <tr className="text-xs text-gray-500 border-b border-gray-100 bg-gray-50/50">
-                <th className="text-left px-4 py-3 font-medium">코드</th>
-                <th className="text-left px-3 py-3 font-medium">카페24</th>
-                <th className="text-left px-3 py-3 font-medium">공급사명</th>
-                <th className="text-left px-3 py-3 font-medium">담당자</th>
-                <th className="text-left px-3 py-3 font-medium">발주 이메일</th>
-                <th className="text-left px-3 py-3 font-medium">정산 이메일</th>
-                <th className="text-center px-3 py-3 font-medium">양식</th>
-                <th className="text-center px-3 py-3 font-medium">상태</th>
-                <th className="text-center px-3 py-3 font-medium">관리</th>
+              <tr className="text-xs text-gray-500 border-b border-gray-100">
+                {[
+                  { node: <input type="checkbox" checked={allChecked} onChange={toggleAll} className="cursor-pointer accent-[#C41E1E]" />, align: "text-center", pad: "px-4", filter: null },
+                  { label: "코드", align: "text-left", pad: "px-4", key: "short_code", ph: "코드" },
+                  { label: "카페24", align: "text-left", pad: "px-3", key: "cafe24", ph: "카페24" },
+                  { label: "공급사명", align: "text-left", pad: "px-3", key: "name", ph: "공급사명" },
+                  { label: "담당자", align: "text-left", pad: "px-3", key: "contact", ph: "담당자" },
+                  { label: "발주 이메일", align: "text-left", pad: "px-3", key: "order_email", ph: "이메일" },
+                  { label: "정산 이메일", align: "text-left", pad: "px-3", key: "settlement_email", ph: "이메일" },
+                  { label: "양식", align: "text-center", pad: "px-3", select: "form" },
+                  { label: "상태", align: "text-center", pad: "px-3", select: "status" },
+                  { label: "관리", align: "text-center", pad: "px-3", filter: null },
+                ].map((c, i) => (
+                  <th key={i} className={`${c.align} ${c.pad} py-2.5 font-medium align-top sticky top-0 z-10 bg-gray-50`}>
+                    <div className={`mb-1.5 ${c.align === "text-center" ? "text-center" : ""}`}>{c.node ?? c.label}</div>
+                    {c.key && (
+                      <input value={filters[c.key as keyof typeof filters]} onChange={(e) => setFilters({ ...filters, [c.key as string]: e.target.value })}
+                        className="w-full text-[11px] font-normal border border-gray-200 rounded px-1.5 py-1 bg-white" placeholder={c.ph} />
+                    )}
+                    {c.select === "form" && (
+                      <select value={filters.form} onChange={(e) => setFilters({ ...filters, form: e.target.value })}
+                        className="w-full text-[11px] font-normal border border-gray-200 rounded px-1 py-1 bg-white cursor-pointer">
+                        <option value="all">전체</option>
+                        <option value="default">기본</option>
+                        <option value="custom">추가</option>
+                      </select>
+                    )}
+                    {c.select === "status" && (
+                      <select value={filters.status} onChange={(e) => setFilters({ ...filters, status: e.target.value })}
+                        className="w-full text-[11px] font-normal border border-gray-200 rounded px-1 py-1 bg-white cursor-pointer">
+                        <option value="all">전체</option>
+                        <option value="active">활성</option>
+                        <option value="inactive">비활성</option>
+                      </select>
+                    )}
+                  </th>
+                ))}
               </tr>
             </thead>
             <tbody>
               {filtered.map((s) => (
-                <tr key={s.id} className="border-b border-gray-50 last:border-0 hover:bg-gray-50/50">
+                <tr key={s.id} className={`border-b border-gray-50 last:border-0 hover:bg-gray-50/50 ${selectedIds.has(s.id) ? "bg-red-50/40" : ""}`}>
+                  <td className="px-4 py-3 text-center">
+                    <input type="checkbox" checked={selectedIds.has(s.id)} onChange={() => toggleOne(s.id)} className="cursor-pointer accent-[#C41E1E]" />
+                  </td>
                   <td className="px-4 py-3">
                     {s.short_code ? (
                       <code className="text-xs font-mono font-bold bg-blue-50 text-blue-700 px-1.5 py-0.5 rounded">{s.short_code}</code>
@@ -211,7 +301,10 @@ export default function SuppliersPage() {
                     </span>
                   </td>
                   <td className="px-3 py-3 text-center">
-                    <button onClick={() => openEdit(s)} className="text-xs text-[#C41E1E] hover:underline cursor-pointer">수정</button>
+                    <div className="flex items-center justify-center gap-3">
+                      <button onClick={() => openEdit(s)} className="text-xs text-[#C41E1E] hover:underline cursor-pointer">수정</button>
+                      <button onClick={() => handleDelete(s)} className="text-xs text-red-400 hover:text-red-600 hover:underline cursor-pointer">삭제</button>
+                    </div>
                   </td>
                 </tr>
               ))}
