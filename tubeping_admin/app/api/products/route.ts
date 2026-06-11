@@ -18,6 +18,10 @@ export async function GET(request: NextRequest) {
   const fulfillment = searchParams.get("fulfillment") || "";   // direct | warehouse
   const stock = searchParams.get("stock") || "";               // out | in
   const supplier = searchParams.get("supplier") || "";
+  // 헤더 인라인 컬럼 필터 (부분검색, AND 결합)
+  const colTp = searchParams.get("col_tp") || "";
+  const colName = searchParams.get("col_name") || "";
+  const colSupplier = searchParams.get("col_supplier") || "";
   const withCount = searchParams.get("with_count") === "1";
 
   const sb = getServiceClient();
@@ -66,6 +70,10 @@ export async function GET(request: NextRequest) {
     if (stock === "out") query = query.lte("total_stock", 0);
     else if (stock === "in") query = query.gt("total_stock", 0);
     if (supplier) query = query.eq("supplier", supplier);
+    // 헤더 인라인 컬럼 필터 (각 컬럼 부분검색, 서버 전체 대상)
+    if (colTp) query = query.ilike("tp_code", `%${colTp}%`);
+    if (colName) query = query.ilike("product_name", `%${colName}%`);
+    if (colSupplier) query = query.ilike("supplier", `%${colSupplier}%`);
     return query;
   };
 

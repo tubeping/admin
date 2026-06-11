@@ -159,6 +159,10 @@ export default function ProductsPage() {
   const [stockFilter, setStockFilter] = useState<StockFilter>("all");
   const [supplierFilter, setSupplierFilter] = useState("");
   const [catFilter, setCatFilter] = useState("");
+  // 헤더 인라인 컬럼 필터 (TP코드·상품명·공급사, 서버 전체 검색)
+  const [colTp, setColTp] = useState("");
+  const [colName, setColName] = useState("");
+  const [colSupplier, setColSupplier] = useState("");
   const [page, setPage] = useState(0);
   const [total, setTotal] = useState(0);
   const PAGE_SIZE = 50;
@@ -229,6 +233,9 @@ export default function ProductsPage() {
     if (fulfillmentFilter !== "all") params.set("fulfillment", fulfillmentFilter);
     if (stockFilter !== "all") params.set("stock", stockFilter);
     if (supplierFilter) params.set("supplier", supplierFilter);
+    if (colTp.trim()) params.set("col_tp", colTp.trim());
+    if (colName.trim()) params.set("col_name", colName.trim());
+    if (colSupplier.trim()) params.set("col_supplier", colSupplier.trim());
 
     try {
       const res = await fetch(`/admin/api/products?${params}`);
@@ -241,7 +248,7 @@ export default function ProductsPage() {
     } finally {
       setLoading(false);
     }
-  }, [keyword, catFilter, sellingFilter, displayFilter, approvalFilter, fulfillmentFilter, stockFilter, supplierFilter, page]);
+  }, [keyword, catFilter, sellingFilter, displayFilter, approvalFilter, fulfillmentFilter, stockFilter, supplierFilter, colTp, colName, colSupplier, page]);
 
   // ref로 최신 fetchProducts를 추적 (useEffect에서 stale closure 방지)
   const fetchProductsRef = useRef(fetchProducts);
@@ -763,13 +770,14 @@ export default function ProductsPage() {
               <option value="out">품절</option>
             </select>
             <button onClick={handleSearch} className="px-4 py-2.5 bg-[#C41E1E] text-white text-sm font-medium rounded-lg hover:bg-[#A01818] cursor-pointer">검색</button>
-            {(catFilter || supplierFilter || sellingFilter !== "all" || displayFilter !== "all" || approvalFilter !== "all" || fulfillmentFilter !== "all" || stockFilter !== "all" || keyword) && (
+            {(catFilter || supplierFilter || sellingFilter !== "all" || displayFilter !== "all" || approvalFilter !== "all" || fulfillmentFilter !== "all" || stockFilter !== "all" || keyword || colTp || colName || colSupplier) && (
               <button
                 onClick={() => {
                   setPage(0);
                   setKeyword(""); setCatFilter(""); setSupplierFilter("");
                   setSellingFilter("all"); setDisplayFilter("all");
                   setApprovalFilter("all"); setFulfillmentFilter("all"); setStockFilter("all");
+                  setColTp(""); setColName(""); setColSupplier("");
                   // 키워드만 걸려있던 경우 필터 deps가 안 바뀌어 effect가 안 돌 수 있어 명시적 재조회
                   setTimeout(() => fetchProductsRef.current?.(true), 0);
                 }}
@@ -962,6 +970,39 @@ export default function ProductsPage() {
                     <th className="text-center px-3 py-3 font-medium">승인</th>
                     <th className="text-center px-3 py-3 font-medium">카페24 매핑</th>
                     <th className="text-center px-4 py-3 font-medium w-16">관리</th>
+                  </tr>
+                  {/* 헤더 인라인 컬럼 필터 (Enter로 서버 전체 검색) */}
+                  <tr className="border-b border-gray-100 bg-gray-50/50">
+                    <th className="px-4 py-1.5"></th>
+                    <th className="px-3 py-1.5"></th>
+                    <th className="px-3 py-1.5">
+                      <input
+                        value={colTp}
+                        onChange={(e) => setColTp(e.target.value)}
+                        onKeyDown={(e) => { if (e.key === "Enter") handleSearch(); }}
+                        placeholder="TP코드"
+                        className="w-full min-w-0 px-1.5 py-1 text-xs font-normal border border-gray-200 rounded focus:outline-none focus:ring-1 focus:ring-[#C41E1E]/30"
+                      />
+                    </th>
+                    <th className="px-3 py-1.5">
+                      <input
+                        value={colName}
+                        onChange={(e) => setColName(e.target.value)}
+                        onKeyDown={(e) => { if (e.key === "Enter") handleSearch(); }}
+                        placeholder="상품명"
+                        className="w-full min-w-0 px-1.5 py-1 text-xs font-normal border border-gray-200 rounded focus:outline-none focus:ring-1 focus:ring-[#C41E1E]/30"
+                      />
+                    </th>
+                    <th className="px-3 py-1.5">
+                      <input
+                        value={colSupplier}
+                        onChange={(e) => setColSupplier(e.target.value)}
+                        onKeyDown={(e) => { if (e.key === "Enter") handleSearch(); }}
+                        placeholder="공급사"
+                        className="w-full min-w-0 px-1.5 py-1 text-xs font-normal border border-gray-200 rounded focus:outline-none focus:ring-1 focus:ring-[#C41E1E]/30"
+                      />
+                    </th>
+                    <th className="px-3 py-1.5" colSpan={10}></th>
                   </tr>
                 </thead>
                 <tbody>
