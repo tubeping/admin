@@ -46,7 +46,7 @@ export default function SuppliersPage() {
   const [searchKeyword, setSearchKeyword] = useState("");
   const [filters, setFilters] = useState({
     short_code: "", cafe24: "", name: "", contact: "", order_email: "", settlement_email: "",
-    form: "all", status: "all",
+    form: "all", status: "active",
   });
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
@@ -84,13 +84,14 @@ export default function SuppliersPage() {
   };
 
   const handleDelete = async (s: Supplier) => {
-    if (!confirm(`"${s.name}" 공급사를 삭제하시겠습니까?\n연결된 상품·주문이 있으면 삭제되지 않습니다.\n이 작업은 되돌릴 수 없습니다.`)) return;
+    if (!confirm(`"${s.name}" 공급사를 삭제하시겠습니까?\n주문 이력이 있으면 삭제 대신 '비활성' 처리됩니다.\n이 작업은 되돌릴 수 없습니다.`)) return;
     const res = await fetch(`/admin/api/suppliers/${s.id}`, { method: "DELETE" });
+    const data = await res.json().catch(() => ({}));
     if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      alert(`삭제 실패: ${err.error || res.statusText}`);
+      alert(`삭제 실패: ${data.error || res.statusText}`);
       return;
     }
+    if (data.soft) alert(`"${s.name}"은(는) 연결된 주문 이력이 있어 삭제 대신 '비활성' 처리되었습니다.`);
     fetchSuppliers();
   };
 
@@ -139,12 +140,23 @@ export default function SuppliersPage() {
   const handleBulkDelete = async () => {
     const ids = [...selectedIds];
     if (!ids.length) return;
-    if (!confirm(`선택한 ${ids.length}개 공급사를 삭제하시겠습니까?\n연결된 상품·주문이 있으면 일부는 삭제되지 않을 수 있습니다.\n이 작업은 되돌릴 수 없습니다.`)) return;
+    if (!confirm(`선택한 ${ids.length}개 공급사를 삭제하시겠습니까?\n주문 이력이 있는 공급사는 삭제 대신 '비활성' 처리됩니다.\n이 작업은 되돌릴 수 없습니다.`)) return;
     const results = await Promise.all(
-      ids.map((id) => fetch(`/admin/api/suppliers/${id}`, { method: "DELETE" }).then((r) => r.ok).catch(() => false))
+      ids.map((id) =>
+        fetch(`/admin/api/suppliers/${id}`, { method: "DELETE" })
+          .then(async (r) => ({ ok: r.ok, data: await r.json().catch(() => ({})) }))
+          .catch(() => ({ ok: false, data: {} as Record<string, unknown> }))
+      )
     );
-    const failed = results.filter((ok) => !ok).length;
-    if (failed) alert(`${failed}개는 삭제에 실패했습니다 (연결된 데이터가 있을 수 있습니다).`);
+    const deleted = results.filter((r) => r.ok && r.data.deleted).length;
+    const soft = results.filter((r) => r.ok && r.data.soft).length;
+    const failed = results.filter((r) => !r.ok).length;
+    const msg = [
+      deleted ? `${deleted}개 삭제` : "",
+      soft ? `${soft}개 비활성 처리(주문 이력 있음)` : "",
+      failed ? `${failed}개 실패` : "",
+    ].filter(Boolean).join(", ");
+    if (msg) alert(msg);
     setSelectedIds(new Set());
     fetchSuppliers();
   };
