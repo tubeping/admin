@@ -625,9 +625,9 @@ const OrderRow = memo(function OrderRow({
             <span className="text-xs text-gray-700">{o.suppliers.name}</span>
             <div>{o.warehouse_name
               ? <span
-                  title={o.fulfillment_warehouse_supplier_id ? "수동 지정 출고지" : "상품 기본 출고창고"}
-                  className={`text-[10px] px-1 py-px rounded font-medium ${o.fulfillment_warehouse_supplier_id ? "bg-amber-50 text-amber-700" : "bg-blue-50 text-blue-700"}`}>
-                  {o.warehouse_name}{o.fulfillment_warehouse_supplier_id ? " ✎" : ""}
+                  title="상품 마스터 출고창고 (변경은 상품관리에서)"
+                  className="text-[10px] px-1 py-px rounded font-medium bg-blue-50 text-blue-700">
+                  {o.warehouse_name}
                 </span>
               : <span className="text-[10px] px-1 py-px rounded bg-gray-100 text-gray-500">자체배송</span>
             }</div>
@@ -1375,21 +1375,6 @@ export default function UnifiedOrdersPage() {
     fetchOrders();
   };
 
-  // 출고지 변경: ""=상품기본값(초기화, null), 그 외=해당 공급사를 출고지로 지정
-  const handleAssignWarehouse = async (value: string) => {
-    if (selected.size === 0) return;
-    await fetch("/admin/api/orders", {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        ids: Array.from(selected),
-        updates: { fulfillment_warehouse_supplier_id: value === "__reset__" ? null : value },
-      }),
-    });
-    setSelected(new Set());
-    fetchOrders();
-  };
-
   const handleBulkPO = async () => {
     const untrackedOrders = orders.filter(
       (o) => !o.tracking_number && o.supplier_id && o.shipping_status !== "cancelled" && o.shipping_status !== "delivered" && !o.purchase_order_id
@@ -1883,14 +1868,6 @@ export default function UnifiedOrdersPage() {
           <select onChange={(e) => { if (e.target.value) handleAssignSupplier(e.target.value); e.target.value = ""; }}
             className="text-[11px] border border-blue-200 rounded px-1.5 py-0.5 bg-white w-[120px]">
             <option value="">공급사 변경</option>
-            {suppliers.map((s) => (<option key={s.id} value={s.id}>{s.name}</option>))}
-          </select>
-          <select onChange={(e) => { const v = e.target.value; e.target.value = ""; if (v) handleAssignWarehouse(v); }}
-            defaultValue=""
-            title="주문 단위 출고지 지정 (상품 마스터 출고창고를 무시하고 이 주문만 다른 곳에서 출고). 발주 라우팅에도 반영됩니다."
-            className="text-[11px] border border-blue-200 rounded px-1.5 py-0.5 bg-white w-[120px]">
-            <option value="" disabled>출고지 변경</option>
-            <option value="__reset__">상품기본값(초기화)</option>
             {suppliers.map((s) => (<option key={s.id} value={s.id}>{s.name}</option>))}
           </select>
           <button

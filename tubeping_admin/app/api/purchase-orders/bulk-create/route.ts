@@ -86,8 +86,7 @@ export async function POST(request: NextRequest) {
   // 주문 → warehouse_supplier_id 결정
   type OrderRow = NonNullable<typeof orders>[0];
   function resolveWarehouse(o: OrderRow): string | null {
-    // 0순위: 주문 단위 출고지 override (주문수집/조회에서 수동 지정)
-    if (o.fulfillment_warehouse_supplier_id) return o.fulfillment_warehouse_supplier_id;
+    // 출고지는 상품 마스터 출고창고 값만 사용 (주문 단위 수동 override 제거)
     // 경로 A: cafe24_product_no 기반
     if (o.store_id && o.cafe24_product_no > 0) {
       const pid = storeNoKeyToProductId[`${o.store_id}::${o.cafe24_product_no}`];
