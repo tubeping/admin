@@ -40,11 +40,11 @@ export async function PUT(
 
   // 상품 기본 정보 수정
   const update: Record<string, unknown> = {};
-  const allowed = ["tp_code", "product_name", "price", "supply_price", "retail_price", "image_url", "selling", "display", "approval_status", "category", "description", "memo", "supplier", "total_stock", "fulfillment_warehouse_supplier_id"];
+  const allowed = ["tp_code", "product_name", "price", "supply_price", "supply_shipping_fee", "retail_price", "image_url", "selling", "display", "approval_status", "category", "description", "memo", "supplier", "total_stock", "fulfillment_warehouse_supplier_id"];
 
   for (const key of allowed) {
     if (body[key] !== undefined) {
-      if (["price", "supply_price", "retail_price", "total_stock"].includes(key)) {
+      if (["price", "supply_price", "supply_shipping_fee", "retail_price", "total_stock"].includes(key)) {
         update[key] = Number(body[key]) || 0;
       } else if (key === "tp_code") {
         const v = String(body[key]).trim();

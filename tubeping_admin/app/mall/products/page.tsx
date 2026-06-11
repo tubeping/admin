@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef, useMemo } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo, Fragment } from "react";
 
 /* ══════════════════════════════════════════
    타입
@@ -102,14 +102,19 @@ function formatPrice(n: number): string {
   return `₩${n.toLocaleString()}`;
 }
 
-function marginRate(price: number, supply: number): string {
-  if (!price || !supply || price <= 0) return "-";
-  return `${(((price - supply) / price) * 100).toFixed(1)}%`;
+// 마진 = 판매가 − 공급가 − 배송비 (정산 정의와 일치). shipping 생략 시 0.
+function marginAmt(price: number, supply: number, shipping = 0): number {
+  return (price || 0) - (supply || 0) - (shipping || 0);
 }
 
-function marginNum(price: number, supply: number): number {
+function marginRate(price: number, supply: number, shipping = 0): string {
+  if (!price || !supply || price <= 0) return "-";
+  return `${((marginAmt(price, supply, shipping) / price) * 100).toFixed(1)}%`;
+}
+
+function marginNum(price: number, supply: number, shipping = 0): number {
   if (!price || !supply || price <= 0) return 0;
-  return ((price - supply) / price) * 100;
+  return (marginAmt(price, supply, shipping) / price) * 100;
 }
 
 const APPROVAL_STATUS: Record<string, { label: string; cls: string }> = {
@@ -171,6 +176,7 @@ export default function ProductsPage() {
   const [summaryStats, setSummaryStats] = useState({ total: 0, selling: 0, totalMappings: 0, unmapped: 0, categories: [] as string[], suppliers: [] as string[] });
 
   const [selectedProducts, setSelectedProducts] = useState<Set<string>>(new Set());
+  const [expandedProducts, setExpandedProducts] = useState<Set<string>>(new Set());
   const [showAssignDropdown, setShowAssignDropdown] = useState(false);
   const [showSendDropdown, setShowSendDropdown] = useState(false);
   const [showFulfillmentDropdown, setShowFulfillmentDropdown] = useState(false);
@@ -392,6 +398,15 @@ export default function ProductsPage() {
   /* ── 선택 ── */
   const toggleSelect = (id: string) => {
     setSelectedProducts((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const toggleExpand = (id: string) => {
+    setExpandedProducts((prev) => {
       const next = new Set(prev);
       if (next.has(id)) next.delete(id);
       else next.add(id);
@@ -955,14 +970,17 @@ export default function ProductsPage() {
                     </th>
                     <th className="text-left px-3 py-3 font-medium w-24">공급사</th>
                     <th className="text-left px-3 py-3 font-medium w-28">출고지</th>
-                    <th className="text-right px-3 py-3 font-medium cursor-pointer hover:text-gray-900 select-none" onClick={() => handleSort("price")}>
-                      판매가<SortIcon field="price" />
+                    <th className="text-right px-3 py-3 font-medium cursor-pointer hover:text-gray-900 select-none" onClick={() => handleSort("price")} title="마스터 권장판매가. 자사몰별 실제 판매가는 행을 펼쳐 확인하세요.">
+                      권장판매가<SortIcon field="price" />
                     </th>
                     <th className="text-right px-3 py-3 font-medium cursor-pointer hover:text-gray-900 select-none" onClick={() => handleSort("supply_price")}>
                       공급가<SortIcon field="supply_price" />
                     </th>
-                    <th className="text-right px-3 py-3 font-medium cursor-pointer hover:text-gray-900 select-none" onClick={() => handleSort("margin")}>
-                      마진<SortIcon field="margin" />
+                    <th className="text-right px-3 py-3 font-medium" title="공급사가 튜핑에 청구하는 배송비">
+                      배송비
+                    </th>
+                    <th className="text-right px-3 py-3 font-medium cursor-pointer hover:text-gray-900 select-none" onClick={() => handleSort("margin")} title="마스터 기준 참고마진 = 권장판매가 − 공급가 − 배송비. 자사몰별 실마진은 행을 펼쳐 확인.">
+                      참고마진<SortIcon field="margin" />
                     </th>
                     <th className="text-right px-3 py-3 font-medium">재고</th>
                     <th className="text-center px-3 py-3 font-medium">판매</th>
@@ -1002,27 +1020,35 @@ export default function ProductsPage() {
                         className="w-full min-w-0 px-1.5 py-1 text-xs font-normal border border-gray-200 rounded focus:outline-none focus:ring-1 focus:ring-[#C41E1E]/30"
                       />
                     </th>
-                    <th className="px-3 py-1.5" colSpan={10}></th>
+                    <th className="px-3 py-1.5" colSpan={11}></th>
                   </tr>
                 </thead>
                 <tbody>
                   {loading && products.length === 0 ? (
-                    <tr><td colSpan={15} className="px-6 py-16 text-center text-sm text-gray-400">상품 로딩 중...</td></tr>
+                    <tr><td colSpan={16} className="px-6 py-16 text-center text-sm text-gray-400">상품 로딩 중...</td></tr>
                   ) : sortedProducts.length === 0 ? (
-                    <tr><td colSpan={15} className="px-6 py-16 text-center text-sm text-gray-400">
+                    <tr><td colSpan={16} className="px-6 py-16 text-center text-sm text-gray-400">
                       등록된 상품이 없습니다. &quot;상품 등록&quot; 버튼으로 첫 상품을 추가하세요.
                     </td></tr>
                   ) : sortedProducts.map((p) => {
                     const isSelected = selectedProducts.has(p.id);
-                    const mr = marginNum(p.price, p.supply_price);
+                    const supShip = p.supply_shipping_fee || 0;
+                    const mr = marginNum(p.price, p.supply_price, supShip);
                     const mappings = p.product_cafe24_mappings || [];
+                    // 자사몰 판매가 레이어가 채워진 매핑만 (마스터몰/미수집 제외)
+                    const sellerMaps = mappings.filter((m) => m.seller_price != null);
+                    const isExpanded = expandedProducts.has(p.id);
+                    // 정산 결손 플래그 — 공급사 정산(공급사명)·양 정산(공급가) 영향
+                    const missingSupplier = !p.supplier || !p.supplier.trim() || p.supplier === "-";
+                    const missingSupply = !p.supply_price || p.supply_price <= 0;
 
                     const warehouse = p.fulfillment_warehouse_supplier_id
                       ? warehouses.find((w) => w.id === p.fulfillment_warehouse_supplier_id)
                       : null;
 
                     return (
-                      <tr key={p.id} className={`border-b border-gray-50 last:border-0 hover:bg-gray-50/50 transition-colors ${isSelected ? "bg-[#FFF0F5]/40" : warehouse ? "bg-amber-50/40" : ""}`}>
+                      <Fragment key={p.id}>
+                      <tr className={`border-b border-gray-50 last:border-0 hover:bg-gray-50/50 transition-colors ${isSelected ? "bg-[#FFF0F5]/40" : warehouse ? "bg-amber-50/40" : ""}`}>
                         <td className="px-4 py-2.5">
                           <input type="checkbox" checked={isSelected} onChange={() => toggleSelect(p.id)} className="rounded border-gray-300 cursor-pointer" />
                         </td>
@@ -1034,7 +1060,25 @@ export default function ProductsPage() {
                           )}
                         </td>
                         <td className="px-3 py-2.5">
-                          <span className="text-xs font-mono font-bold text-[#C41E1E] bg-[#FFF0F5] px-2 py-0.5 rounded">{p.tp_code}</span>
+                          <div className="flex items-center gap-1">
+                            {sellerMaps.length > 0 ? (
+                              <button
+                                onClick={() => toggleExpand(p.id)}
+                                title={`자사몰 ${sellerMaps.length}곳 판매가 ${isExpanded ? "접기" : "펼치기"}`}
+                                className="text-gray-400 hover:text-[#C41E1E] cursor-pointer shrink-0"
+                              >
+                                <svg className={`w-3.5 h-3.5 transition-transform ${isExpanded ? "rotate-90" : ""}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                                </svg>
+                              </button>
+                            ) : (
+                              <span className="w-3.5 shrink-0" />
+                            )}
+                            <span className="text-xs font-mono font-bold text-[#C41E1E] bg-[#FFF0F5] px-2 py-0.5 rounded">{p.tp_code}</span>
+                            {sellerMaps.length > 0 && (
+                              <span className="text-[9px] text-gray-400 whitespace-nowrap">{sellerMaps.length}몰</span>
+                            )}
+                          </div>
                         </td>
                         <td className="px-3 py-2.5">
                           <button onClick={() => setEditingProduct(p)} className="text-sm font-medium text-gray-900 hover:text-[#C41E1E] text-left cursor-pointer line-clamp-2 max-w-[240px] transition-colors">
@@ -1043,11 +1087,16 @@ export default function ProductsPage() {
                           {p.category && <p className="text-[10px] text-gray-400 mt-0.5">{p.category}</p>}
                         </td>
                         <td className="px-3 py-2.5">
-                          <InlineText
-                            value={p.supplier || ""}
-                            placeholder="공급사"
-                            onSave={(v) => updateProductField(p.id, { supplier: v || null })}
-                          />
+                          <div className="flex items-center gap-1">
+                            <InlineText
+                              value={p.supplier || ""}
+                              placeholder="공급사"
+                              onSave={(v) => updateProductField(p.id, { supplier: v || null })}
+                            />
+                            {missingSupplier && (
+                              <span title="공급사 미지정 → 공급사 정산 귀속 불가" className="text-[9px] font-medium text-red-600 bg-red-50 px-1 py-0.5 rounded whitespace-nowrap">⚠</span>
+                            )}
+                          </div>
                         </td>
                         <td className="px-3 py-2.5">
                           <select
@@ -1070,16 +1119,32 @@ export default function ProductsPage() {
                           />
                         </td>
                         <td className="px-3 py-2.5 text-right">
+                          <div className="flex items-center justify-end gap-1">
+                            <InlineNumber
+                              value={p.supply_price}
+                              onSave={(v) => updateProductField(p.id, { supply_price: v })}
+                              className={missingSupply ? "text-red-600 font-medium" : "text-gray-500"}
+                            />
+                            {missingSupply && (
+                              <span title="공급가 미입력 → 양 정산 원가 0 (이익 부풀려짐·과소지급)" className="text-[9px] font-medium text-red-600 bg-red-50 px-1 py-0.5 rounded whitespace-nowrap">⚠</span>
+                            )}
+                          </div>
+                        </td>
+                        <td className="px-3 py-2.5 text-right">
                           <InlineNumber
-                            value={p.supply_price}
-                            onSave={(v) => updateProductField(p.id, { supply_price: v })}
+                            value={supShip}
+                            onSave={(v) => updateProductField(p.id, { supply_shipping_fee: v })}
                             className="text-gray-500"
                           />
                         </td>
                         <td className="px-3 py-2.5 text-right">
-                          <span className={`text-sm font-medium ${mr >= 30 ? "text-green-600" : mr >= 20 ? "text-blue-600" : "text-gray-500"}`}>
-                            {marginRate(p.price, p.supply_price)}
-                          </span>
+                          {missingSupply ? (
+                            <span className="text-xs text-gray-300">-</span>
+                          ) : (
+                            <span className={`text-sm font-medium ${mr >= 30 ? "text-green-600" : mr >= 20 ? "text-blue-600" : "text-gray-500"}`}>
+                              {marginRate(p.price, p.supply_price, supShip)}
+                            </span>
+                          )}
                         </td>
                         <td className="px-3 py-2.5 text-right">
                           <span className={`text-sm font-medium ${p.total_stock <= 0 ? "text-red-500" : p.total_stock < 10 ? "text-yellow-600" : "text-gray-700"}`}>
@@ -1126,6 +1191,47 @@ export default function ProductsPage() {
                           </button>
                         </td>
                       </tr>
+                      {/* 펼침: 자사몰별 실제 판매가·배송비·마진 (정산 기준값) */}
+                      {isExpanded && sellerMaps.map((m) => {
+                        const sp = m.seller_price ?? 0;
+                        const ship = m.seller_shipping_fee;           // 자사몰배송비 (고객 부과, 매출 측)
+                        // 마진 = (판매가 + 자사몰배송비) − (공급가 + 공급배송비). 정산서 이익 정의와 동일.
+                        const revenue = sp + (ship ?? 0);
+                        const cost = p.supply_price + supShip;
+                        const mAmt = revenue - cost;
+                        const mPct = revenue > 0 ? (mAmt / revenue) * 100 : 0;
+                        return (
+                          <tr key={m.id} className="bg-gray-50/70 border-b border-gray-100 text-xs">
+                            <td colSpan={6} className="px-3 py-1.5">
+                              <div className="flex items-center gap-1.5 pl-7 text-gray-600">
+                                <span className="text-gray-400">↳</span>
+                                <span className="font-medium text-gray-800">{getStoreName(m.store_id)}</span>
+                                {m.seller_product_code && <span className="text-[9px] font-mono text-gray-400">{m.seller_product_code}</span>}
+                              </div>
+                            </td>
+                            <td className="px-3 py-1.5 text-right font-medium text-gray-900">{formatPrice(sp)}</td>
+                            <td className="px-3 py-1.5 text-right text-gray-400">{formatPrice(p.supply_price)}</td>
+                            <td className="px-3 py-1.5 text-right text-gray-400">
+                              {ship == null ? <span className="text-gray-300">미확인</span> : ship > 0 ? formatPrice(ship) : "무료"}
+                            </td>
+                            <td className="px-3 py-1.5 text-right">
+                              {missingSupply ? (
+                                <span className="text-gray-300">-</span>
+                              ) : (
+                                <span
+                                  className={`font-medium ${mPct >= 30 ? "text-green-600" : mPct >= 20 ? "text-blue-600" : mAmt < 0 ? "text-red-600" : "text-gray-600"}`}
+                                  title={`(판매가 ${formatPrice(sp)} + 자사몰배송비 ${formatPrice(ship ?? 0)}) − (공급가 ${formatPrice(p.supply_price)} + 공급배송비 ${formatPrice(supShip)})`}
+                                >
+                                  {mPct.toFixed(1)}%
+                                  <span className="text-[9px] text-gray-400 ml-1">{formatPrice(mAmt)}</span>
+                                </span>
+                              )}
+                            </td>
+                            <td colSpan={6}></td>
+                          </tr>
+                        );
+                      })}
+                      </Fragment>
                     );
                   })}
                 </tbody>
@@ -1165,7 +1271,7 @@ export default function ProductsPage() {
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
                 {sortedProducts.map((p) => {
                   const isSelected = selectedProducts.has(p.id);
-                  const mr = marginNum(p.price, p.supply_price);
+                  const mr = marginNum(p.price, p.supply_price, p.supply_shipping_fee || 0);
                   const mappings = p.product_cafe24_mappings || [];
 
                   return (
@@ -1193,7 +1299,7 @@ export default function ProductsPage() {
                         <div className="flex items-center justify-between mt-2.5">
                           <span className="text-base font-bold text-gray-900">{formatPrice(p.price)}</span>
                           <span className={`text-xs font-medium ${mr >= 30 ? "text-green-600" : mr >= 20 ? "text-blue-600" : "text-gray-400"}`}>
-                            마진 {marginRate(p.price, p.supply_price)}
+                            마진 {marginRate(p.price, p.supply_price, p.supply_shipping_fee || 0)}
                           </span>
                         </div>
                         {mappings.length > 0 && (
@@ -2253,8 +2359,12 @@ function StorePricesTab({
               ) : (
                 rows.map(({ product: p, mapping: m }) => {
                   const sp = m.seller_price ?? 0;
-                  const margin =
-                    sp > 0 && p.supply_price > 0 ? `${(((sp - p.supply_price) / sp) * 100).toFixed(1)}%` : "-";
+                  // 마진 = (판매가 + 자사몰배송비) − (공급가 + 공급배송비), 매출 기준 비율. 정산서 이익 정의와 동일.
+                  const _rev = sp + (m.seller_shipping_fee ?? 0);
+                  const _cost = p.supply_price + (p.supply_shipping_fee || 0);
+                  const margin = _rev > 0 && p.supply_price > 0
+                    ? `${(((_rev - _cost) / _rev) * 100).toFixed(1)}%`
+                    : "-";
                   return (
                     <tr key={p.id} className="border-b border-gray-50 last:border-0 hover:bg-gray-50/50">
                       <td className="px-4 py-2.5">
