@@ -310,6 +310,28 @@ export default function ProductsPage() {
     }
   };
 
+  /* ── 공급사 자동채움 (빈 공급사만, 기존값 보존) ── */
+  const autofillSuppliers = async () => {
+    if (!confirm("공급사가 비어있는 상품을 마스터 카탈로그·공급사 정보에서 자동으로 채웁니다.\n(기존 공급사 값은 그대로 둡니다.)\n계속할까요?")) return;
+    setImporting(true);
+    setImportResult("");
+    try {
+      const res = await fetch("/admin/api/products/autofill-suppliers", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+      });
+      if (!res.ok) throw new Error("공급사 자동채움 실패");
+      const data = await res.json();
+      setImportResult(data.message);
+      refreshAll();
+    } catch (e) {
+      setImportResult(e instanceof Error ? e.message : "공급사 자동채움 실패");
+    } finally {
+      setImporting(false);
+    }
+  };
+
   const fetchStores = useCallback(async () => {
     setStoresLoading(true);
     try {
@@ -625,6 +647,15 @@ export default function ProductsPage() {
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
             )}
             {importing ? "가져오는 중..." : "카페24 가져오기"}
+          </button>
+          <button
+            onClick={autofillSuppliers}
+            disabled={importing}
+            className="px-4 py-2.5 bg-white text-gray-700 text-sm font-medium rounded-lg border border-gray-200 hover:bg-gray-50 disabled:opacity-50 cursor-pointer flex items-center gap-1.5"
+            title="공급사가 비어있는 상품을 마스터 카탈로그·공급사 정보에서 자동으로 채웁니다."
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>
+            공급사 채우기
           </button>
           <button
             onClick={() => setShowAddModal(true)}
