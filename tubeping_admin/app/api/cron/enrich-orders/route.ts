@@ -127,6 +127,13 @@ export async function GET(request: NextRequest) {
       if (m) nextNum = Math.max(nextNum, parseInt(m[1], 10) + 1);
     }
 
+    // 공급사 id → name (자동생성 상품의 supplier 컬럼 채우기용)
+    const supplierNameById: Record<string, string> = {};
+    {
+      const { data: sups } = await sb.from("suppliers").select("id, name");
+      for (const s of sups || []) if (s.name) supplierNameById[s.id] = s.name;
+    }
+
     const groups: Record<string, { orderIds: string[]; price: number; supplierId: string | null }> = {};
     for (const o of remaining) {
       const name = o.product_name?.trim();
@@ -147,7 +154,11 @@ export async function GET(request: NextRequest) {
         supply_shipping_fee: 0,
         approval_status: "approved",
       };
-      if (info.supplierId) insertData.fulfillment_warehouse_supplier_id = info.supplierId;
+      // 공급사명만 채운다. 출고지(fulfillment_warehouse_supplier_id)는 '사입 창고(이음로직스 등)'
+      // 전용 필드라 자동 설정하지 않음 — 미설정이면 자체배송. (공급사를 창고로 박던 버그 수정)
+      if (info.supplierId && supplierNameById[info.supplierId]) {
+        insertData.supplier = supplierNameById[info.supplierId];
+      }
 
       const { data: newProduct, error: insertErr } = await sb
         .from("products")
