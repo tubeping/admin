@@ -999,12 +999,12 @@ export default function ProductsPage() {
                     <th className="text-left px-3 py-3 font-medium w-28">옵션명</th>
                     <th className="text-left px-3 py-3 font-medium w-24">공급사</th>
                     <th className="text-left px-3 py-3 font-medium w-28">출고지</th>
-                    <th className="text-right px-3 py-3 font-medium leading-tight" title="판매사 자사몰 실제 판매가 (몰별 — 행을 펼쳐 확인)">판매사<br />판매가</th>
-                    <th className="text-right px-3 py-3 font-medium leading-tight" title="판매사 자사몰 배송비 (고객 부과, 몰별)">판매사<br />배송비</th>
-                    <th className="text-right px-3 py-3 font-medium leading-tight" title="튜핑이 판매사에 공급하는 단가 (=종합몰가)">판매사<br />공급가</th>
-                    <th className="text-right px-3 py-3 font-medium leading-tight" title="공급사/종합몰 판매가">공급사<br />판매가</th>
-                    <th className="text-right px-3 py-3 font-medium leading-tight" title="공급사가 튜핑에 청구하는 배송비">공급사<br />배송비</th>
-                    <th className="text-right px-3 py-3 font-medium leading-tight" title="공급사가 튜핑에 청구하는 공급가(원가)">공급사<br />공급가</th>
+                    <th className="text-right px-3 py-3 font-semibold leading-tight bg-blue-100/70 text-blue-800 border-l-2 border-blue-300" title="판매사 자사몰 실제 판매가 (몰별 — 행을 펼쳐 확인)">판매사<br />판매가</th>
+                    <th className="text-right px-3 py-3 font-semibold leading-tight bg-blue-100/70 text-blue-800" title="판매사 자사몰 배송비 (고객 부과, 몰별)">판매사<br />배송비</th>
+                    <th className="text-right px-3 py-3 font-semibold leading-tight bg-blue-100/70 text-blue-800 border-r-2 border-blue-300" title="튜핑이 판매사에 공급하는 단가 (=종합몰가)">판매사<br />공급가</th>
+                    <th className="text-right px-3 py-3 font-semibold leading-tight bg-amber-100/70 text-amber-800 border-l-2 border-amber-300" title="공급사/종합몰 판매가">공급사<br />판매가</th>
+                    <th className="text-right px-3 py-3 font-semibold leading-tight bg-amber-100/70 text-amber-800" title="공급사가 튜핑에 청구하는 배송비">공급사<br />배송비</th>
+                    <th className="text-right px-3 py-3 font-semibold leading-tight bg-amber-100/70 text-amber-800 border-r-2 border-amber-300" title="공급사가 튜핑에 청구하는 공급가(원가)">공급사<br />공급가</th>
                     <th className="text-right px-3 py-3 font-medium" title="마진 = 공급사판매가 − 공급가 − 공급배송비. 자사몰별 실마진은 펼쳐 확인.">마진</th>
                     <th className="text-right px-3 py-3 font-medium">재고</th>
                     <th className="text-center px-3 py-3 font-medium">판매상태</th>
@@ -1149,7 +1149,7 @@ export default function ProductsPage() {
                           </select>
                         </td>
                         {/* 판매사 판매가 (자사몰 실판매가 — 몰별, 펼쳐 확인) */}
-                        <td className="px-3 py-2.5 text-right">
+                        <td className="px-3 py-2.5 text-right bg-blue-50/50 border-l-2 border-blue-200">
                           {sellerMaps.length === 0 ? (
                             <span className="text-xs text-gray-300">-</span>
                           ) : sellerMaps.length === 1 ? (
@@ -1166,7 +1166,7 @@ export default function ProductsPage() {
                           })()}
                         </td>
                         {/* 판매사 배송비 (자사몰 배송비 — 몰별) */}
-                        <td className="px-3 py-2.5 text-right">
+                        <td className="px-3 py-2.5 text-right bg-blue-50/50">
                           {sellerMaps.length === 0 ? (
                             <span className="text-xs text-gray-300">-</span>
                           ) : sellerMaps.length === 1 ? (
@@ -1176,11 +1176,11 @@ export default function ProductsPage() {
                           )}
                         </td>
                         {/* 판매사 공급가 (튜핑이 판매사에 넘기는 단가 = 종합몰가) */}
-                        <td className="px-3 py-2.5 text-right">
+                        <td className="px-3 py-2.5 text-right bg-blue-50/50 border-r-2 border-blue-200">
                           <span className="text-sm text-gray-700" title="튜핑이 판매사에 공급하는 단가 (=종합몰 판매가)">{formatPrice(p.price)}</span>
                         </td>
                         {/* 공급사 판매가 (= 종합몰 판매가, 인라인 수정) */}
-                        <td className="px-3 py-2.5 text-right">
+                        <td className="px-3 py-2.5 text-right bg-amber-50/50 border-l-2 border-amber-200">
                           <InlineNumber
                             value={p.price}
                             onSave={(v) => updateProductField(p.id, { price: v })}
@@ -1188,7 +1188,7 @@ export default function ProductsPage() {
                           />
                         </td>
                         {/* 공급사 배송비 */}
-                        <td className="px-3 py-2.5 text-right">
+                        <td className="px-3 py-2.5 text-right bg-amber-50/50">
                           <InlineNumber
                             value={supShip}
                             onSave={(v) => updateProductField(p.id, { supply_shipping_fee: v })}
@@ -1196,7 +1196,7 @@ export default function ProductsPage() {
                           />
                         </td>
                         {/* 공급사 공급가 (원가) */}
-                        <td className="px-3 py-2.5 text-right">
+                        <td className="px-3 py-2.5 text-right bg-amber-50/50 border-r-2 border-amber-200">
                           <div className="flex items-center justify-end gap-1">
                             <InlineNumber
                               value={p.supply_price}
@@ -1281,19 +1281,19 @@ export default function ProductsPage() {
                               </div>
                             </td>
                             {/* 판매사 판매가 */}
-                            <td className="px-3 py-1.5 text-right font-medium text-gray-900">{formatPrice(sp)}</td>
+                            <td className="px-3 py-1.5 text-right font-medium text-gray-900 bg-blue-50/50 border-l-2 border-blue-200">{formatPrice(sp)}</td>
                             {/* 판매사 배송비 */}
-                            <td className="px-3 py-1.5 text-right text-gray-500">
+                            <td className="px-3 py-1.5 text-right text-gray-500 bg-blue-50/50">
                               {ship == null ? <span className="text-gray-300">미확인</span> : ship > 0 ? formatPrice(ship) : "무료"}
                             </td>
                             {/* 판매사 공급가 */}
-                            <td className="px-3 py-1.5 text-right text-gray-400">{formatPrice(p.price)}</td>
+                            <td className="px-3 py-1.5 text-right text-gray-400 bg-blue-50/50 border-r-2 border-blue-200">{formatPrice(p.price)}</td>
                             {/* 공급사 판매가 */}
-                            <td className="px-3 py-1.5 text-right text-gray-400">{formatPrice(p.price)}</td>
+                            <td className="px-3 py-1.5 text-right text-gray-400 bg-amber-50/50 border-l-2 border-amber-200">{formatPrice(p.price)}</td>
                             {/* 공급사 배송비 */}
-                            <td className="px-3 py-1.5 text-right text-gray-400">{supShip > 0 ? formatPrice(supShip) : "무료"}</td>
+                            <td className="px-3 py-1.5 text-right text-gray-400 bg-amber-50/50">{supShip > 0 ? formatPrice(supShip) : "무료"}</td>
                             {/* 공급사 공급가 */}
-                            <td className="px-3 py-1.5 text-right text-gray-400">{formatPrice(p.supply_price)}</td>
+                            <td className="px-3 py-1.5 text-right text-gray-400 bg-amber-50/50 border-r-2 border-amber-200">{formatPrice(p.supply_price)}</td>
                             {/* 마진 (자사몰 실마진) */}
                             <td className="px-3 py-1.5 text-right">
                               {missingSupply ? (
