@@ -994,22 +994,18 @@ export default function ProductsPage() {
                     </th>
                     <th className="text-center px-2 py-3 font-medium w-8" title="비콘 — 상품 상태 신호 (초록=정상 / 노랑=미매핑·품절 / 빨강=공급사·공급가 결손)">비콘</th>
                     <th className="text-left px-3 py-3 font-medium w-14">이미지</th>
-                    <th className="text-left px-3 py-3 font-medium w-24 cursor-pointer hover:text-gray-900 select-none" onClick={() => handleSort("tp_code")}>
-                      TP코드<SortIcon field="tp_code" />
-                    </th>
-                    <th className="text-left px-3 py-3 font-medium cursor-pointer hover:text-gray-900 select-none" onClick={() => handleSort("name")}>
-                      상품명<SortIcon field="name" />
-                    </th>
+                    <th className="text-left px-3 py-3 font-medium w-24">TP코드</th>
+                    <th className="text-left px-3 py-3 font-medium">상품명</th>
                     <th className="text-left px-3 py-3 font-medium w-28">옵션명</th>
                     <th className="text-left px-3 py-3 font-medium w-24">공급사</th>
                     <th className="text-left px-3 py-3 font-medium w-28">출고지</th>
                     <th className="text-right px-3 py-3 font-medium leading-tight" title="판매사 자사몰 실제 판매가 (몰별 — 행을 펼쳐 확인)">판매사<br />판매가</th>
                     <th className="text-right px-3 py-3 font-medium leading-tight" title="판매사 자사몰 배송비 (고객 부과, 몰별)">판매사<br />배송비</th>
                     <th className="text-right px-3 py-3 font-medium leading-tight" title="튜핑이 판매사에 공급하는 단가 (=종합몰가)">판매사<br />공급가</th>
-                    <th className="text-right px-3 py-3 font-medium leading-tight cursor-pointer hover:text-gray-900 select-none" onClick={() => handleSort("price")} title="공급사/종합몰 판매가">공급사<br />판매가<SortIcon field="price" /></th>
+                    <th className="text-right px-3 py-3 font-medium leading-tight" title="공급사/종합몰 판매가">공급사<br />판매가</th>
                     <th className="text-right px-3 py-3 font-medium leading-tight" title="공급사가 튜핑에 청구하는 배송비">공급사<br />배송비</th>
-                    <th className="text-right px-3 py-3 font-medium leading-tight cursor-pointer hover:text-gray-900 select-none" onClick={() => handleSort("supply_price")} title="공급사가 튜핑에 청구하는 공급가(원가)">공급사<br />공급가<SortIcon field="supply_price" /></th>
-                    <th className="text-right px-3 py-3 font-medium cursor-pointer hover:text-gray-900 select-none" onClick={() => handleSort("margin")} title="마진 = 공급사판매가 − 공급가 − 공급배송비. 자사몰별 실마진은 펼쳐 확인.">마진<SortIcon field="margin" /></th>
+                    <th className="text-right px-3 py-3 font-medium leading-tight" title="공급사가 튜핑에 청구하는 공급가(원가)">공급사<br />공급가</th>
+                    <th className="text-right px-3 py-3 font-medium" title="마진 = 공급사판매가 − 공급가 − 공급배송비. 자사몰별 실마진은 펼쳐 확인.">마진</th>
                     <th className="text-right px-3 py-3 font-medium">재고</th>
                     <th className="text-center px-3 py-3 font-medium">판매상태</th>
                     <th className="text-center px-3 py-3 font-medium">진열상태</th>
