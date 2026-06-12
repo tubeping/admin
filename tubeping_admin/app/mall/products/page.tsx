@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef, useMemo, Fragment } from "react";
+import { coreCode } from "@/lib/productCode";
 
 /* ══════════════════════════════════════════
    타입
@@ -992,7 +993,6 @@ export default function ProductsPage() {
                     <th className="text-left px-3 py-3 font-medium w-10">
                       <input type="checkbox" checked={selectedProducts.size > 0 && selectedProducts.size === sortedProducts.length} onChange={selectAll} className="rounded border-gray-300 cursor-pointer" />
                     </th>
-                    <th className="text-center px-2 py-3 font-medium w-8" title="비콘 — 상품 상태 신호 (초록=정상 / 노랑=미매핑·품절 / 빨강=공급사·공급가 결손)">비콘</th>
                     <th className="text-left px-3 py-3 font-medium w-14">이미지</th>
                     <th className="text-left px-3 py-3 font-medium w-24">TP코드</th>
                     <th className="text-left px-3 py-3 font-medium">상품명</th>
@@ -1016,7 +1016,6 @@ export default function ProductsPage() {
                   {/* 헤더 인라인 컬럼 필터 (Enter로 서버 전체 검색) */}
                   <tr className="border-b border-gray-100 bg-gray-50/50">
                     <th className="px-3 py-1.5"></th>
-                    <th className="px-2 py-1.5"></th>
                     <th className="px-3 py-1.5"></th>
                     <th className="px-3 py-1.5">
                       <input
@@ -1051,9 +1050,9 @@ export default function ProductsPage() {
                 </thead>
                 <tbody>
                   {loading && products.length === 0 ? (
-                    <tr><td colSpan={21} className="px-6 py-16 text-center text-sm text-gray-400">상품 로딩 중...</td></tr>
+                    <tr><td colSpan={20} className="px-6 py-16 text-center text-sm text-gray-400">상품 로딩 중...</td></tr>
                   ) : sortedProducts.length === 0 ? (
-                    <tr><td colSpan={21} className="px-6 py-16 text-center text-sm text-gray-400">
+                    <tr><td colSpan={20} className="px-6 py-16 text-center text-sm text-gray-400">
                       등록된 상품이 없습니다. &quot;상품 등록&quot; 버튼으로 첫 상품을 추가하세요.
                     </td></tr>
                   ) : sortedProducts.map((p) => {
@@ -1078,13 +1077,6 @@ export default function ProductsPage() {
                         <td className="px-3 py-2.5">
                           <input type="checkbox" checked={isSelected} onChange={() => toggleSelect(p.id)} className="rounded border-gray-300 cursor-pointer" />
                         </td>
-                        <td className="px-2 py-2.5 text-center">
-                          {(() => {
-                            const tone = (missingSupplier || missingSupply) ? "bg-red-500" : (mappings.length === 0 || p.total_stock <= 0) ? "bg-amber-400" : "bg-green-500";
-                            const label = (missingSupplier || missingSupply) ? "결손 — 공급사/공급가 확인 필요" : mappings.length === 0 ? "미매핑 — 카페24/판매사몰 연결 없음" : p.total_stock <= 0 ? "품절" : "정상";
-                            return <span className={`inline-block w-2.5 h-2.5 rounded-full ${tone}`} title={label} />;
-                          })()}
-                        </td>
                         <td className="px-3 py-2.5">
                           {p.image_url ? (
                             <img src={p.image_url} alt="" className="w-11 h-11 rounded-lg object-cover border border-gray-100" />
@@ -1107,7 +1099,7 @@ export default function ProductsPage() {
                             ) : (
                               <span className="w-3.5 shrink-0" />
                             )}
-                            <span className="text-xs font-mono font-bold text-[#C41E1E] bg-[#FFF0F5] px-2 py-0.5 rounded">{p.tp_code}</span>
+                            <span className="text-xs font-mono font-bold text-[#C41E1E] bg-[#FFF0F5] px-2 py-0.5 rounded">{coreCode(p.tp_code)}</span>
                             {sellerMaps.length > 0 && (
                               <span className="text-[9px] text-gray-400 whitespace-nowrap">{sellerMaps.length}몰</span>
                             )}
@@ -1281,7 +1273,7 @@ export default function ProductsPage() {
                         const mPct = revenue > 0 ? (mAmt / revenue) * 100 : 0;
                         return (
                           <tr key={m.id} className="bg-gray-50/70 border-b border-gray-100 text-xs">
-                            <td colSpan={8} className="px-3 py-1.5">
+                            <td colSpan={7} className="px-3 py-1.5">
                               <div className="flex items-center gap-1.5 pl-7 text-gray-600">
                                 <span className="text-gray-400">↳</span>
                                 <span className="font-medium text-gray-800">{getStoreName(m.store_id)}</span>
@@ -1375,7 +1367,7 @@ export default function ProductsPage() {
                           <input type="checkbox" checked={isSelected} onChange={() => toggleSelect(p.id)} className="w-4 h-4 rounded border-gray-300 cursor-pointer" />
                         </div>
                         <div className="absolute top-2 right-2 flex gap-1">
-                          <span className="text-[10px] font-mono font-bold text-[#C41E1E] bg-white/90 px-1.5 py-0.5 rounded">{p.tp_code}</span>
+                          <span className="text-[10px] font-mono font-bold text-[#C41E1E] bg-white/90 px-1.5 py-0.5 rounded">{coreCode(p.tp_code)}</span>
                           <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded ${p.selling === "T" ? "bg-green-100 text-green-700" : "bg-gray-100 text-gray-500"}`}>
                             {p.selling === "T" ? "판매중" : "미판매"}
                           </span>
