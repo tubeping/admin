@@ -989,9 +989,10 @@ export default function ProductsPage() {
               <table className="w-full">
                 <thead>
                   <tr className="text-xs text-gray-500 border-b border-gray-100">
-                    <th className="text-left px-4 py-3 font-medium w-10">
+                    <th className="text-left px-3 py-3 font-medium w-10">
                       <input type="checkbox" checked={selectedProducts.size > 0 && selectedProducts.size === sortedProducts.length} onChange={selectAll} className="rounded border-gray-300 cursor-pointer" />
                     </th>
+                    <th className="text-center px-2 py-3 font-medium w-8" title="비콘 — 상품 상태 신호 (초록=정상 / 노랑=미매핑·품절 / 빨강=공급사·공급가 결손)">비콘</th>
                     <th className="text-left px-3 py-3 font-medium w-14">이미지</th>
                     <th className="text-left px-3 py-3 font-medium w-24 cursor-pointer hover:text-gray-900 select-none" onClick={() => handleSort("tp_code")}>
                       TP코드<SortIcon field="tp_code" />
@@ -999,30 +1000,27 @@ export default function ProductsPage() {
                     <th className="text-left px-3 py-3 font-medium cursor-pointer hover:text-gray-900 select-none" onClick={() => handleSort("name")}>
                       상품명<SortIcon field="name" />
                     </th>
+                    <th className="text-left px-3 py-3 font-medium w-28">옵션명</th>
                     <th className="text-left px-3 py-3 font-medium w-24">공급사</th>
                     <th className="text-left px-3 py-3 font-medium w-28">출고지</th>
-                    <th className="text-right px-3 py-3 font-medium cursor-pointer hover:text-gray-900 select-none" onClick={() => handleSort("price")} title="마스터 권장판매가. 자사몰별 실제 판매가는 행을 펼쳐 확인하세요.">
-                      권장판매가<SortIcon field="price" />
-                    </th>
-                    <th className="text-right px-3 py-3 font-medium cursor-pointer hover:text-gray-900 select-none" onClick={() => handleSort("supply_price")}>
-                      공급가<SortIcon field="supply_price" />
-                    </th>
-                    <th className="text-right px-3 py-3 font-medium" title="공급사가 튜핑에 청구하는 배송비">
-                      배송비
-                    </th>
-                    <th className="text-right px-3 py-3 font-medium cursor-pointer hover:text-gray-900 select-none" onClick={() => handleSort("margin")} title="마스터 기준 참고마진 = 권장판매가 − 공급가 − 배송비. 자사몰별 실마진은 행을 펼쳐 확인.">
-                      참고마진<SortIcon field="margin" />
-                    </th>
+                    <th className="text-right px-3 py-3 font-medium leading-tight" title="판매사 자사몰 실제 판매가 (몰별 — 행을 펼쳐 확인)">판매사<br />판매가</th>
+                    <th className="text-right px-3 py-3 font-medium leading-tight" title="판매사 자사몰 배송비 (고객 부과, 몰별)">판매사<br />배송비</th>
+                    <th className="text-right px-3 py-3 font-medium leading-tight" title="튜핑이 판매사에 공급하는 단가 (=종합몰가)">판매사<br />공급가</th>
+                    <th className="text-right px-3 py-3 font-medium leading-tight cursor-pointer hover:text-gray-900 select-none" onClick={() => handleSort("price")} title="공급사/종합몰 판매가">공급사<br />판매가<SortIcon field="price" /></th>
+                    <th className="text-right px-3 py-3 font-medium leading-tight" title="공급사가 튜핑에 청구하는 배송비">공급사<br />배송비</th>
+                    <th className="text-right px-3 py-3 font-medium leading-tight cursor-pointer hover:text-gray-900 select-none" onClick={() => handleSort("supply_price")} title="공급사가 튜핑에 청구하는 공급가(원가)">공급사<br />공급가<SortIcon field="supply_price" /></th>
+                    <th className="text-right px-3 py-3 font-medium cursor-pointer hover:text-gray-900 select-none" onClick={() => handleSort("margin")} title="마진 = 공급사판매가 − 공급가 − 공급배송비. 자사몰별 실마진은 펼쳐 확인.">마진<SortIcon field="margin" /></th>
                     <th className="text-right px-3 py-3 font-medium">재고</th>
-                    <th className="text-center px-3 py-3 font-medium">판매</th>
-                    <th className="text-center px-3 py-3 font-medium">진열</th>
-                    <th className="text-center px-3 py-3 font-medium">승인</th>
-                    <th className="text-center px-3 py-3 font-medium">카페24 매핑</th>
+                    <th className="text-center px-3 py-3 font-medium">판매상태</th>
+                    <th className="text-center px-3 py-3 font-medium">진열상태</th>
+                    <th className="text-center px-3 py-3 font-medium">승인여부</th>
+                    <th className="text-center px-3 py-3 font-medium">매칭위치</th>
                     <th className="text-center px-4 py-3 font-medium w-16">관리</th>
                   </tr>
                   {/* 헤더 인라인 컬럼 필터 (Enter로 서버 전체 검색) */}
                   <tr className="border-b border-gray-100 bg-gray-50/50">
-                    <th className="px-4 py-1.5"></th>
+                    <th className="px-3 py-1.5"></th>
+                    <th className="px-2 py-1.5"></th>
                     <th className="px-3 py-1.5"></th>
                     <th className="px-3 py-1.5">
                       <input
@@ -1042,6 +1040,7 @@ export default function ProductsPage() {
                         className="w-full min-w-0 px-1.5 py-1 text-xs font-normal border border-gray-200 rounded focus:outline-none focus:ring-1 focus:ring-[#C41E1E]/30"
                       />
                     </th>
+                    <th className="px-3 py-1.5"></th>
                     <th className="px-3 py-1.5">
                       <input
                         value={colSupplier}
@@ -1051,14 +1050,14 @@ export default function ProductsPage() {
                         className="w-full min-w-0 px-1.5 py-1 text-xs font-normal border border-gray-200 rounded focus:outline-none focus:ring-1 focus:ring-[#C41E1E]/30"
                       />
                     </th>
-                    <th className="px-3 py-1.5" colSpan={11}></th>
+                    <th className="px-3 py-1.5" colSpan={14}></th>
                   </tr>
                 </thead>
                 <tbody>
                   {loading && products.length === 0 ? (
-                    <tr><td colSpan={16} className="px-6 py-16 text-center text-sm text-gray-400">상품 로딩 중...</td></tr>
+                    <tr><td colSpan={21} className="px-6 py-16 text-center text-sm text-gray-400">상품 로딩 중...</td></tr>
                   ) : sortedProducts.length === 0 ? (
-                    <tr><td colSpan={16} className="px-6 py-16 text-center text-sm text-gray-400">
+                    <tr><td colSpan={21} className="px-6 py-16 text-center text-sm text-gray-400">
                       등록된 상품이 없습니다. &quot;상품 등록&quot; 버튼으로 첫 상품을 추가하세요.
                     </td></tr>
                   ) : sortedProducts.map((p) => {
@@ -1080,8 +1079,15 @@ export default function ProductsPage() {
                     return (
                       <Fragment key={p.id}>
                       <tr className={`border-b border-gray-50 last:border-0 hover:bg-gray-50/50 transition-colors ${isSelected ? "bg-[#FFF0F5]/40" : warehouse ? "bg-amber-50/40" : ""}`}>
-                        <td className="px-4 py-2.5">
+                        <td className="px-3 py-2.5">
                           <input type="checkbox" checked={isSelected} onChange={() => toggleSelect(p.id)} className="rounded border-gray-300 cursor-pointer" />
+                        </td>
+                        <td className="px-2 py-2.5 text-center">
+                          {(() => {
+                            const tone = (missingSupplier || missingSupply) ? "bg-red-500" : (mappings.length === 0 || p.total_stock <= 0) ? "bg-amber-400" : "bg-green-500";
+                            const label = (missingSupplier || missingSupply) ? "결손 — 공급사/공급가 확인 필요" : mappings.length === 0 ? "미매핑 — 카페24/판매사몰 연결 없음" : p.total_stock <= 0 ? "품절" : "정상";
+                            return <span className={`inline-block w-2.5 h-2.5 rounded-full ${tone}`} title={label} />;
+                          })()}
                         </td>
                         <td className="px-3 py-2.5">
                           {p.image_url ? (
@@ -1118,6 +1124,18 @@ export default function ProductsPage() {
                           {p.category && <p className="text-[10px] text-gray-400 mt-0.5">{p.category}</p>}
                         </td>
                         <td className="px-3 py-2.5">
+                          {(() => {
+                            const vs = p.product_variants || [];
+                            const names = vs.map((v) => v.option_text || v.option_value || v.option_name).filter(Boolean) as string[];
+                            if (names.length === 0) return <span className="text-[11px] text-gray-300">단일</span>;
+                            return (
+                              <span className="text-[11px] text-gray-600 line-clamp-2 max-w-[120px] inline-block align-middle" title={names.join(", ")}>
+                                {names[0]}{names.length > 1 ? ` 외 ${names.length - 1}` : ""}
+                              </span>
+                            );
+                          })()}
+                        </td>
+                        <td className="px-3 py-2.5">
                           <div className="flex items-center gap-1">
                             <InlineText
                               value={p.supplier || ""}
@@ -1142,6 +1160,38 @@ export default function ProductsPage() {
                             ))}
                           </select>
                         </td>
+                        {/* 판매사 판매가 (자사몰 실판매가 — 몰별, 펼쳐 확인) */}
+                        <td className="px-3 py-2.5 text-right">
+                          {sellerMaps.length === 0 ? (
+                            <span className="text-xs text-gray-300">-</span>
+                          ) : sellerMaps.length === 1 ? (
+                            <span className="text-sm text-gray-700">{formatPrice(sellerMaps[0].seller_price ?? 0)}</span>
+                          ) : (() => {
+                            const ps = sellerMaps.map((m) => m.seller_price ?? 0);
+                            const mn = Math.min(...ps), mx = Math.max(...ps);
+                            return (
+                              <span className="text-xs text-gray-600" title={sellerMaps.map((m) => `${getStoreName(m.store_id)} ${formatPrice(m.seller_price ?? 0)}`).join("\n")}>
+                                {mn === mx ? formatPrice(mn) : `${formatPrice(mn)}~`}
+                                <span className="text-[9px] text-gray-400 ml-0.5">{sellerMaps.length}몰</span>
+                              </span>
+                            );
+                          })()}
+                        </td>
+                        {/* 판매사 배송비 (자사몰 배송비 — 몰별) */}
+                        <td className="px-3 py-2.5 text-right">
+                          {sellerMaps.length === 0 ? (
+                            <span className="text-xs text-gray-300">-</span>
+                          ) : sellerMaps.length === 1 ? (
+                            <span className="text-sm text-gray-500">{sellerMaps[0].seller_shipping_fee == null ? "미확인" : sellerMaps[0].seller_shipping_fee > 0 ? formatPrice(sellerMaps[0].seller_shipping_fee) : "무료"}</span>
+                          ) : (
+                            <span className="text-[10px] text-gray-400">몰별</span>
+                          )}
+                        </td>
+                        {/* 판매사 공급가 (튜핑이 판매사에 넘기는 단가 = 종합몰가) */}
+                        <td className="px-3 py-2.5 text-right">
+                          <span className="text-sm text-gray-700" title="튜핑이 판매사에 공급하는 단가 (=종합몰 판매가)">{formatPrice(p.price)}</span>
+                        </td>
+                        {/* 공급사 판매가 (= 종합몰 판매가, 인라인 수정) */}
                         <td className="px-3 py-2.5 text-right">
                           <InlineNumber
                             value={p.price}
@@ -1149,6 +1199,15 @@ export default function ProductsPage() {
                             className="text-gray-900 font-medium"
                           />
                         </td>
+                        {/* 공급사 배송비 */}
+                        <td className="px-3 py-2.5 text-right">
+                          <InlineNumber
+                            value={supShip}
+                            onSave={(v) => updateProductField(p.id, { supply_shipping_fee: v })}
+                            className="text-gray-500"
+                          />
+                        </td>
+                        {/* 공급사 공급가 (원가) */}
                         <td className="px-3 py-2.5 text-right">
                           <div className="flex items-center justify-end gap-1">
                             <InlineNumber
@@ -1160,13 +1219,6 @@ export default function ProductsPage() {
                               <span title="공급가 미입력 → 양 정산 원가 0 (이익 부풀려짐·과소지급)" className="text-[9px] font-medium text-red-600 bg-red-50 px-1 py-0.5 rounded whitespace-nowrap">⚠</span>
                             )}
                           </div>
-                        </td>
-                        <td className="px-3 py-2.5 text-right">
-                          <InlineNumber
-                            value={supShip}
-                            onSave={(v) => updateProductField(p.id, { supply_shipping_fee: v })}
-                            className="text-gray-500"
-                          />
                         </td>
                         <td className="px-3 py-2.5 text-right">
                           {missingSupply ? (
@@ -1233,18 +1285,28 @@ export default function ProductsPage() {
                         const mPct = revenue > 0 ? (mAmt / revenue) * 100 : 0;
                         return (
                           <tr key={m.id} className="bg-gray-50/70 border-b border-gray-100 text-xs">
-                            <td colSpan={6} className="px-3 py-1.5">
+                            <td colSpan={8} className="px-3 py-1.5">
                               <div className="flex items-center gap-1.5 pl-7 text-gray-600">
                                 <span className="text-gray-400">↳</span>
                                 <span className="font-medium text-gray-800">{getStoreName(m.store_id)}</span>
                                 {m.seller_product_code && <span className="text-[9px] font-mono text-gray-400">{m.seller_product_code}</span>}
                               </div>
                             </td>
+                            {/* 판매사 판매가 */}
                             <td className="px-3 py-1.5 text-right font-medium text-gray-900">{formatPrice(sp)}</td>
-                            <td className="px-3 py-1.5 text-right text-gray-400">{formatPrice(p.supply_price)}</td>
-                            <td className="px-3 py-1.5 text-right text-gray-400">
+                            {/* 판매사 배송비 */}
+                            <td className="px-3 py-1.5 text-right text-gray-500">
                               {ship == null ? <span className="text-gray-300">미확인</span> : ship > 0 ? formatPrice(ship) : "무료"}
                             </td>
+                            {/* 판매사 공급가 */}
+                            <td className="px-3 py-1.5 text-right text-gray-400">{formatPrice(p.price)}</td>
+                            {/* 공급사 판매가 */}
+                            <td className="px-3 py-1.5 text-right text-gray-400">{formatPrice(p.price)}</td>
+                            {/* 공급사 배송비 */}
+                            <td className="px-3 py-1.5 text-right text-gray-400">{supShip > 0 ? formatPrice(supShip) : "무료"}</td>
+                            {/* 공급사 공급가 */}
+                            <td className="px-3 py-1.5 text-right text-gray-400">{formatPrice(p.supply_price)}</td>
+                            {/* 마진 (자사몰 실마진) */}
                             <td className="px-3 py-1.5 text-right">
                               {missingSupply ? (
                                 <span className="text-gray-300">-</span>
