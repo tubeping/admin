@@ -19,7 +19,7 @@ export async function POST(request: NextRequest) {
   // 미응답 발주서 조회 — 발주이메일 우선, 없으면 대표이메일
   let query = sb
     .from("purchase_orders")
-    .select("*, suppliers:supplier_id(name, email, order_email)")
+    .select("*, suppliers:supplier_id(name, email, order_email, po_config)")
     .in("status", ["sent", "viewed"]);
 
   if (poId) {
@@ -42,6 +42,12 @@ export async function POST(request: NextRequest) {
   for (const po of pos) {
     const supplierEmail = po.suppliers?.order_email || po.suppliers?.email;
     const supplierName = po.suppliers?.name || "";
+
+    // 카카오톡(엑셀) 발주 공급사는 이메일 리마인더 대상에서 제외 (엑셀 발주 완료로 sent 처리된 건 포함)
+    const cfg = (po.suppliers?.po_config || null) as { delivery?: string; format?: string } | null;
+    if (cfg?.delivery === "kakao" || cfg?.format === "xlsx") {
+      continue;
+    }
 
     if (!supplierEmail || supplierEmail.includes("@tubeping.supplier") || supplierEmail.includes("@cafe24.supplier")) {
       results.push({

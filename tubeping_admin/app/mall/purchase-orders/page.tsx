@@ -154,6 +154,32 @@ export default function PurchaseOrdersPage() {
     }
   };
 
+  // 카톡(엑셀) 발주 완료 처리 — 이메일 없이 발주완료(sent)로 표시
+  const handleMarkSent = async (po: PurchaseOrder) => {
+    if (!confirm(`${po.po_number} (${po.suppliers?.name})\n\n엑셀을 카카오톡으로 전달 완료하셨나요?\n'발주 완료'로 표시되고, 송장 등록 시 '송장등록완료'로 넘어갑니다.`)) return;
+    const res = await fetch("/admin/api/purchase-orders", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: po.id, action: "mark_sent" }),
+    });
+    const data = await res.json();
+    if (data.success) fetchPOs();
+    else alert(`처리 실패: ${data.error}`);
+  };
+
+  // 카톡 발주 완료 취소 (오조작 복구) — 작성중으로 되돌림
+  const handleUnmarkSent = async (po: PurchaseOrder) => {
+    if (!confirm(`${po.po_number} 발주 완료를 취소하고 '작성중'으로 되돌립니다. 계속할까요?`)) return;
+    const res = await fetch("/admin/api/purchase-orders", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: po.id, action: "unmark_sent" }),
+    });
+    const data = await res.json();
+    if (data.success) fetchPOs();
+    else alert(`처리 실패: ${data.error}`);
+  };
+
   // 이메일 발송
   const handleSendEmail = async (po: PurchaseOrder) => {
     const res = await fetch("/admin/api/purchase-orders/send-email", {
@@ -461,7 +487,7 @@ export default function PurchaseOrdersPage() {
                         STATUS_STYLE[po.status] || STATUS_STYLE.draft
                       }`}
                     >
-                      {STATUS_LABEL[po.status] || po.status}
+                      {po.is_kakao && po.status === "sent" ? "엑셀 발주 완료" : (STATUS_LABEL[po.status] || po.status)}
                     </span>
                   </td>
                   <td className="px-3 py-3.5 text-xs text-gray-500 text-center">
@@ -509,7 +535,13 @@ export default function PurchaseOrdersPage() {
                   <td className="px-2 py-3.5 text-center">
                     <div className="flex flex-wrap items-center justify-center gap-x-2 gap-y-1">
                       {po.is_kakao && po.status === "draft" && (
-                        <span className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-yellow-50 text-yellow-700 whitespace-nowrap" title="이메일 대신 엑셀을 받아 카카오톡으로 전달하세요">💬 카톡 발주</span>
+                        <>
+                          <span className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-yellow-50 text-yellow-700 whitespace-nowrap" title="이메일 대신 엑셀을 받아 카카오톡으로 전달하세요">💬 카톡 발주</span>
+                          <button onClick={() => handleMarkSent(po)} className="text-xs font-medium text-[#1a5c3a] hover:underline cursor-pointer whitespace-nowrap" title="엑셀을 카카오톡으로 전달했으면 클릭 — 발주완료로 표시">엑셀 발주 완료</button>
+                        </>
+                      )}
+                      {po.is_kakao && po.status === "sent" && (
+                        <button onClick={() => handleUnmarkSent(po)} className="text-xs text-gray-400 hover:text-gray-600 hover:underline cursor-pointer whitespace-nowrap" title="발주 완료 취소">완료취소</button>
                       )}
                       {!po.is_kakao && po.status === "draft" && (
                         <button onClick={() => handleSendEmail(po)} className="text-xs text-[#C41E1E] hover:underline cursor-pointer whitespace-nowrap">메일 발송</button>

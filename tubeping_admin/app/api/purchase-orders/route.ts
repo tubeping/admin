@@ -178,19 +178,37 @@ export async function POST(request: NextRequest) {
 }
 
 /**
- * PATCH /api/purchase-orders — 발주서 만료 연장
- * body: { id: string, days?: number }
- * 기본 7일 연장 (현재 시점 기준)
+ * PATCH /api/purchase-orders
+ *  - body: { id, action: "mark_sent" }   → 카톡(엑셀) 발주 완료 처리 (status=sent, sent_at=now)
+ *  - body: { id, action: "unmark_sent" } → 발주 완료 취소 (status=draft, sent_at=null)
+ *  - body: { id, days?: number }          → 발주서 접속 만료 연장 (기본 7일)
  */
 export async function PATCH(request: NextRequest) {
   const body = await request.json();
-  const { id, days = 7 } = body;
+  const { id, days = 7, action } = body;
 
   if (!id) {
     return NextResponse.json({ error: "id 필수" }, { status: 400 });
   }
 
   const sb = getServiceClient();
+
+  // 카톡(엑셀) 발주 완료/취소 처리 — 이메일 발송 없이 발주완료 상태로 표시
+  if (action === "mark_sent" || action === "unmark_sent") {
+    const isSent = action === "mark_sent";
+    const { error: mErr } = await sb
+      .from("purchase_orders")
+      .update({
+        status: isSent ? "sent" : "draft",
+        sent_at: isSent ? new Date().toISOString() : null,
+      })
+      .eq("id", id);
+    if (mErr) {
+      return NextResponse.json({ error: mErr.message }, { status: 500 });
+    }
+    return NextResponse.json({ success: true });
+  }
+
   const newExpiry = new Date(Date.now() + days * 24 * 60 * 60 * 1000).toISOString();
 
   const { data, error } = await sb

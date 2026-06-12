@@ -40,7 +40,7 @@ interface Order {
   sales_channel: string | null;
   memo: string | null;
   stores: { name: string; mall_id: string } | null;
-  suppliers: { name: string; email: string } | null;
+  suppliers: { name: string; email: string; po_config?: { delivery?: string; format?: string } | null } | null;
   warehouse_name: string | null;
   purchase_orders: { id: string; po_number: string; status: string; sent_at: string | null; viewed_at: string | null; completed_at: string | null } | null;
   address_verify_status: "valid" | "invalid" | "unknown" | null;
@@ -310,7 +310,9 @@ function derivePOStatus(o: Order): { type: string; typeStyle: string; status: st
       status = "발주서 이메일 열람";
       statusStyle = "text-indigo-600";
     } else if (po.sent_at || po.status === "sent") {
-      status = "발주서 이메일 발송";
+      const cfg = o.suppliers?.po_config;
+      const isKakao = cfg?.delivery === "kakao" || cfg?.format === "xlsx";
+      status = isKakao ? "엑셀 발주 완료" : "발주서 이메일 발송";
       statusStyle = "text-blue-600";
     } else {
       status = "미발주";
