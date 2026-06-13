@@ -611,13 +611,6 @@ export default function ProductsPage() {
   const activeStores = useMemo(() => stores.filter((s) => s.status === "active" || s.status === "connected"), [stores]);
   const getStoreName = useCallback((storeId: string) => stores.find((s) => s.id === storeId)?.name || storeId, [stores]);
 
-  // 전체 통계는 서버에서 로드한 summaryStats 사용
-  const { totalMappings, unmappedCount, sellingCount } = useMemo(() => ({
-    totalMappings: summaryStats.totalMappings,
-    unmappedCount: summaryStats.unmapped,
-    sellingCount: summaryStats.selling,
-  }), [summaryStats]);
-
   // 카테고리는 서버에서 전체 목록을 가져옴
   const categories = summaryStats.categories;
 
@@ -681,22 +674,6 @@ export default function ProductsPage() {
         </div>
       )}
 
-      {/* Stats — 전체 기준 (서버 통계) */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4 mb-6">
-        {[
-          { label: "전체 상품", value: summaryStats.total, color: "text-gray-900" },
-          { label: "판매중", value: sellingCount, color: "text-green-600" },
-          { label: "미판매", value: summaryStats.total - sellingCount, color: summaryStats.total - sellingCount > 0 ? "text-orange-500" : "text-gray-400" },
-          { label: "카페24 매핑", value: totalMappings, color: "text-[#C41E1E]" },
-          { label: "미매핑", value: unmappedCount, color: unmappedCount > 0 ? "text-yellow-600" : "text-gray-400" },
-        ].map((s) => (
-          <div key={s.label} className="bg-white rounded-xl border border-gray-200 p-4 hover:shadow-sm transition-shadow">
-            <p className="text-xs text-gray-500">{s.label}</p>
-            <p className={`text-2xl font-bold ${s.color} mt-1`}>{s.value}</p>
-          </div>
-        ))}
-      </div>
-
       {/* Tabs + View Toggle */}
       <div className="flex items-center justify-between mb-6 border-b border-gray-200">
         <div className="flex gap-1">
@@ -756,66 +733,6 @@ export default function ProductsPage() {
                 ))}
               </select>
             )}
-            {summaryStats.suppliers.length > 0 && (
-              <select
-                value={supplierFilter}
-                onChange={(e) => { setPage(0); setSupplierFilter(e.target.value); }}
-                className="px-3 py-2.5 text-sm border border-gray-200 rounded-lg text-gray-600 focus:outline-none cursor-pointer"
-              >
-                <option value="">전체 공급사</option>
-                {summaryStats.suppliers.map((s) => (
-                  <option key={s} value={s}>{s}</option>
-                ))}
-              </select>
-            )}
-            <select
-              value={sellingFilter}
-              onChange={(e) => { setPage(0); setSellingFilter(e.target.value as SellingFilter); }}
-              className="px-3 py-2.5 text-sm border border-gray-200 rounded-lg text-gray-600 focus:outline-none cursor-pointer"
-            >
-              <option value="all">전체 판매</option>
-              <option value="selling">판매중</option>
-              <option value="not_selling">미판매</option>
-            </select>
-            <select
-              value={displayFilter}
-              onChange={(e) => { setPage(0); setDisplayFilter(e.target.value as DisplayFilter); }}
-              className="px-3 py-2.5 text-sm border border-gray-200 rounded-lg text-gray-600 focus:outline-none cursor-pointer"
-            >
-              <option value="all">전체 진열</option>
-              <option value="displayed">진열함</option>
-              <option value="hidden">진열안함</option>
-            </select>
-            <select
-              value={approvalFilter}
-              onChange={(e) => { setPage(0); setApprovalFilter(e.target.value as ApprovalFilter); }}
-              className="px-3 py-2.5 text-sm border border-gray-200 rounded-lg text-gray-600 focus:outline-none cursor-pointer"
-            >
-              <option value="all">전체 승인</option>
-              <option value="pending">승인대기</option>
-              <option value="requested">승인요청</option>
-              <option value="re_requested">재승인요청</option>
-              <option value="approved">승인완료</option>
-              <option value="rejected">반려</option>
-            </select>
-            <select
-              value={fulfillmentFilter}
-              onChange={(e) => { setPage(0); setFulfillmentFilter(e.target.value as FulfillmentFilter); }}
-              className="px-3 py-2.5 text-sm border border-gray-200 rounded-lg text-gray-600 focus:outline-none cursor-pointer"
-            >
-              <option value="all">전체 출고지</option>
-              <option value="direct">자체배송</option>
-              <option value="warehouse">창고발주</option>
-            </select>
-            <select
-              value={stockFilter}
-              onChange={(e) => { setPage(0); setStockFilter(e.target.value as StockFilter); }}
-              className="px-3 py-2.5 text-sm border border-gray-200 rounded-lg text-gray-600 focus:outline-none cursor-pointer"
-            >
-              <option value="all">전체 재고</option>
-              <option value="in">재고있음</option>
-              <option value="out">품절</option>
-            </select>
             <button onClick={handleSearch} className="px-4 py-2.5 bg-[#C41E1E] text-white text-sm font-medium rounded-lg hover:bg-[#A01818] cursor-pointer">검색</button>
             {(catFilter || supplierFilter || sellingFilter !== "all" || displayFilter !== "all" || approvalFilter !== "all" || fulfillmentFilter !== "all" || stockFilter !== "all" || keyword || colTp || colName || colSupplier) && (
               <button
@@ -990,34 +907,37 @@ export default function ProductsPage() {
               <table className="w-full">
                 <thead>
                   <tr className="text-xs text-gray-500 border-b border-gray-100">
-                    <th className="text-left px-3 py-3 font-medium w-10">
+                    <th className="sticky top-0 z-20 bg-white text-left px-3 py-3 font-medium w-10">
                       <input type="checkbox" checked={selectedProducts.size > 0 && selectedProducts.size === sortedProducts.length} onChange={selectAll} className="rounded border-gray-300 cursor-pointer" />
                     </th>
-                    <th className="text-left px-3 py-3 font-medium w-14">이미지</th>
-                    <th className="text-left px-3 py-3 font-medium w-24">TP코드</th>
-                    <th className="text-left px-3 py-3 font-medium">상품명</th>
-                    <th className="text-left px-3 py-3 font-medium w-28">옵션명</th>
-                    <th className="text-left px-3 py-3 font-medium w-24">공급사</th>
-                    <th className="text-left px-3 py-3 font-medium w-28">출고지</th>
-                    <th className="text-right px-3 py-3 font-semibold leading-tight bg-blue-100/70 text-blue-800 border-l-2 border-blue-300" title="판매사 자사몰 실제 판매가 (몰별 — 행을 펼쳐 확인)">판매사<br />판매가</th>
-                    <th className="text-right px-3 py-3 font-semibold leading-tight bg-blue-100/70 text-blue-800" title="판매사 자사몰 배송비 (고객 부과, 몰별)">판매사<br />배송비</th>
-                    <th className="text-right px-3 py-3 font-semibold leading-tight bg-blue-100/70 text-blue-800 border-r-2 border-blue-300" title="튜핑이 판매사에 공급하는 단가 (=종합몰가)">판매사<br />공급가</th>
-                    <th className="text-right px-3 py-3 font-semibold leading-tight bg-amber-100/70 text-amber-800 border-l-2 border-amber-300" title="공급사/종합몰 판매가">공급사<br />판매가</th>
-                    <th className="text-right px-3 py-3 font-semibold leading-tight bg-amber-100/70 text-amber-800" title="공급사가 튜핑에 청구하는 배송비">공급사<br />배송비</th>
-                    <th className="text-right px-3 py-3 font-semibold leading-tight bg-amber-100/70 text-amber-800 border-r-2 border-amber-300" title="공급사가 튜핑에 청구하는 공급가(원가)">공급사<br />공급가</th>
-                    <th className="text-right px-3 py-3 font-medium" title="마진 = 공급사판매가 − 공급가 − 공급배송비. 자사몰별 실마진은 펼쳐 확인.">마진</th>
-                    <th className="text-right px-3 py-3 font-medium">재고</th>
-                    <th className="text-center px-3 py-3 font-medium">판매상태</th>
-                    <th className="text-center px-3 py-3 font-medium">진열상태</th>
-                    <th className="text-center px-3 py-3 font-medium">승인여부</th>
-                    <th className="text-center px-3 py-3 font-medium">매칭위치</th>
-                    <th className="text-center px-4 py-3 font-medium w-16">관리</th>
+                    <th className="sticky top-0 z-20 bg-white text-left px-3 py-3 font-medium w-14">이미지</th>
+                    <th className="sticky top-0 z-20 bg-white text-left px-3 py-3 font-medium w-24">TP코드</th>
+                    <th className="sticky top-0 z-20 bg-white text-left px-3 py-3 font-medium">상품명</th>
+                    <th className="sticky top-0 z-20 bg-white text-left px-3 py-3 font-medium w-28">옵션명</th>
+                    <th className="sticky top-0 z-20 bg-white text-left px-3 py-3 font-medium w-24">공급사</th>
+                    <th className="sticky top-0 z-20 bg-white text-left px-3 py-3 font-medium w-28">출고지</th>
+                    <th className="text-right px-3 py-3 font-semibold leading-tight bg-blue-100 sticky top-0 z-20 text-blue-800 border-l-2 border-blue-300" title="판매사 자사몰 실제 판매가 (몰별 — 행을 펼쳐 확인)">판매사<br />판매가</th>
+                    <th className="text-right px-3 py-3 font-semibold leading-tight bg-blue-100 sticky top-0 z-20 text-blue-800" title="판매사 자사몰 배송비 (고객 부과, 몰별)">판매사<br />배송비</th>
+                    <th className="text-right px-3 py-3 font-semibold leading-tight bg-blue-100 sticky top-0 z-20 text-blue-800 border-r-2 border-blue-300" title="튜핑이 판매사에 공급하는 단가 (=종합몰가)">판매사<br />공급가</th>
+                    <th className="text-right px-3 py-3 font-semibold leading-tight bg-amber-100 sticky top-0 z-20 text-amber-800 border-l-2 border-amber-300" title="공급사/종합몰 판매가">공급사<br />판매가</th>
+                    <th className="text-right px-3 py-3 font-semibold leading-tight bg-amber-100 sticky top-0 z-20 text-amber-800" title="공급사가 튜핑에 청구하는 배송비">공급사<br />배송비</th>
+                    <th className="text-right px-3 py-3 font-semibold leading-tight bg-amber-100 sticky top-0 z-20 text-amber-800 border-r-2 border-amber-300" title="공급사가 튜핑에 청구하는 공급가(원가)">공급사<br />공급가</th>
+                    <th className="sticky top-0 z-20 bg-white text-right px-3 py-3 font-medium" title="마진 = 공급사판매가 − 공급가 − 공급배송비. 자사몰별 실마진은 펼쳐 확인.">마진</th>
+                    <th className="sticky top-0 z-20 bg-white text-right px-3 py-3 font-medium">재고</th>
+                    <th className="sticky top-0 z-20 bg-white text-center px-3 py-3 font-medium">판매상태</th>
+                    <th className="sticky top-0 z-20 bg-white text-center px-3 py-3 font-medium">진열상태</th>
+                    <th className="sticky top-0 z-20 bg-white text-center px-3 py-3 font-medium">승인여부</th>
+                    <th className="sticky top-0 z-20 bg-white text-center px-3 py-3 font-medium">매칭위치</th>
+                    <th className="sticky top-0 z-20 bg-white text-center px-4 py-3 font-medium w-16">관리</th>
                   </tr>
-                  {/* 헤더 인라인 컬럼 필터 (Enter로 서버 전체 검색) */}
+                  {/* 헤더 인라인 컬럼 필터 — 텍스트칸은 Enter로 검색, 드롭다운은 선택 즉시 적용 */}
                   <tr className="border-b border-gray-100 bg-gray-50/50">
-                    <th className="px-3 py-1.5"></th>
-                    <th className="px-3 py-1.5"></th>
-                    <th className="px-3 py-1.5">
+                    {/* checkbox */}
+                    <th className="px-3 py-1.5 sticky top-[42px] z-10 bg-gray-50"></th>
+                    {/* 이미지 */}
+                    <th className="px-3 py-1.5 sticky top-[42px] z-10 bg-gray-50"></th>
+                    {/* TP코드 */}
+                    <th className="px-3 py-1.5 sticky top-[42px] z-10 bg-gray-50">
                       <input
                         value={colTp}
                         onChange={(e) => setColTp(e.target.value)}
@@ -1026,7 +946,8 @@ export default function ProductsPage() {
                         className="w-full min-w-0 px-1.5 py-1 text-xs font-normal border border-gray-200 rounded focus:outline-none focus:ring-1 focus:ring-[#C41E1E]/30"
                       />
                     </th>
-                    <th className="px-3 py-1.5">
+                    {/* 상품명 */}
+                    <th className="px-3 py-1.5 sticky top-[42px] z-10 bg-gray-50">
                       <input
                         value={colName}
                         onChange={(e) => setColName(e.target.value)}
@@ -1035,17 +956,109 @@ export default function ProductsPage() {
                         className="w-full min-w-0 px-1.5 py-1 text-xs font-normal border border-gray-200 rounded focus:outline-none focus:ring-1 focus:ring-[#C41E1E]/30"
                       />
                     </th>
-                    <th className="px-3 py-1.5"></th>
-                    <th className="px-3 py-1.5">
-                      <input
-                        value={colSupplier}
-                        onChange={(e) => setColSupplier(e.target.value)}
-                        onKeyDown={(e) => { if (e.key === "Enter") handleSearch(); }}
-                        placeholder="공급사"
-                        className="w-full min-w-0 px-1.5 py-1 text-xs font-normal border border-gray-200 rounded focus:outline-none focus:ring-1 focus:ring-[#C41E1E]/30"
-                      />
+                    {/* 옵션명 */}
+                    <th className="px-3 py-1.5 sticky top-[42px] z-10 bg-gray-50"></th>
+                    {/* 공급사 — 드롭다운 + 자유검색 */}
+                    <th className="px-3 py-1.5 sticky top-[42px] z-10 bg-gray-50">
+                      <div className="flex flex-col gap-1">
+                        {summaryStats.suppliers.length > 0 && (
+                          <select
+                            value={supplierFilter}
+                            onChange={(e) => { setPage(0); setSupplierFilter(e.target.value); }}
+                            className="w-full min-w-0 px-1 py-1 text-xs font-normal border border-gray-200 rounded text-gray-600 focus:outline-none focus:ring-1 focus:ring-[#C41E1E]/30 cursor-pointer"
+                          >
+                            <option value="">전체 공급사</option>
+                            {summaryStats.suppliers.map((s) => (
+                              <option key={s} value={s}>{s}</option>
+                            ))}
+                          </select>
+                        )}
+                        <input
+                          value={colSupplier}
+                          onChange={(e) => setColSupplier(e.target.value)}
+                          onKeyDown={(e) => { if (e.key === "Enter") handleSearch(); }}
+                          placeholder="공급사 검색"
+                          className="w-full min-w-0 px-1.5 py-1 text-xs font-normal border border-gray-200 rounded focus:outline-none focus:ring-1 focus:ring-[#C41E1E]/30"
+                        />
+                      </div>
                     </th>
-                    <th className="px-3 py-1.5" colSpan={14}></th>
+                    {/* 출고지 */}
+                    <th className="px-3 py-1.5 sticky top-[42px] z-10 bg-gray-50">
+                      <select
+                        value={fulfillmentFilter}
+                        onChange={(e) => { setPage(0); setFulfillmentFilter(e.target.value as FulfillmentFilter); }}
+                        className="w-full min-w-0 px-1 py-1 text-xs font-normal border border-gray-200 rounded text-gray-600 focus:outline-none focus:ring-1 focus:ring-[#C41E1E]/30 cursor-pointer"
+                      >
+                        <option value="all">전체</option>
+                        <option value="direct">자체배송</option>
+                        <option value="warehouse">창고발주</option>
+                      </select>
+                    </th>
+                    {/* 판매사 판매가 / 배송비 / 공급가 */}
+                    <th className="px-3 py-1.5 sticky top-[42px] z-10 bg-gray-50"></th>
+                    <th className="px-3 py-1.5 sticky top-[42px] z-10 bg-gray-50"></th>
+                    <th className="px-3 py-1.5 sticky top-[42px] z-10 bg-gray-50"></th>
+                    {/* 공급사 판매가 / 배송비 / 공급가 */}
+                    <th className="px-3 py-1.5 sticky top-[42px] z-10 bg-gray-50"></th>
+                    <th className="px-3 py-1.5 sticky top-[42px] z-10 bg-gray-50"></th>
+                    <th className="px-3 py-1.5 sticky top-[42px] z-10 bg-gray-50"></th>
+                    {/* 마진 */}
+                    <th className="px-3 py-1.5 sticky top-[42px] z-10 bg-gray-50"></th>
+                    {/* 재고 */}
+                    <th className="px-3 py-1.5 sticky top-[42px] z-10 bg-gray-50">
+                      <select
+                        value={stockFilter}
+                        onChange={(e) => { setPage(0); setStockFilter(e.target.value as StockFilter); }}
+                        className="w-full min-w-0 px-1 py-1 text-xs font-normal border border-gray-200 rounded text-gray-600 focus:outline-none focus:ring-1 focus:ring-[#C41E1E]/30 cursor-pointer"
+                      >
+                        <option value="all">전체</option>
+                        <option value="in">재고있음</option>
+                        <option value="out">품절</option>
+                      </select>
+                    </th>
+                    {/* 판매상태 */}
+                    <th className="px-3 py-1.5 sticky top-[42px] z-10 bg-gray-50">
+                      <select
+                        value={sellingFilter}
+                        onChange={(e) => { setPage(0); setSellingFilter(e.target.value as SellingFilter); }}
+                        className="w-full min-w-0 px-1 py-1 text-xs font-normal border border-gray-200 rounded text-gray-600 focus:outline-none focus:ring-1 focus:ring-[#C41E1E]/30 cursor-pointer"
+                      >
+                        <option value="all">전체</option>
+                        <option value="selling">판매중</option>
+                        <option value="not_selling">미판매</option>
+                      </select>
+                    </th>
+                    {/* 진열상태 */}
+                    <th className="px-3 py-1.5 sticky top-[42px] z-10 bg-gray-50">
+                      <select
+                        value={displayFilter}
+                        onChange={(e) => { setPage(0); setDisplayFilter(e.target.value as DisplayFilter); }}
+                        className="w-full min-w-0 px-1 py-1 text-xs font-normal border border-gray-200 rounded text-gray-600 focus:outline-none focus:ring-1 focus:ring-[#C41E1E]/30 cursor-pointer"
+                      >
+                        <option value="all">전체</option>
+                        <option value="displayed">진열함</option>
+                        <option value="hidden">진열안함</option>
+                      </select>
+                    </th>
+                    {/* 승인여부 */}
+                    <th className="px-3 py-1.5 sticky top-[42px] z-10 bg-gray-50">
+                      <select
+                        value={approvalFilter}
+                        onChange={(e) => { setPage(0); setApprovalFilter(e.target.value as ApprovalFilter); }}
+                        className="w-full min-w-0 px-1 py-1 text-xs font-normal border border-gray-200 rounded text-gray-600 focus:outline-none focus:ring-1 focus:ring-[#C41E1E]/30 cursor-pointer"
+                      >
+                        <option value="all">전체</option>
+                        <option value="pending">승인대기</option>
+                        <option value="requested">승인요청</option>
+                        <option value="re_requested">재승인요청</option>
+                        <option value="approved">승인완료</option>
+                        <option value="rejected">반려</option>
+                      </select>
+                    </th>
+                    {/* 매칭위치 */}
+                    <th className="px-3 py-1.5 sticky top-[42px] z-10 bg-gray-50"></th>
+                    {/* 관리 */}
+                    <th className="px-3 py-1.5 sticky top-[42px] z-10 bg-gray-50"></th>
                   </tr>
                 </thead>
                 <tbody>
